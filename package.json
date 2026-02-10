@@ -1,0 +1,34 @@
+{
+  "name": "runnai",
+  "version": "1.0.0",
+  "description": "AI running coach with progressive learning",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "bun dist/index.js",
+    "build": "bun run tsc",
+    "dev": "bun src/index.tsx",
+    "reset": "rm -rf data/athlete data/memory data/plans data/research data/.session data/.chat-history.json && echo 'Reset complete. Strava data preserved.'",
+    "reset:all": "rm -rf data/athlete data/memory data/plans data/research data/strava/activities.db data/strava/recent-summary.md data/.session data/.chat-history.json && echo 'Full reset complete. Strava tokens preserved.'"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.37",
+    "chalk": "^4",
+    "dotenv": "^17.2.3",
+    "fuse.js": "^7.1.0",
+    "get-port": "^7.1.0",
+    "ink": "^6.5.1",
+    "ink-text-input": "^6.0.0",
+    "marked": "^17.0.1",
+    "mathjs": "^15.1.0",
+    "open": "^11.0.0",
+    "react": "^19.2.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.5",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "typescript": "^5.9.3"
+  }
+}

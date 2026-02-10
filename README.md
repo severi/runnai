@@ -17,13 +17,13 @@ Built with the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk
 ### Prerequisites
 
 - [Bun](https://bun.sh) v1.x
-- [Claude Code](https://claude.ai/code) installed (for auth)
 - A [Strava API application](https://www.strava.com/settings/api) (set callback domain to `localhost`)
+- Either an [Anthropic API key](https://console.anthropic.com) or [Claude Code](https://claude.ai/code) installed (see Authentication below)
 
 ### Install
 
 ```bash
-git clone https://github.com/yourusername/runnai.git
+git clone https://github.com/severi/runnai.git
 cd runnai
 bun install
 ```
