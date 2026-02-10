@@ -1,0 +1,8 @@
+{
+  "name": "coach",
+  "version": "1.0.0",
+  "description": "AI running coach with progressive learning, periodized training plans, and race prediction.",
+  "author": {
+    "name": "Severi"
+  }
+}
