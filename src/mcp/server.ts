@@ -13,6 +13,7 @@ import {
   saveResearchTool,
   saveRacePredictionTool,
   getPredictionHistoryTool,
+  managePersonalRecordsTool,
   setHrZonesTool,
   getHrZonesTool,
   readMemoryTool,
@@ -44,6 +45,7 @@ export const coachMcpServer = createSdkMcpServer({
     // Analysis
     saveRacePredictionTool,
     getPredictionHistoryTool,
+    managePersonalRecordsTool,
     // HR zones
     setHrZonesTool,
     getHrZonesTool,

@@ -6,6 +6,7 @@ export { bestEffortsTool } from "./best-efforts.js";
 export { planManagerTool, dateCalcTool, calculatorTool } from "./planning.js";
 export { researchTool, saveResearchTool } from "./research.js";
 export { saveRacePredictionTool, getPredictionHistoryTool } from "./analysis.js";
+export { managePersonalRecordsTool } from "./personal-records.js";
 
 // HR zones
 export { setHrZonesTool, getHrZonesTool } from "./hr-zones-tool.js";

@@ -49,33 +49,35 @@ async function loadTokens(): Promise<StravaTokens | null> {
 
 export const stravaSyncTool = tool(
   "strava_sync",
-  "Syncs activities from Strava to local SQLite database. Use incremental mode (default) to fetch only new activities since last sync.",
+  "Syncs activities from Strava to local SQLite database. Incremental by default: fetches only activities newer than the last known activity.",
   {
-    days: z.number().optional().describe("Number of days to fetch. Ignored when incremental=true."),
+    days: z.number().optional().describe("Number of days to fetch for full (non-incremental) sync. Default 30."),
     incremental: z.boolean().optional().describe("If true (default), only fetch activities since last sync."),
     backfill_best_efforts: z.number().optional().describe("Fetch detail for N historical activities that haven't been fetched yet. Recommended 20-50 per session."),
   },
   async ({ days = 30, incremental = true, backfill_best_efforts }) => {
     try {
-      let fetchDays = days;
       let existingIds: Set<number> = new Set();
+      let isIncremental = false;
 
+      // Determine the `after` epoch for the Strava API
+      let after: number;
       if (incremental) {
         const latestDate = getLatestActivityDate();
         if (latestDate) {
-          const lastActivity = new Date(latestDate);
-          const now = new Date();
-          const diffMs = now.getTime() - lastActivity.getTime();
-          const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-          fetchDays = Math.max(diffDays + 1, 1);
+          // Use the last activity's timestamp directly — more precise than day math
+          after = Math.floor(new Date(latestDate).getTime() / 1000) - 1;
           existingIds = getExistingActivityIds();
+          isIncremental = true;
         } else {
-          fetchDays = 180;
+          // First sync ever — fetch 180 days of history
+          after = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60;
         }
+      } else {
+        after = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
       }
 
       const accessToken = await getAccessToken();
-      const after = Math.floor(Date.now() / 1000) - fetchDays * 24 * 60 * 60;
       const activities: StravaActivity[] = [];
       let page = 1;
 
@@ -102,6 +104,7 @@ export const stravaSyncTool = tool(
 
       const newActivities = activities.filter((a) => !existingIds.has(a.id));
       const newRuns = newActivities.filter((a) => (a.type === "Run" || a.sport_type === "Run") && !a.trainer);
+      const newNonRuns = newActivities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));
       const allRuns = activities.filter((a) => a.type === "Run" || a.sport_type === "Run");
 
       // Fetch best efforts + laps from Strava detail API for new runs
@@ -137,10 +140,11 @@ export const stravaSyncTool = tool(
         }
       }
 
-      // Backfill historical activities if requested
+      // Auto-backfill historical activities (always runs, bounded to stay within rate limits)
       let backfillCount = 0;
-      if (backfill_best_efforts && backfill_best_efforts > 0) {
-        const toBackfill = getActivitiesWithoutDetail(backfill_best_efforts);
+      const backfillLimit = backfill_best_efforts ?? 100;
+      {
+        const toBackfill = getActivitiesWithoutDetail(backfillLimit);
         for (const activity of toBackfill) {
           try {
             const detail = await fetchActivityDetail(activity.id);
@@ -174,6 +178,8 @@ export const stravaSyncTool = tool(
       }
 
       // Classify runs (only if HR zones are confirmed)
+      // Track classification results for new runs so we can include them in output
+      const classificationMap = new Map<number, { run_type: string; run_type_detail: string | null }>();
       let classifiedCount = 0;
       let zonesNeedConfirmation = false;
       let estimatedZones: { lt1: number; lt2: number; max_hr: number } | null = null;
@@ -183,7 +189,6 @@ export const stravaSyncTool = tool(
         if (!zones.confirmed) {
           zonesNeedConfirmation = true;
           estimatedZones = { lt1: zones.lt1, lt2: zones.lt2, max_hr: zones.max_hr };
-          // Still store laps above, but skip classification
         } else {
           const easyPaceRef = computeEasyPaceRef();
 
@@ -195,6 +200,7 @@ export const stravaSyncTool = tool(
               laps, zones, easyPaceRef
             );
             setRunType(run.id, result.run_type, result.run_type_detail);
+            classificationMap.set(run.id, { run_type: result.run_type, run_type_detail: result.run_type_detail });
             classifiedCount++;
           }
 
@@ -217,24 +223,41 @@ export const stravaSyncTool = tool(
         // Classification is best-effort, don't fail the sync
       }
 
+      // --- Build output text (after classification so we can include run types) ---
       let text: string;
-      if (incremental && existingIds.size > 0) {
+      if (isIncremental) {
         if (newActivities.length === 0) {
-          text = `Already up to date (no new activities).`;
+          text = `INCREMENTAL SYNC — Already up to date. No new activities since last sync.`;
         } else {
           const newRunDistance = Math.round(newRuns.reduce((sum, r) => sum + r.distance, 0) / 100) / 10;
-          text = `Synced ${newActivities.length} new activities (${newRuns.length} runs, ${newRunDistance}km).`;
+          text = `INCREMENTAL SYNC — ${newActivities.length} new activit${newActivities.length === 1 ? "y" : "ies"} found (${newRuns.length} run${newRuns.length !== 1 ? "s" : ""}, ${newRunDistance}km${newNonRuns.length > 0 ? `, ${newNonRuns.length} other` : ""}).`;
           if (newRuns.length > 0) {
-            text += `\n\nNew runs:`;
+            text += `\n\nNew runs since last sync:`;
             for (const run of newRuns) {
               const date = run.start_date_local.split("T")[0];
               const distKm = Math.round(run.distance / 100) / 10;
-              text += `\n- ${date}: "${run.name}" (${distKm}km)`;
+              const paceMinPerKm = run.moving_time / 60 / (run.distance / 1000);
+              const paceMin = Math.floor(paceMinPerKm);
+              const paceSec = Math.round((paceMinPerKm - paceMin) * 60);
+              const cls = classificationMap.get(run.id);
+              const tag = cls ? (cls.run_type_detail ? ` [${cls.run_type}: ${cls.run_type_detail}]` : ` [${cls.run_type}]`) : "";
+              text += `\n- ${date}: "${run.name}" — ${distKm}km @ ${paceMin}:${paceSec.toString().padStart(2, "0")}/km${tag}`;
+            }
+          }
+          if (newNonRuns.length > 0) {
+            text += `\n\nOther new activities:`;
+            for (const act of newNonRuns) {
+              const date = act.start_date_local.split("T")[0];
+              const distKm = act.distance > 0 ? `${Math.round(act.distance / 100) / 10}km` : "";
+              const durationMin = Math.round(act.moving_time / 60);
+              const type = act.sport_type || act.type;
+              text += `\n- ${date}: "${act.name}" (${type}${distKm ? `, ${distKm}` : ""}, ${durationMin}min)`;
             }
           }
         }
       } else {
-        text = `Full sync: ${activities.length} activities (${allRuns.length} runs) from the last ${fetchDays} days.`;
+        const nonRuns = activities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));
+        text = `FULL SYNC — ${activities.length} activities (${allRuns.length} runs, ${nonRuns.length} other) from the last ${days} days.`;
       }
 
       const mostRecentRun = allRuns.sort(
@@ -305,6 +328,40 @@ export const stravaProfileTool = tool(
 
       const syncResult = await syncActivities(days);
 
+      // Backfill activity detail (best efforts, laps) for runs that don't have it yet
+      let backfillCount = 0;
+      const toBackfill = getActivitiesWithoutDetail(100);
+      for (const activity of toBackfill) {
+        try {
+          const detail = await fetchActivityDetail(activity.id);
+          if (detail.bestEfforts.length > 0) {
+            const records = convertStravaBestEfforts(activity.id, detail.bestEfforts);
+            upsertStravaBestEfforts(records);
+          }
+          if (detail.laps.length > 0) {
+            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => ({
+              activity_id: activity.id,
+              lap_index: lap.lap_index,
+              distance: lap.distance,
+              elapsed_time: lap.elapsed_time,
+              moving_time: lap.moving_time,
+              average_speed: lap.average_speed,
+              max_speed: lap.max_speed,
+              average_heartrate: lap.average_heartrate ?? null,
+              max_heartrate: lap.max_heartrate ?? null,
+              start_index: lap.start_index,
+              end_index: lap.end_index,
+            }));
+            upsertActivityLaps(activity.id, lapRecords);
+          }
+          markActivityDetailFetched(activity.id);
+          backfillCount++;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        } catch (error) {
+          if (error instanceof Error && error.message === "RATE_LIMITED") break;
+        }
+      }
+
       let text = `**Strava Data Synced**\n\n`;
       text += `**Athlete**: ${athlete.firstname} ${athlete.lastname}\n`;
 
@@ -316,6 +373,11 @@ export const stravaProfileTool = tool(
       if (syncResult.success && syncResult.activities) {
         const totalKm = Math.round(syncResult.activities.reduce((sum, r) => sum + r.distance, 0) / 100) / 10;
         text += `\n**Data**: ${syncResult.activities.length} runs (${totalKm}km) over ${days} days\n`;
+      }
+
+      if (backfillCount > 0) {
+        const remaining = getActivitiesWithoutDetail(1).length;
+        text += `**Detail**: Fetched best efforts & laps for ${backfillCount} runs${remaining > 0 ? ` (${remaining} remaining)` : ""}.\n`;
       }
 
       if (athlete.shoes && athlete.shoes.length > 0) {

@@ -7,6 +7,21 @@ description: Race time estimation using VDOT, Riegel formula, training-based met
 
 ## Estimation Methods
 
+### 0. Selecting Input Data (Critical)
+
+Before applying any prediction method, you must select the right input data. The `best_efforts` tool provides an `effortContext` field for each effort:
+
+**Data priority for VDOT / Riegel formulas:**
+1. **Official PRs** (from `manage_personal_records`) — chip-timed race results, highest reliability
+2. **Race efforts** (effortContext = "race" or "race_with_warmup") — actual race performances
+3. **Training-based estimation** — derive from threshold pace, long run pace (see methods below)
+
+**DO NOT use for VDOT / Riegel:**
+- **"training_embedded" efforts** (e.g., a half marathon segment from a 31km long run). The athlete was NOT racing — they were at training effort, possibly fatigued from prior km. These systematically overestimate race times (underestimate fitness).
+- **"dedicated_training" efforts** without race intent — these can sanity-check but not drive predictions
+
+**When only training data is available** (no races), skip VDOT/Riegel entirely and use the training-based methods below (threshold pace, long run pace extrapolation).
+
 ### 1. From Recent Race Results (Most Accurate)
 Use equivalence tables to predict other distances from a known race time.
 

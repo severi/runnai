@@ -66,6 +66,19 @@ function extractKeyArg(input: Record<string, unknown>): string {
   return "";
 }
 
+// Extract tool_use_id from a user message containing tool_result blocks
+function extractToolUseId(message: SDKMessage): string | null {
+  const content = (message as any).message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block === "object" && block !== null && block.type === "tool_result" && block.tool_use_id) {
+        return block.tool_use_id;
+      }
+    }
+  }
+  return null;
+}
+
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const min = Math.floor(seconds / 60);
@@ -73,14 +86,37 @@ function formatElapsed(seconds: number): string {
   return `${min}m ${sec.toString().padStart(2, "0")}s`;
 }
 
-function StatusBar({ activity, elapsed }: { activity: string | null; elapsed: number }) {
-  if (!activity && elapsed === 0) return null;
+interface ActiveTool {
+  id: string;        // tool_use_id from SDK
+  index: number;     // sequential counter
+  name: string;
+  keyArg: string;
+  startTime: number;
+}
 
-  const label = activity || `Thinking... (${formatElapsed(elapsed)})`;
+const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function ActiveToolsBar({ tools, elapsed }: { tools: ActiveTool[]; elapsed: number }) {
+  if (tools.length === 0) {
+    if (elapsed === 0) return null;
+    return (
+      <Box>
+        <Text color="gray" dimColor>  Thinking... ({formatElapsed(elapsed)})</Text>
+      </Box>
+    );
+  }
 
   return (
-    <Box>
-      <Text color="gray" dimColor>  {label}</Text>
+    <Box flexDirection="column">
+      {tools.map((tool) => {
+        const toolElapsed = Math.floor((Date.now() - tool.startTime) / 1000);
+        const frame = spinnerFrames[(elapsed + tool.index) % spinnerFrames.length];
+        return (
+          <Box key={tool.id}>
+            <Text color="cyan" dimColor>  {frame} [{tool.index}] {tool.name}{tool.keyArg ? `: ${tool.keyArg}` : ""} ({formatElapsed(toolElapsed)})</Text>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
@@ -114,14 +150,14 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const [showWelcome, setShowWelcome] = useState(true);
   const [verbose, setVerbose] = useState(false);
   const [hasCheckedFirstTime, setHasCheckedFirstTime] = useState(false);
-  const [currentActivity, setCurrentActivity] = useState<string | null>(null);
+  const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
 
   // Ref to avoid stale closures in suggestion effect
   const prevSuggestionsLen = useRef(0);
   // Track tool calls per exchange for richer progress display
   const toolCountRef = useRef(0);
-  const currentToolInfoRef = useRef({ name: "", keyArg: "" });
-  const activeToolRef = useRef<{ index: number; name: string; keyArg: string; startTime: number } | null>(null);
+  // Map of active tools keyed by tool_use_id — source of truth (safe in closures)
+  const activeToolsMapRef = useRef(new Map<string, ActiveTool>());
   // AbortController for cancelling active queries
   const abortControllerRef = useRef<AbortController | null>(null);
   // Live elapsed timer during processing
@@ -294,9 +330,9 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
   const streamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
     setIsProcessing(true);
-    setCurrentActivity(null);
     toolCountRef.current = 0;
-    activeToolRef.current = null;
+    activeToolsMapRef.current.clear();
+    setActiveTools([]);
     setStreamingText(null);
     let currentResponse = "";
     let hadToolCall = false;
@@ -344,7 +380,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
     }
     abortControllerRef.current = null;
     setStreamingText(null);
-    setCurrentActivity(null);
+    activeToolsMapRef.current.clear();
+    setActiveTools([]);
     setIsProcessing(false);
 
     function handleMessage(message: SDKMessage) {
@@ -372,7 +409,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
               }
 
               currentResponse += block.text;
-              setCurrentActivity(null);
               setStreamingText(currentResponse);
             } else if (block.type === "tool_use") {
               hadToolCall = true;
@@ -380,11 +416,12 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
               const toolName = block.name.replace("mcp__runnai__", "");
               const keyArg = extractKeyArg(block.input as Record<string, unknown>);
-              currentToolInfoRef.current = { name: toolName, keyArg };
-
               const count = toolCountRef.current;
-              activeToolRef.current = { index: count, name: toolName, keyArg, startTime: Date.now() };
-              setCurrentActivity(`[${count}] ${toolName}${keyArg ? `: ${keyArg}` : ""}`);
+              const toolUseId = (block as any).id as string || `fallback-${count}`;
+
+              const activeTool: ActiveTool = { id: toolUseId, index: count, name: toolName, keyArg, startTime: Date.now() };
+              activeToolsMapRef.current.set(toolUseId, activeTool);
+              setActiveTools([...activeToolsMapRef.current.values()]);
 
               const inputStr = formatToolInput(block.input as Record<string, unknown>);
               commitMessage("tool", `→ ${toolName}(${inputStr})`);
@@ -398,15 +435,19 @@ export default function App({ resume = false }: { resume?: boolean }) {
             const isError = typeof result === "object" && result !== null &&
               "isError" in result && (result as Record<string, unknown>).isError === true;
 
-            // Commit completed tool as inline activity line
-            if (activeToolRef.current) {
-              const elapsed = ((Date.now() - activeToolRef.current.startTime) / 1000).toFixed(1);
-              const { index, name, keyArg } = activeToolRef.current;
+            // Find which tool this result belongs to via tool_use_id
+            const toolUseId = extractToolUseId(message);
+            const matchedTool = toolUseId ? activeToolsMapRef.current.get(toolUseId) : null;
+            // Fallback: grab first tool in map if we can't match by ID
+            const tool = matchedTool || activeToolsMapRef.current.values().next().value || null;
+
+            if (tool) {
+              const elapsed = ((Date.now() - tool.startTime) / 1000).toFixed(1);
               const prefix = isError ? "✗" : "✓";
-              const label = `${prefix} [${index}] ${name}${keyArg ? `: ${keyArg}` : ""}`;
+              const label = `${prefix} [${tool.index}] ${tool.name}${tool.keyArg ? `: ${tool.keyArg}` : ""}`;
               commitMessage("tool_activity", `${label}|||${elapsed}s`);
-              activeToolRef.current = null;
-              setCurrentActivity(null);
+              activeToolsMapRef.current.delete(tool.id);
+              setActiveTools([...activeToolsMapRef.current.values()]);
             }
 
             // Still log details to debug
@@ -425,15 +466,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
           break;
 
         case "tool_progress": {
-          const count = toolCountRef.current;
-          const { name, keyArg } = currentToolInfoRef.current;
-          const elapsed = message.elapsed_time_seconds.toFixed(0);
-          setCurrentActivity(`[${count}] ${name}${keyArg ? `: ${keyArg}` : ""} (${elapsed}s)`);
+          // Elapsed is computed from startTime; no state update needed
           break;
         }
 
         case "result": {
-          setCurrentActivity(null);
           if (message.session_id) {
             saveSession(message.session_id);
           }
@@ -661,9 +698,9 @@ export default function App({ resume = false }: { resume?: boolean }) {
         <ChatBubble role="assistant">{streamingText}</ChatBubble>
       )}
 
-      {/* Activity status bar */}
+      {/* Active tools progress */}
       {isProcessing && (
-        <StatusBar activity={currentActivity} elapsed={elapsed} />
+        <ActiveToolsBar tools={activeTools} elapsed={elapsed} />
       )}
 
       {/* Debug panel */}
