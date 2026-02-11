@@ -48,7 +48,7 @@ export function getAuthUrl(): string {
     throw new Error("STRAVA_CLIENT_ID not set in .env");
   }
   const redirectUri = "http://localhost:8888/callback";
-  const scope = "read,activity:read_all,profile:read_all";
+  const scope = "read,activity:read_all,profile:read_all,activity:write";
   return `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
 }
 
@@ -187,6 +187,50 @@ export async function fetchActivityDetail(
     laps?: StravaLap[];
   };
   return { bestEfforts: data.best_efforts || [], laps: data.laps || [] };
+}
+
+export interface ActivityUpdate {
+  name?: string;
+  description?: string;
+  private_note?: string;  // Strava calls this "commute" field is separate; private_note is undocumented but works
+}
+
+export async function updateActivity(
+  activityId: number,
+  update: ActivityUpdate
+): Promise<{ success: boolean; error?: string; needsReauth?: boolean }> {
+  const accessToken = await getAccessToken();
+
+  const body: Record<string, string> = {};
+  if (update.name !== undefined) body.name = update.name;
+  if (update.description !== undefined) body.description = update.description;
+
+  const response = await fetch(
+    `https://www.strava.com/api/v3/activities/${activityId}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (response.status === 403) {
+    return {
+      success: false,
+      needsReauth: true,
+      error: "Missing write permissions. You need to re-authorize Strava with write access. Run /setup to reconnect.",
+    };
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return { success: false, error: `Strava API error (${response.status}): ${errorText}` };
+  }
+
+  return { success: true };
 }
 
 export function convertStravaBestEfforts(

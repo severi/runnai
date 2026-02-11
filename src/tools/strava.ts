@@ -12,6 +12,7 @@ import {
   getAthleteProfile,
   fetchActivityDetail,
   convertStravaBestEfforts,
+  updateActivity,
 } from "../strava/client.js";
 import {
   upsertActivities,
@@ -393,6 +394,59 @@ export const queryActivitiesTool = tool(
     } catch (error) {
       return {
         content: [{ type: "text" as const, text: `Query error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+const ATTRIBUTION = "\n\nAnalysis by RunnAI · github.com/severi/runnai";
+
+export const stravaUpdateActivityTool = tool(
+  "strava_update_activity",
+  "Updates a Strava activity's name, description, or private note. Use after analyzing a workout to write AI analysis back to Strava. IMPORTANT: Always preview changes with the athlete and get explicit confirmation before calling this tool.",
+  {
+    activity_id: z.number().describe("Strava activity ID"),
+    name: z.string().optional().describe("New activity name (e.g. 'Easy Recovery 8K', 'Tempo 10K — Progression Finish')"),
+    description: z.string().optional().describe("Activity description — AI analysis with athlete notes. Attribution is appended automatically."),
+  },
+  async ({ activity_id, name, description }) => {
+    try {
+      if (!name && !description) {
+        return {
+          content: [{ type: "text" as const, text: "Nothing to update — provide at least a name or description." }],
+          isError: true,
+        };
+      }
+
+      const update: { name?: string; description?: string } = {};
+      if (name) update.name = name;
+      if (description) update.description = description + ATTRIBUTION;
+
+      const result = await updateActivity(activity_id, update);
+
+      if (!result.success) {
+        if (result.needsReauth) {
+          return {
+            content: [{ type: "text" as const, text: `${result.error}\n\nThe athlete needs to re-authorize Strava with write permissions. Use strava_auth to start the OAuth flow.` }],
+            isError: true,
+          };
+        }
+        return {
+          content: [{ type: "text" as const, text: `Failed to update activity: ${result.error}` }],
+          isError: true,
+        };
+      }
+
+      const parts: string[] = [];
+      if (name) parts.push(`name → "${name}"`);
+      if (description) parts.push("description updated");
+      return {
+        content: [{ type: "text" as const, text: `Activity ${activity_id} updated: ${parts.join(", ")}` }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
         isError: true,
       };
     }
