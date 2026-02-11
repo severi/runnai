@@ -75,6 +75,16 @@ export function initDatabase(): Database {
       UNIQUE(activity_id, distance_name)
     );
     CREATE INDEX IF NOT EXISTS idx_sbe_distance ON strava_best_efforts(distance_name);
+
+    CREATE TABLE IF NOT EXISTS personal_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      distance_name TEXT UNIQUE,
+      time_seconds INTEGER,
+      race_name TEXT,
+      race_date TEXT,
+      notes TEXT,
+      recorded_at TEXT
+    );
   `);
 
   // Migration: add trainer column to existing DBs
@@ -368,11 +378,12 @@ export function getActivitiesWithoutDetail(limit: number = 50): { id: number; na
   }
 }
 
-export function getStravaBestEfforts(distanceName?: string): (StravaBestEffortRecord & { activity_name: string; start_date_local: string })[] {
+export function getStravaBestEfforts(distanceName?: string): (StravaBestEffortRecord & { activity_name: string; start_date_local: string; activity_distance: number; workout_type: number | null; run_type: string | null })[] {
   const db = initDatabase();
   try {
     const baseQuery = `
-      SELECT sbe.*, a.name as activity_name, a.start_date_local
+      SELECT sbe.*, a.name as activity_name, a.start_date_local,
+             a.distance as activity_distance, a.workout_type, a.run_type
       FROM strava_best_efforts sbe
       JOIN activities a ON sbe.activity_id = a.id
     `;
@@ -445,6 +456,61 @@ export function setRunType(activityId: number, runType: RunType, runTypeDetail: 
     db.prepare(
       "UPDATE activities SET run_type = ?, run_type_detail = ? WHERE id = ?"
     ).run(runType, runTypeDetail, activityId);
+  } finally {
+    db.close();
+  }
+}
+
+export interface PersonalRecord {
+  id?: number;
+  distance_name: string;
+  time_seconds: number;
+  race_name: string;
+  race_date: string;
+  notes: string | null;
+  recorded_at: string;
+}
+
+export function upsertPersonalRecord(record: Omit<PersonalRecord, "id" | "recorded_at">): void {
+  const db = initDatabase();
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO personal_records (distance_name, time_seconds, race_name, race_date, notes, recorded_at)
+      VALUES ($distance_name, $time_seconds, $race_name, $race_date, $notes, $recorded_at)
+    `).run({
+      $distance_name: record.distance_name,
+      $time_seconds: record.time_seconds,
+      $race_name: record.race_name,
+      $race_date: record.race_date,
+      $notes: record.notes ?? null,
+      $recorded_at: new Date().toISOString().split("T")[0],
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export function getPersonalRecords(distanceName?: string): PersonalRecord[] {
+  const db = initDatabase();
+  try {
+    if (distanceName) {
+      return db.prepare(
+        "SELECT * FROM personal_records WHERE distance_name = ?"
+      ).all(distanceName) as PersonalRecord[];
+    }
+    return db.prepare(
+      "SELECT * FROM personal_records ORDER BY distance_name"
+    ).all() as PersonalRecord[];
+  } finally {
+    db.close();
+  }
+}
+
+export function deletePersonalRecord(distanceName: string): boolean {
+  const db = initDatabase();
+  try {
+    const result = db.prepare("DELETE FROM personal_records WHERE distance_name = ?").run(distanceName);
+    return result.changes > 0;
   } finally {
     db.close();
   }

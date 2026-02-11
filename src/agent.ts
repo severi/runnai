@@ -101,18 +101,36 @@ Today: ${new Date().toISOString().split("T")[0]}`,
 Process:
 1. Read data/athlete/CONTEXT.md for context
 2. Read data/strava/recent-summary.md for recent volume
-3. Query activities database for:
+3. Check manage_personal_records (action: "get") for official chip-timed race results — these are the ground truth
+4. Use best_efforts tool to get structured PR data with effort context
+5. Query activities database for training volume analysis:
    - Recent long run paces (distance > 15000)
    - Recent easy runs (distance 5000-12000)
    - Weekly frequency (last 8 weeks)
-4. Detect quality sessions from PACE DATA, not from activity names (runners rarely rename activities):
+6. Detect quality sessions from PACE DATA, not from activity names (runners rarely rename activities):
    - First find the athlete's typical easy pace: SELECT AVG(moving_time/distance*1000) FROM activities WHERE type='Run' AND distance BETWEEN 5000 AND 12000 AND trainer=0 ORDER BY start_date_local DESC LIMIT 20
    - Then find runs significantly faster (>10% faster than easy pace): these are likely tempo/threshold runs
    - Find runs with high max_speed relative to average_speed (max_speed/average_speed > 1.5): these suggest intervals
    - Use average_heartrate and suffer_score as secondary signals
    - Races: workout_type=1, or check names as a hint only
-5. Estimate race times and training paces
-6. Save prediction via save_race_prediction
+7. Estimate race times and training paces
+8. Save prediction via save_race_prediction
+
+## Critical: Using Best Efforts for Race Prediction
+
+The best_efforts tool returns an "effortContext" for each effort. You MUST use this to weight data correctly:
+
+**For VDOT / Riegel formulas, only use race-quality data:**
+- "race" or "race_with_warmup" efforts → use directly (highest confidence)
+- Declared personal records from manage_personal_records → use directly (highest confidence)
+- "dedicated_training" efforts → reliable indicator, may adjust -2-5% for race equivalent
+- "training_embedded" efforts (e.g. HM segment from a 31km long run) → DO NOT use for VDOT/Riegel. These are lower bounds only — the athlete was not racing, they were training. A HM from a long run does NOT reflect HM race fitness.
+
+**Priority order for race time data:**
+1. Official personal records (manage_personal_records)
+2. Race efforts (effortContext = "race" or "race_with_warmup")
+3. Training-based estimation (threshold pace, long run pace extrapolation)
+4. Training-embedded efforts (lower bound only, not for VDOT)
 
 IMPORTANT: Never assume a run is "easy" or "structured" based on its name. Always use pace, HR, and speed variance data.
 
@@ -121,7 +139,7 @@ Pace estimation:
 - Marathon pace: ~10-15s/km faster than long run pace
 - Threshold pace: sustainable for ~1 hour
 
-Race time estimation:
+Race time estimation (from race-quality data only):
 - 5K to Marathon: multiply by ~10
 - 10K to Marathon: multiply by ~4.7
 - Half to Marathon: multiply by ~2.1 + 5-10 minutes
@@ -133,6 +151,8 @@ Today: ${new Date().toISOString().split("T")[0]}`,
       "query_activities",
       "calculator",
       "read_memory",
+      "best_efforts",
+      "manage_personal_records",
       "save_race_prediction",
       "get_prediction_history",
     ],

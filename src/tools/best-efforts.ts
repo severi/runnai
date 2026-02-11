@@ -6,9 +6,10 @@ import { fetchActivityStream } from "../strava/client.js";
 import {
   upsertBestEffort,
   getStravaBestEfforts,
+  getPersonalRecords,
   ACTIVITIES_DB_PATH,
 } from "../utils/activities-db.js";
-import type { ActivityStream, BestEffortResult } from "../types/index.js";
+import type { ActivityStream, BestEffortResult, EffortContext } from "../types/index.js";
 
 const DISTANCE_TOLERANCE = 50;
 
@@ -35,6 +36,26 @@ interface Activity {
   start_date_local: string;
   distance: number;
   moving_time: number;
+  workout_type: number | null;
+  run_type: string | null;
+}
+
+function computeEffortContext(
+  effortDistanceMeters: number,
+  activityDistanceMeters: number,
+  workoutType: number | null,
+  runType: string | null,
+): EffortContext {
+  const isRace = workoutType === 1 || runType === "race";
+  if (isRace) {
+    return activityDistanceMeters > effortDistanceMeters * 1.3
+      ? "race_with_warmup"
+      : "race";
+  }
+  if (activityDistanceMeters > effortDistanceMeters * 1.5) {
+    return "training_embedded";
+  }
+  return "dedicated_training";
 }
 
 function findFastestSegment(
@@ -104,6 +125,15 @@ function formatPace(seconds: number, meters: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}/km`;
 }
 
+function formatEffortContext(ctx: EffortContext, activityKm: string): string {
+  switch (ctx) {
+    case "race": return "Race";
+    case "race_with_warmup": return `Race (${activityKm}km total)`;
+    case "training_embedded": return `Training (${activityKm}km run)`;
+    case "dedicated_training": return "Training";
+  }
+}
+
 function formatDistanceName(meters: number): string {
   if (meters >= 42000) return "Marathon";
   if (meters >= 21000) return "Half Marathon";
@@ -124,6 +154,11 @@ function queryStravaEfforts(dist: string, config: { dbName: string; meters: numb
     pacePerKm: formatPace(row.elapsed_time, config.meters),
     stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
     source: "strava" as const,
+    activityDistance: row.activity_distance,
+    workoutType: row.workout_type,
+    runType: row.run_type,
+    prRank: row.pr_rank,
+    effortContext: computeEffortContext(config.meters, row.activity_distance, row.workout_type, row.run_type),
   }));
 }
 
@@ -132,7 +167,7 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
   try {
     const runs = db
       .prepare(
-        `SELECT id, name, start_date_local, distance, moving_time
+        `SELECT id, name, start_date_local, distance, moving_time, workout_type, run_type
          FROM activities
          WHERE type = 'Run' AND distance >= ? AND trainer = 0
          ORDER BY start_date_local DESC`
@@ -175,6 +210,11 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
         pacePerKm: formatPace(segment.timeSeconds, config.meters),
         stravaUrl: `https://www.strava.com/activities/${run.id}`,
         source: "computed" as const,
+        activityDistance: run.distance,
+        workoutType: run.workout_type,
+        runType: run.run_type,
+        prRank: null,
+        effortContext: computeEffortContext(config.meters, run.distance, run.workout_type, run.run_type),
       });
 
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -257,37 +297,56 @@ export const bestEffortsTool = tool(
         }
       }
 
+      // Fetch declared personal records
+      const declaredPRs = getPersonalRecords();
+      const prByDistance = new Map(declaredPRs.map(pr => [pr.distance_name, pr]));
+
       let output = "# Best Efforts\n\n";
 
       for (const dist of distances) {
         const config = DISTANCE_CONFIG[dist];
         const distName = formatDistanceName(config.meters);
         const efforts = results[dist];
+        const declaredPR = prByDistance.get(config.dbName);
 
         output += `## ${distName}\n\n`;
 
-        if (efforts.length === 0) {
+        // Show declared PR first if it exists
+        if (declaredPR) {
+          const pacePerKm = declaredPR.time_seconds / (config.meters / 1000);
+          const pMin = Math.floor(pacePerKm / 60);
+          const pSec = Math.round(pacePerKm % 60);
+          output += `**Official PR: ${formatTime(declaredPR.time_seconds)}** (${pMin}:${pSec.toString().padStart(2, "0")}/km) — ${declaredPR.race_name}, ${declaredPR.race_date}\n\n`;
+        }
+
+        if (efforts.length === 0 && !declaredPR) {
           output += `No ${distName} efforts found.\n\n`;
           continue;
         }
 
-        const showSource = source === "best" && efforts.some((e) => e.source === "computed");
-        output += `| Rank | Time | Pace | Date | Activity |${showSource ? " Source |" : ""}\n`;
-        output += `|------|------|------|------|----------|${showSource ? "--------|" : ""}\n`;
+        if (efforts.length > 0) {
+          output += `| Rank | Time | Pace | Date | Activity | Context |\n`;
+          output += `|------|------|------|------|----------|----------|\n`;
 
-        efforts.forEach((e, i) => {
-          output += `| #${i + 1} | **${e.formattedTime}** | ${e.pacePerKm} | ${e.activityDate} | [${e.activityName}](${e.stravaUrl}) |`;
-          if (showSource) {
-            output += ` ${e.source} |`;
-          }
+          efforts.forEach((e, i) => {
+            const actKm = (e.activityDistance / 1000).toFixed(1);
+            const contextLabel = formatEffortContext(e.effortContext, actKm);
+            output += `| #${i + 1} | **${e.formattedTime}** | ${e.pacePerKm} | ${e.activityDate} | [${e.activityName}](${e.stravaUrl}) | ${contextLabel} |\n`;
+          });
+
           output += `\n`;
-        });
+
+          if (!declaredPR) {
+            const pr = efforts[0];
+            output += `**GPS PR: ${pr.formattedTime}** (${pr.pacePerKm}) from "${pr.activityName}" on ${pr.activityDate}`;
+            if (pr.effortContext === "training_embedded") {
+              output += ` — NOTE: embedded in ${(pr.activityDistance / 1000).toFixed(1)}km training run, not a race effort`;
+            }
+            output += `\n`;
+          }
+        }
 
         output += `\n`;
-
-        if (efforts.length > 0) {
-          output += `**PR: ${efforts[0].formattedTime}** (${efforts[0].pacePerKm}) from "${efforts[0].activityName}" on ${efforts[0].activityDate}\n\n`;
-        }
       }
 
       return { content: [{ type: "text" as const, text: output }] };
@@ -306,7 +365,8 @@ function getComputedFromDb(config: { dbName: string; meters: number }): BestEffo
   try {
     const rows = db
       .prepare(
-        `SELECT be.*, a.name as activity_name, a.start_date_local
+        `SELECT be.*, a.name as activity_name, a.start_date_local,
+                a.distance as activity_distance, a.workout_type, a.run_type
          FROM best_efforts be
          JOIN activities a ON be.activity_id = a.id
          WHERE be.distance_name = ?
@@ -324,6 +384,11 @@ function getComputedFromDb(config: { dbName: string; meters: number }): BestEffo
       pacePerKm: formatPace(row.elapsed_time, config.meters),
       stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
       source: "computed" as const,
+      activityDistance: row.activity_distance,
+      workoutType: row.workout_type ?? null,
+      runType: row.run_type ?? null,
+      prRank: null,
+      effortContext: computeEffortContext(config.meters, row.activity_distance, row.workout_type ?? null, row.run_type ?? null),
     }));
   } finally {
     db.close();

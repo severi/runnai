@@ -100,6 +100,8 @@ export interface ActivityStream {
   distance: number[];
 }
 
+export type EffortContext = "race" | "race_with_warmup" | "training_embedded" | "dedicated_training";
+
 export interface BestEffortResult {
   activityId: number;
   activityName: string;
@@ -110,6 +112,11 @@ export interface BestEffortResult {
   pacePerKm: string;
   stravaUrl: string;
   source: "strava" | "computed";
+  activityDistance: number;
+  workoutType: number | null;
+  runType: string | null;
+  prRank: number | null;
+  effortContext: EffortContext;
 }
 
 export interface StravaBestEffort {

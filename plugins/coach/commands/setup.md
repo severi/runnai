@@ -10,12 +10,15 @@ You are running the first-time setup for a new athlete. Complete ALL phases befo
 
 ## Phase 1: Connect & Analyze
 1. Connect Strava using `strava_auth`
-2. Fetch profile and sync 180 days of data using `strava_profile` with days=180
+2. Fetch profile and sync 180 days of data using `strava_profile` with days=180 (this also fetches best efforts and laps from Strava)
 3. Read `data/strava/recent-summary.md` to understand their training patterns
-4. Query the database for key stats:
+4. Query the database for training volume:
    - Weekly volume trend (last 12 weeks)
    - Longest runs
-   - Any races in the data
+5. Use the `best_efforts` tool (distance="all") for key performances — do NOT compute best times from raw SQL queries. The best_efforts tool provides Strava's accurate best effort times and shows effort context (race vs training). Pay attention to:
+   - **effortContext**: "race" efforts are actual race performances. "training_embedded" efforts (e.g., a HM from a 31km run) are NOT race efforts and may be much slower than what the athlete could actually race.
+   - **Official PRs**: If declared PRs exist, they override GPS data.
+   - When presenting performances, always note which were actual races vs training efforts — the athlete will want to know you understand the difference.
 
 ## Phase 2: Clarify Training (ONE question, wait for answer)
 1. Find the biggest anomaly or interesting pattern in their data

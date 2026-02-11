@@ -234,6 +234,40 @@ export async function generateRecentSummary(): Promise<string> {
       md += `\n`;
     }
 
+    // Cross-training activities (non-run) from last 4 weeks
+    const crossTraining = db
+      .prepare(`
+        SELECT name, type, sport_type, start_date_local, distance, moving_time
+        FROM activities
+        WHERE type != 'Run' AND sport_type != 'Run'
+          AND start_date_local >= ?
+        ORDER BY start_date_local DESC
+      `)
+      .all(fourWeeksAgo.toISOString()) as Array<{
+        name: string;
+        type: string;
+        sport_type: string;
+        start_date_local: string;
+        distance: number;
+        moving_time: number;
+      }>;
+
+    if (crossTraining.length > 0) {
+      md += `## Cross-Training (Last 4 Weeks)\n`;
+      for (const act of crossTraining) {
+        const date = new Date(act.start_date_local);
+        const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const type = act.sport_type || act.type;
+        const distKm = act.distance > 0 ? `${(act.distance / 1000).toFixed(1)}km` : "";
+        const durationMin = Math.round(act.moving_time / 60);
+        const durationStr = durationMin >= 60
+          ? `${Math.floor(durationMin / 60)}h${durationMin % 60 > 0 ? `${durationMin % 60}min` : ""}`
+          : `${durationMin}min`;
+        md += `- ${dateStr}: ${type}${distKm ? ` — ${distKm}` : ""}, ${durationStr} — "${act.name}"\n`;
+      }
+      md += `\n`;
+    }
+
     md += `## Quick Stats (Last 6 Months)\n`;
     md += `- Typical weekly volume: ${quickStats.typicalWeeklyVolume.min}-${quickStats.typicalWeeklyVolume.max}km\n`;
     md += `- Runs per week: Usually ${quickStats.runsPerWeek}\n`;
