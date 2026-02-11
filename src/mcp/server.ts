@@ -4,6 +4,7 @@ import {
   stravaProfileTool,
   stravaAuthTool,
   queryActivitiesTool,
+  stravaUpdateActivityTool,
   bestEffortsTool,
   planManagerTool,
   dateCalcTool,
@@ -31,6 +32,7 @@ export const coachMcpServer = createSdkMcpServer({
     stravaProfileTool,
     stravaAuthTool,
     queryActivitiesTool,
+    stravaUpdateActivityTool,
     bestEffortsTool,
     // Planning & utility
     planManagerTool,

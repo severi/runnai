@@ -12,6 +12,8 @@ user-invocable: true
    - Comment specifically on each new run (pace, distance, name)
    - Compare to their training plan if one exists (check data/plans/)
    - Note anything interesting (PR pace, unusually long/short, etc.)
+   - Offer to analyze and write back to Strava: "Want me to analyze these runs and write summaries to your Strava activities?"
+   - If they say yes, use the activity-analyzer subagent for each run (follows the write-back flow: ask for notes, preview, confirm, write)
 4. Give a brief weekly summary:
    - Runs so far this week
    - Total km

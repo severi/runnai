@@ -1,5 +1,5 @@
 // Phase 2: Strava tools
-export { stravaSyncTool, stravaProfileTool, stravaAuthTool, queryActivitiesTool } from "./strava.js";
+export { stravaSyncTool, stravaProfileTool, stravaAuthTool, queryActivitiesTool, stravaUpdateActivityTool } from "./strava.js";
 export { bestEffortsTool } from "./best-efforts.js";
 
 // Phase 2: Planning & utility tools
