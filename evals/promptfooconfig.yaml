@@ -1,0 +1,39 @@
+# RunnAI LLM Evaluation Config
+# Run: bun run evals
+# View: bun run evals:view
+
+description: RunnAI coaching agent evals
+
+# Load .env from project root for EVAL_ANTHROPIC_API_KEY
+commandLineOptions:
+  envPath:
+    - ../.env
+
+providers:
+  # Fast iteration during development
+  - id: file://./provider.mjs
+    label: runnai-sonnet
+    config:
+      model: sonnet
+
+  # Critical coaching quality (pre-release)
+  # - id: file://./provider.mjs
+  #   label: runnai-opus
+  #   config:
+  #     model: opus
+
+# Prompt is the user message — each test case sets vars.prompt
+prompts:
+  - "{{prompt}}"
+
+defaultTest:
+  options:
+    # Use Sonnet as the LLM judge for rubric scoring
+    provider:
+      id: anthropic:messages:claude-sonnet-4-5-20250929
+      config:
+        apiKey: "{{env.EVAL_ANTHROPIC_API_KEY}}"
+
+tests:
+  - scenarios/smoke-test.yaml
+  - scenarios/sync.yaml

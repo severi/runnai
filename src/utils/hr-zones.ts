@@ -1,16 +1,16 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
 import { initDatabase } from "./activities-db.js";
+import { getDataDir } from "./paths.js";
 import type { HrZones } from "../types/index.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const HR_ZONES_FILE = path.join(PROJECT_ROOT, "data/athlete/hr-zones.json");
+function getHrZonesFile(): string {
+  return path.join(getDataDir(), "athlete/hr-zones.json");
+}
 
 export async function loadHrZones(): Promise<HrZones> {
   try {
-    const data = await fs.readFile(HR_ZONES_FILE, "utf-8");
+    const data = await fs.readFile(getHrZonesFile(), "utf-8");
     const zones = JSON.parse(data) as HrZones;
     // Backwards compat: treat missing confirmed as true for existing files
     if (zones.confirmed === undefined) zones.confirmed = true;
@@ -24,8 +24,8 @@ export async function loadHrZones(): Promise<HrZones> {
 }
 
 export async function saveHrZones(zones: HrZones): Promise<void> {
-  await fs.mkdir(path.dirname(HR_ZONES_FILE), { recursive: true });
-  await fs.writeFile(HR_ZONES_FILE, JSON.stringify(zones, null, 2));
+  await fs.mkdir(path.dirname(getHrZonesFile()), { recursive: true });
+  await fs.writeFile(getHrZonesFile(), JSON.stringify(zones, null, 2));
 }
 
 function estimateHrZones(): HrZones {

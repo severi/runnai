@@ -1,5 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import { getDataDir } from "./paths.js";
 
 function getSeason(): string {
   const month = new Date().getMonth(); // 0-11
@@ -10,8 +11,9 @@ function getSeason(): string {
 }
 
 export async function buildSystemPrompt(projectRoot: string): Promise<string> {
-  const contextPath = path.join(projectRoot, "data/athlete/CONTEXT.md");
-  const summaryPath = path.join(projectRoot, "data/strava/recent-summary.md");
+  const dataDir = getDataDir();
+  const contextPath = path.join(dataDir, "athlete/CONTEXT.md");
+  const summaryPath = path.join(dataDir, "strava/recent-summary.md");
 
   let hotCache = "";
   let recentSummary = "";

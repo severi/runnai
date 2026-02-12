@@ -9,7 +9,9 @@
     "build": "bun run tsc",
     "dev": "bun src/index.tsx",
     "reset": "rm -rf data/athlete data/memory data/plans data/research data/.session data/.chat-history.json && echo 'Reset complete. Strava data preserved.'",
-    "reset:all": "rm -rf data/athlete data/memory data/plans data/research data/strava/activities.db data/strava/recent-summary.md data/.session data/.chat-history.json && echo 'Full reset complete. Strava tokens preserved.'"
+    "reset:all": "rm -rf data/athlete data/memory data/plans data/research data/strava/activities.db data/strava/recent-summary.md data/.session data/.chat-history.json && echo 'Full reset complete. Strava tokens preserved.'",
+    "evals": "cd evals && bunx promptfoo eval",
+    "evals:view": "bunx promptfoo view"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
@@ -26,9 +28,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/bun": "^1.2.5",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
+    "promptfoo": "^0.120.24",
     "typescript": "^5.9.3"
   }
 }

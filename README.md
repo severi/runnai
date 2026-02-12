@@ -105,6 +105,12 @@ plugins/coach/
   commands/      Slash command definitions
   hooks/         Auto-save hooks
 
+evals/
+  fixtures/      Synthetic athlete profiles (SQLite + context files)
+  scenarios/     Promptfoo test cases with LLM-as-judge rubrics
+  provider.mjs   Custom Promptfoo provider
+  run-agent.ts   Runs agent via claude --print for each test
+
 data/
   athlete/       CONTEXT.md (hot cache -- always in system prompt)
   memory/        Deep memory (observations, session summaries)
@@ -122,6 +128,17 @@ The coach manages its own memory (inspired by [MemGPT](https://github.com/cpacke
 3. **Structured data** (`data/strava/activities.db`) -- SQLite with all synced activities, queryable by the agent.
 
 The agent decides what to remember, what to promote to the hot cache, and what to archive.
+
+## Evals
+
+LLM-as-judge evaluation framework using [Promptfoo](https://promptfoo.dev). Tests coaching quality across 3 synthetic athlete profiles (beginner, marathoner, comeback from injury) with rubric-based scoring.
+
+```bash
+bun run evals         # Run all test cases
+bun run evals:view    # Open results in browser
+```
+
+Fixtures are pre-built SQLite databases with realistic Strava data. Each test case sends a prompt through the full agent (via `claude --print` + MCP tools) and scores the response against coaching-specific rubrics.
 
 ## License
 

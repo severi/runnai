@@ -1,12 +1,10 @@
 import { type Options, type AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import path from "path";
-import { fileURLToPath } from "url";
 import { buildSystemPrompt } from "./utils/context-builder.js";
 import { getCurrentSessionId } from "./utils/session.js";
 import { coachMcpServer } from "./mcp/server.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const PROJECT_ROOT = path.resolve(__dirname, "..");
+import { PROJECT_ROOT } from "./utils/paths.js";
+export { PROJECT_ROOT };
 
 export const agents: Record<string, AgentDefinition> = {
   "plan-creator": {

@@ -2,7 +2,6 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
 import {
   startAutomaticAuth,
   hasClientCredentials,
@@ -33,14 +32,19 @@ import { classifyRun } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
 import type { StravaActivity, StravaTokens, ActivityLapRecord } from "../types/index.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const STRAVA_DATA_DIR = path.join(PROJECT_ROOT, "data/strava");
-const TOKENS_FILE = path.join(STRAVA_DATA_DIR, "tokens.json");
+import { getDataDir } from "../utils/paths.js";
+
+function getStravaDataDir(): string {
+  return path.join(getDataDir(), "strava");
+}
+
+function getTokensFile(): string {
+  return path.join(getDataDir(), "strava/tokens.json");
+}
 
 async function loadTokens(): Promise<StravaTokens | null> {
   try {
-    const data = await fs.readFile(TOKENS_FILE, "utf-8");
+    const data = await fs.readFile(getTokensFile(), "utf-8");
     return JSON.parse(data);
   } catch {
     return null;
@@ -98,7 +102,7 @@ export const stravaSyncTool = tool(
         page++;
       }
 
-      await fs.mkdir(STRAVA_DATA_DIR, { recursive: true });
+      await fs.mkdir(getStravaDataDir(), { recursive: true });
       upsertActivities(activities);
       await generateRecentSummary();
 

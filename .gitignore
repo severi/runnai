@@ -16,5 +16,10 @@ data/
 # Private docs
 .private/
 
+# Eval results (regenerated on each run)
+evals/results/
+evals/output/
+.promptfoo/
+
 # OS
 .DS_Store

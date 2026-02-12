@@ -1,11 +1,11 @@
 import { initDatabase } from "./activities-db.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { getDataDir } from "./paths.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const SUMMARY_FILE = path.join(PROJECT_ROOT, "data/strava/recent-summary.md");
+function getSummaryFile(): string {
+  return path.join(getDataDir(), "strava/recent-summary.md");
+}
 
 interface RunEntry {
   name: string;
@@ -268,6 +268,54 @@ export async function generateRecentSummary(): Promise<string> {
       md += `\n`;
     }
 
+    // Monthly volume history (last 6 months) — shows trends, gaps, and comebacks
+    const monthlyVolume = db
+      .prepare(`
+        SELECT
+          strftime('%Y-%m', start_date_local) as month,
+          COUNT(*) as runs,
+          ROUND(SUM(distance) / 1000.0, 0) as total_km,
+          ROUND(AVG(moving_time / 60.0 / (distance / 1000.0)), 1) as avg_pace
+        FROM activities
+        WHERE (type = 'Run' OR sport_type = 'Run')
+          AND start_date_local >= ?
+        GROUP BY month
+        ORDER BY month
+      `)
+      .all(sixMonthsAgo.toISOString()) as Array<{
+        month: string;
+        runs: number;
+        total_km: number;
+        avg_pace: number;
+      }>;
+
+    if (monthlyVolume.length > 0) {
+      md += `## Monthly Volume (Last 6 Months)\n`;
+      // Generate all months in range to show gaps
+      const allMonths: string[] = [];
+      const cursor = new Date(sixMonthsAgo);
+      cursor.setDate(1);
+      while (cursor <= today) {
+        allMonths.push(cursor.toISOString().slice(0, 7));
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      const volumeByMonth = new Map(monthlyVolume.map(m => [m.month, m]));
+
+      for (const month of allMonths) {
+        const data = volumeByMonth.get(month);
+        if (data) {
+          const paceMin = Math.floor(data.avg_pace);
+          const paceSec = Math.round((data.avg_pace - paceMin) * 60);
+          const paceStr = `${paceMin}:${paceSec.toString().padStart(2, "0")}/km`;
+          md += `- ${month}: ${data.total_km}km (${data.runs} runs, avg ${paceStr})\n`;
+        } else {
+          md += `- ${month}: — no runs —\n`;
+        }
+      }
+      md += `\n`;
+    }
+
     md += `## Quick Stats (Last 6 Months)\n`;
     md += `- Typical weekly volume: ${quickStats.typicalWeeklyVolume.min}-${quickStats.typicalWeeklyVolume.max}km\n`;
     md += `- Runs per week: Usually ${quickStats.runsPerWeek}\n`;
@@ -275,8 +323,9 @@ export async function generateRecentSummary(): Promise<string> {
       md += `- Long run day: Usually ${quickStats.longRunDay}\n`;
     }
 
-    await fs.mkdir(path.dirname(SUMMARY_FILE), { recursive: true });
-    await fs.writeFile(SUMMARY_FILE, md);
+    const summaryFile = getSummaryFile();
+    await fs.mkdir(path.dirname(summaryFile), { recursive: true });
+    await fs.writeFile(summaryFile, md);
 
     return md;
   } finally {

@@ -1,12 +1,15 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { getDataDir } from "./paths.js";
 import type { Message } from "../cli/commands.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const SESSION_FILE = path.join(PROJECT_ROOT, "data/.session");
-const HISTORY_FILE = path.join(PROJECT_ROOT, "data/.chat-history.json");
+function getSessionFile(): string {
+  return path.join(getDataDir(), ".session");
+}
+
+function getHistoryFile(): string {
+  return path.join(getDataDir(), ".chat-history.json");
+}
 
 let currentSessionId: string | null = null;
 
@@ -24,7 +27,7 @@ export function resetSession(): void {
 
 export async function loadPersistedSession(): Promise<string | null> {
   try {
-    const data = await fs.readFile(SESSION_FILE, "utf-8");
+    const data = await fs.readFile(getSessionFile(), "utf-8");
     return data.trim() || null;
   } catch {
     return null;
@@ -33,28 +36,28 @@ export async function loadPersistedSession(): Promise<string | null> {
 
 export async function saveSession(id: string): Promise<void> {
   currentSessionId = id;
-  await fs.writeFile(SESSION_FILE, id, "utf-8");
+  await fs.writeFile(getSessionFile(), id, "utf-8");
 }
 
 export async function clearPersistedSession(): Promise<void> {
   currentSessionId = null;
   try {
-    await fs.unlink(SESSION_FILE);
+    await fs.unlink(getSessionFile());
   } catch {}
   try {
-    await fs.unlink(HISTORY_FILE);
+    await fs.unlink(getHistoryFile());
   } catch {}
 }
 
 export async function appendChatMessage(message: Message): Promise<void> {
   const history = await loadChatHistory();
   history.push(message);
-  await fs.writeFile(HISTORY_FILE, JSON.stringify(history), "utf-8");
+  await fs.writeFile(getHistoryFile(), JSON.stringify(history), "utf-8");
 }
 
 export async function loadChatHistory(): Promise<Message[]> {
   try {
-    const data = await fs.readFile(HISTORY_FILE, "utf-8");
+    const data = await fs.readFile(getHistoryFile(), "utf-8");
     return JSON.parse(data);
   } catch {
     return [];
@@ -63,6 +66,6 @@ export async function loadChatHistory(): Promise<Message[]> {
 
 export async function clearChatHistory(): Promise<void> {
   try {
-    await fs.unlink(HISTORY_FILE);
+    await fs.unlink(getHistoryFile());
   } catch {}
 }

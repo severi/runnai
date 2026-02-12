@@ -7,7 +7,7 @@ import {
   upsertBestEffort,
   getStravaBestEfforts,
   getPersonalRecords,
-  ACTIVITIES_DB_PATH,
+  getActivitiesDbPath,
 } from "../utils/activities-db.js";
 import type { ActivityStream, BestEffortResult, EffortContext } from "../types/index.js";
 
@@ -163,7 +163,7 @@ function queryStravaEfforts(dist: string, config: { dbName: string; meters: numb
 }
 
 async function computeEfforts(dist: string, config: { dbName: string; meters: number }, limit: number): Promise<BestEffortResult[]> {
-  const db = new Database(ACTIVITIES_DB_PATH, { readonly: true });
+  const db = new Database(getActivitiesDbPath(), { readonly: true });
   try {
     const runs = db
       .prepare(
@@ -266,7 +266,7 @@ export const bestEffortsTool = tool(
       const distances = distance === "all" ? Object.keys(DISTANCE_CONFIG) : [distance];
 
       try {
-        await fs.access(ACTIVITIES_DB_PATH);
+        await fs.access(getActivitiesDbPath());
       } catch {
         return {
           content: [{ type: "text" as const, text: "No activity data found. Please sync Strava first." }],
@@ -361,7 +361,7 @@ export const bestEffortsTool = tool(
 
 /** Query already-computed best efforts from the DB (no API calls) */
 function getComputedFromDb(config: { dbName: string; meters: number }): BestEffortResult[] {
-  const db = new Database(ACTIVITIES_DB_PATH, { readonly: true });
+  const db = new Database(getActivitiesDbPath(), { readonly: true });
   try {
     const rows = db
       .prepare(

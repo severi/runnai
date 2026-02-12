@@ -2,13 +2,19 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { getDataDir } from "../utils/paths.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const RESEARCH_DIR = path.join(PROJECT_ROOT, "data/research");
-const TOPICS_DIR = path.join(RESEARCH_DIR, "topics");
-const INDEX_FILE = path.join(RESEARCH_DIR, "index.md");
+function getResearchDir(): string {
+  return path.join(getDataDir(), "research");
+}
+
+function getTopicsDir(): string {
+  return path.join(getResearchDir(), "topics");
+}
+
+function getIndexFile(): string {
+  return path.join(getResearchDir(), "index.md");
+}
 
 const CACHE_MAX_AGE_DAYS = 30;
 
@@ -19,7 +25,7 @@ interface CacheMetadata {
 }
 
 async function ensureDirectories(): Promise<void> {
-  await fs.mkdir(TOPICS_DIR, { recursive: true });
+  await fs.mkdir(getTopicsDir(), { recursive: true });
 }
 
 function sanitizeFilename(topic: string): string {
@@ -31,7 +37,7 @@ function sanitizeFilename(topic: string): string {
 
 async function getCacheMetadata(topic: string): Promise<CacheMetadata | null> {
   const filename = `${sanitizeFilename(topic)}.md`;
-  const filePath = path.join(TOPICS_DIR, filename);
+  const filePath = path.join(getTopicsDir(), filename);
 
   try {
     const content = await fs.readFile(filePath, "utf-8");
@@ -66,7 +72,7 @@ async function isCacheValid(topic: string): Promise<boolean> {
 
 async function readCachedResearch(topic: string): Promise<string | null> {
   const filename = `${sanitizeFilename(topic)}.md`;
-  const filePath = path.join(TOPICS_DIR, filename);
+  const filePath = path.join(getTopicsDir(), filename);
 
   try {
     return await fs.readFile(filePath, "utf-8");
@@ -79,7 +85,7 @@ async function saveResearch(topic: string, content: string, sources: string[]): 
   await ensureDirectories();
 
   const filename = `${sanitizeFilename(topic)}.md`;
-  const filePath = path.join(TOPICS_DIR, filename);
+  const filePath = path.join(getTopicsDir(), filename);
   const now = new Date().toISOString().split("T")[0];
 
   const markdown = `# ${topic}
@@ -105,7 +111,7 @@ async function updateIndex(): Promise<void> {
   await ensureDirectories();
 
   try {
-    const files = await fs.readdir(TOPICS_DIR);
+    const files = await fs.readdir(getTopicsDir());
     const topics = files.filter((f) => f.endsWith(".md"));
 
     let indexContent = `# Running Science Knowledge Base\n\n## Topics\n`;
@@ -119,7 +125,7 @@ async function updateIndex(): Promise<void> {
 
     indexContent += `\n## About\nTopics are automatically updated when accessed after ${CACHE_MAX_AGE_DAYS} days.\n`;
 
-    await fs.writeFile(INDEX_FILE, indexContent);
+    await fs.writeFile(getIndexFile(), indexContent);
   } catch {
     // Ignore index update errors
   }
@@ -128,7 +134,7 @@ async function updateIndex(): Promise<void> {
 async function listTopics(): Promise<string[]> {
   await ensureDirectories();
   try {
-    const files = await fs.readdir(TOPICS_DIR);
+    const files = await fs.readdir(getTopicsDir());
     return files.filter((f) => f.endsWith(".md")).map((f) => f.replace(".md", "").replace(/-/g, " "));
   } catch {
     return [];
