@@ -1,0 +1,112 @@
+# Sync & training summary scenarios
+
+- description: "New runner: assess recent training"
+  vars:
+    fixture: new-runner
+    prompt: >
+      Look at my recent training data and give me a summary.
+      How am I doing? Any suggestions for improvement?
+  assert:
+    - type: contains
+      value: "km"
+    - type: llm-rubric
+      value: |
+        You are evaluating a running coach's response to a beginner runner named Alex
+        who has 3 months of easy-pace running data. Alex's actual training data shows:
+        - 36 total runs over ~3 months (Nov 2025 - Feb 2026)
+        - Typically 2-3 runs/week (ranges from 1 to 4)
+        - Weekly volume: typically 8-15km/week (ranges from 4.5 to 20.6km)
+        - Average pace: ~8:00-8:15 min/km
+        - Average distance per run: 4.6km (range 3.1 - 6.8km)
+        - All runs are easy pace
+        Alex wants to complete a first 10K race (spring 2026).
+
+        Evaluate the coaching response on these criteria:
+
+        1. VOLUME AWARENESS: Does the coach correctly identify the runner's approximate current
+           volume (~8-15km/week, 2-3 runs/week) and pace (~8:00-8:15/km)? The numbers don't
+           need to be exact but should be in the right ballpark. Score 1 if significantly wrong
+           (e.g., saying 25+ km/week or 6:00/km pace), 5 if reasonably accurate.
+
+        2. APPROPRIATE ADVICE: Is the advice suitable for a beginner? Score 1 if suggesting
+           intervals/tempo runs or >30km weeks. Score 5 if focused on consistency, gradual
+           progression, and easy running.
+
+        3. ENCOURAGEMENT: Is the tone encouraging without being patronizing? Score 1 if
+           dismissive or overly technical. Score 5 if warm, supportive, and motivating.
+
+        4. 10K READINESS: Does the coach address the 10K goal realistically? Score 1 if
+           ignoring it or being unrealistic. Score 5 if providing a sensible path with
+           timeline awareness.
+
+- description: "Experienced marathoner: training summary"
+  vars:
+    fixture: experienced-marathoner
+    prompt: >
+      How has my training been going recently? Give me a detailed breakdown
+      of this week and last week.
+  assert:
+    - type: contains
+      value: "km"
+    - type: llm-rubric
+      value: |
+        You are evaluating a running coach's response to an experienced marathoner named Mikko
+        who runs 5-6x/week, 60-75km/week, with a mix of easy/tempo/intervals/long runs.
+        Mikko has a 3:10 marathon PR and is targeting sub-3:05.
+
+        Evaluate the coaching response on these criteria:
+
+        1. TRAINING ANALYSIS: Does the coach correctly identify the training structure
+           (mix of run types, weekly volume, intensity distribution)? Score 1 if generic,
+           5 if data-specific with actual numbers.
+
+        2. INTENSITY BALANCE: Does the coach comment on the easy/hard ratio and whether
+           it's appropriate? Score 1 if ignoring intensity, 5 if analyzing the 80/20 split.
+
+        3. SPECIFICITY: Does the advice reference Mikko's actual data rather than generic
+           coaching? Score 1 if boilerplate, 5 if referencing specific workouts or trends.
+
+        4. GOAL ALIGNMENT: Does the coach connect training observations to the sub-3:05
+           marathon goal? Score 1 if ignoring the goal, 5 if clearly linking training
+           to race preparation.
+
+- description: "Comeback runner: notice the gap"
+  vars:
+    fixture: comeback-runner
+    prompt: >
+      I've been getting back into running after some time off. Can you
+      look at my data and tell me where I stand?
+  assert:
+    - type: llm-rubric
+      value: |
+        You are evaluating a running coach's response to Sara, a runner returning from
+        a knee injury (patellofemoral syndrome). Her actual training data shows:
+        - Aug-Sep 2025: ~24-31km/week (11-15 runs/month), pace ~6:06/km (pre-injury)
+        - Oct 2025: Dramatically reduced — only 4 runs, 37km total (injury impact)
+        - Nov 2025: COMPLETE GAP — zero runs
+        - Dec 2025: Return to running — 15 runs, 127km, but pace slower (~6:28/km)
+        - Jan 2026: Strong comeback — 20 runs, 175km (~43km/week), pace ~6:08/km
+        - Feb 2026: On track — 5 runs, 46km so far
+        Sara's profile mentions patellofemoral syndrome and clearance from physio (Jan 2026).
+
+        Evaluate the coaching response on these criteria:
+
+        1. GAP DETECTION: Does the coach notice and mention the training gap or disruption?
+           The data shows a dramatic drop in October and a complete gap in November 2025.
+           Score 1 if ignoring the gap completely, 3 if vaguely mentioning inconsistency,
+           5 if explicitly noting the Oct-Nov gap period.
+
+        2. INJURY AWARENESS: Does the coach acknowledge the knee injury (patellofemoral
+           syndrome) and factor it into recommendations? The athlete's profile explicitly
+           mentions this. Score 1 if ignoring injury entirely, 3 if mentioning it in
+           passing, 5 if providing knee-specific considerations.
+
+        3. COMEBACK ASSESSMENT: Does the coach recognize that Sara has returned strongly
+           (Jan volume near/above pre-injury levels) but that rapid volume increases after
+           injury require caution? Score 1 if not addressing the comeback at all, 5 if
+           noting both the strong return and the need for careful progression.
+
+        4. PACE ANALYSIS: Does the coach reference Sara's actual paces from the data?
+           Pre-injury was ~6:06/km, December return was slower (~6:28/km), and recent
+           runs are back near pre-injury pace (~6:02-6:08/km). Score 1 if no pace
+           discussion, 5 if noting pace trends through the comeback.

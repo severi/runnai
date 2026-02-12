@@ -4,20 +4,22 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { execFileSync } from "child_process";
 import { PROJECT_ROOT } from "../agent.js";
+import { getDataDir } from "../utils/paths.js";
 import App from "./App.js";
 
-const DATA_DIRS = [
-  "data/athlete",
-  "data/memory/race-predictions",
-  "data/memory/session-summaries",
-  "data/plans",
-  "data/research/topics",
-  "data/strava",
+const DATA_SUBDIRS = [
+  "athlete",
+  "memory/race-predictions",
+  "memory/session-summaries",
+  "plans",
+  "research/topics",
+  "strava",
 ];
 
 async function ensureDataDirs(): Promise<void> {
-  for (const dir of DATA_DIRS) {
-    await fs.mkdir(path.join(PROJECT_ROOT, dir), { recursive: true });
+  const dataDir = getDataDir();
+  for (const dir of DATA_SUBDIRS) {
+    await fs.mkdir(path.join(dataDir, dir), { recursive: true });
   }
 }
 

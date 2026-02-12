@@ -1,11 +1,11 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
 import { initDatabase } from "./activities-db.js";
+import { getDataDir } from "./paths.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const PATTERNS_FILE = path.join(PROJECT_ROOT, "data/memory/training-patterns.md");
+function getPatternsFile(): string {
+  return path.join(getDataDir(), "memory/training-patterns.md");
+}
 
 interface WeekRow {
   week_start: string;
@@ -117,8 +117,9 @@ export async function generateTrainingPatterns(): Promise<void> {
     // Typical week pattern detection
     md += generateTypicalWeek(db, weeks);
 
-    await fs.mkdir(path.dirname(PATTERNS_FILE), { recursive: true });
-    await fs.writeFile(PATTERNS_FILE, md);
+    const patternsFile = getPatternsFile();
+    await fs.mkdir(path.dirname(patternsFile), { recursive: true });
+    await fs.writeFile(patternsFile, md);
   } finally {
     db.close();
   }

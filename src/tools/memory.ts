@@ -2,16 +2,19 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { getDataDir } from "../utils/paths.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const MEMORY_DIR = path.join(PROJECT_ROOT, "data/memory");
-const CONTEXT_FILE = path.join(PROJECT_ROOT, "data/athlete/CONTEXT.md");
+function getMemoryDir(): string {
+  return path.join(getDataDir(), "memory");
+}
+
+function getContextFile(): string {
+  return path.join(getDataDir(), "athlete/CONTEXT.md");
+}
 
 function isPathSafe(filePath: string): boolean {
-  const resolved = path.resolve(MEMORY_DIR, filePath);
-  return resolved.startsWith(MEMORY_DIR);
+  const resolved = path.resolve(getMemoryDir(), filePath);
+  return resolved.startsWith(getMemoryDir());
 }
 
 export const readMemoryTool = tool(
@@ -26,7 +29,7 @@ export const readMemoryTool = tool(
         return { content: [{ type: "text" as const, text: "Error: Path traversal not allowed." }], isError: true };
       }
 
-      const filePath = path.join(MEMORY_DIR, file);
+      const filePath = path.join(getMemoryDir(), file);
       const content = await fs.readFile(filePath, "utf-8");
       return { content: [{ type: "text" as const, text: content }] };
     } catch {
@@ -49,7 +52,7 @@ export const writeMemoryTool = tool(
         return { content: [{ type: "text" as const, text: "Error: Path traversal not allowed." }], isError: true };
       }
 
-      const filePath = path.join(MEMORY_DIR, file);
+      const filePath = path.join(getMemoryDir(), file);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
 
       if (append) {
@@ -93,7 +96,7 @@ export const updateContextTool = tool(
         };
       }
 
-      await fs.writeFile(CONTEXT_FILE, content);
+      await fs.writeFile(getContextFile(), content);
       return { content: [{ type: "text" as const, text: `Updated CONTEXT.md (${lines} lines). Changes will be reflected in the next message.` }] };
     } catch (error) {
       return {
@@ -142,7 +145,7 @@ export const searchMemoryTool = tool(
         }
       }
 
-      await searchDir(MEMORY_DIR, "");
+      await searchDir(getMemoryDir(), "");
 
       if (results.length === 0) {
         return { content: [{ type: "text" as const, text: `No matches found for "${query}" in memory files.` }] };
@@ -176,7 +179,7 @@ export const saveSessionSummaryTool = tool(
   async ({ summary }) => {
     try {
       const date = new Date().toISOString().split("T")[0];
-      const dir = path.join(MEMORY_DIR, "session-summaries");
+      const dir = path.join(getMemoryDir(), "session-summaries");
       await fs.mkdir(dir, { recursive: true });
 
       const filePath = path.join(dir, `${date}.md`);

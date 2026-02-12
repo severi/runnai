@@ -1,0 +1,12 @@
+# Smoke test — verifies the eval pipeline works end-to-end
+- description: "Smoke test: new runner basic query"
+  vars:
+    fixture: new-runner
+    prompt: >
+      How many total runs do I have in the database?
+      What's my average distance per run?
+  assert:
+    - type: contains
+      value: "km"
+    - type: contains
+      value: "36"

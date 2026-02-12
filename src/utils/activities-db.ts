@@ -1,14 +1,14 @@
 import { Database } from "bun:sqlite";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { getDataDir } from "./paths.js";
 import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType } from "../types/index.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-export const ACTIVITIES_DB_PATH = path.join(PROJECT_ROOT, "data/strava/activities.db");
+export function getActivitiesDbPath(): string {
+  return path.join(getDataDir(), "strava/activities.db");
+}
 
 export function initDatabase(): Database {
-  const db = new Database(ACTIVITIES_DB_PATH);
+  const db = new Database(getActivitiesDbPath());
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS activities (

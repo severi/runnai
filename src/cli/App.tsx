@@ -6,14 +6,15 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createAgentOptions, PROJECT_ROOT } from "../agent.js";
+import { getDataDir } from "../utils/paths.js";
 import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory, clearChatHistory } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
 import { recordExchange, resetUsage, formatExchangeLine, type ExchangeUsage } from "../utils/usage-tracker.js";
 import { commands, getCommandByName, type Command, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
 
-const CONTEXT_FILE = path.join(PROJECT_ROOT, "data/athlete/CONTEXT.md");
-const STRAVA_DB = path.join(PROJECT_ROOT, "data/strava/activities.db");
+const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
+const STRAVA_DB = path.join(getDataDir(), "strava/activities.db");
 
 // Distinguish "/help" (command) from "/Users/foo/bar.pdf" (file path).
 // A command is /word where the word contains no further slashes.
@@ -591,9 +592,9 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
         if (command.name === "reset-profile") {
           // Delete profile and memory, keep Strava data
-          const dirsToClean = ["data/athlete", "data/memory", "data/plans", "data/research"];
+          const dirsToClean = ["athlete", "memory", "plans", "research"];
           for (const dir of dirsToClean) {
-            const fullPath = path.join(PROJECT_ROOT, dir);
+            const fullPath = path.join(getDataDir(), dir);
             try {
               const entries = await fs.readdir(fullPath);
               for (const entry of entries) {

@@ -2,12 +2,12 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
 import { evaluate } from "mathjs";
+import { getDataDir } from "../utils/paths.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const PLANS_DIR = path.join(PROJECT_ROOT, "data/plans");
+function getPlansDir(): string {
+  return path.join(getDataDir(), "plans");
+}
 
 function sanitizeFilename(name: string): string {
   return name
@@ -26,11 +26,11 @@ export const planManagerTool = tool(
   },
   async ({ action, planName, content }) => {
     try {
-      await fs.mkdir(PLANS_DIR, { recursive: true });
+      await fs.mkdir(getPlansDir(), { recursive: true });
 
       switch (action) {
         case "list": {
-          const files = await fs.readdir(PLANS_DIR);
+          const files = await fs.readdir(getPlansDir());
           const plans = files.filter((f) => f.endsWith(".md"));
 
           if (plans.length === 0) {
@@ -39,7 +39,7 @@ export const planManagerTool = tool(
 
           let result = "**Available Training Plans:**\n\n";
           for (const plan of plans) {
-            const filePath = path.join(PLANS_DIR, plan);
+            const filePath = path.join(getPlansDir(), plan);
             const stat = await fs.stat(filePath);
             const fileContent = await fs.readFile(filePath, "utf-8");
             const firstLine = fileContent.split("\n")[0].replace(/^#\s*/, "");
@@ -55,7 +55,7 @@ export const planManagerTool = tool(
             return { content: [{ type: "text" as const, text: "Error: planName and content are required." }], isError: true };
           }
           const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(PLANS_DIR, filename);
+          const filePath = path.join(getPlansDir(), filename);
 
           try {
             await fs.access(filePath);
@@ -73,7 +73,7 @@ export const planManagerTool = tool(
             return { content: [{ type: "text" as const, text: "Error: planName is required." }], isError: true };
           }
           const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(PLANS_DIR, filename);
+          const filePath = path.join(getPlansDir(), filename);
 
           try {
             const planContent = await fs.readFile(filePath, "utf-8");
@@ -88,7 +88,7 @@ export const planManagerTool = tool(
             return { content: [{ type: "text" as const, text: "Error: planName and content are required." }], isError: true };
           }
           const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(PLANS_DIR, filename);
+          const filePath = path.join(getPlansDir(), filename);
 
           try {
             await fs.access(filePath);
@@ -105,7 +105,7 @@ export const planManagerTool = tool(
             return { content: [{ type: "text" as const, text: "Error: planName is required." }], isError: true };
           }
           const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(PLANS_DIR, filename);
+          const filePath = path.join(getPlansDir(), filename);
 
           try {
             await fs.unlink(filePath);

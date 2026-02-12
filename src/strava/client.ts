@@ -1,7 +1,6 @@
 import "dotenv/config";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { fileURLToPath } from "url";
 import { captureOAuthCallback } from "./oauth-server.js";
 import { upsertActivities } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
@@ -18,10 +17,15 @@ import type {
   StravaLap,
 } from "../types/index.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const STRAVA_DATA_DIR = path.join(PROJECT_ROOT, "data/strava");
-const TOKENS_FILE = path.join(STRAVA_DATA_DIR, "tokens.json");
+import { getDataDir } from "../utils/paths.js";
+
+function getStravaDataDir(): string {
+  return path.join(getDataDir(), "strava");
+}
+
+function getTokensFile(): string {
+  return path.join(getDataDir(), "strava/tokens.json");
+}
 
 const TOKEN_EXPIRY_BUFFER_SECONDS = 300;
 
@@ -30,7 +34,7 @@ let refreshPromise: Promise<StravaTokens> | null = null;
 
 async function loadTokens(): Promise<StravaTokens | null> {
   try {
-    const data = await fs.readFile(TOKENS_FILE, "utf-8");
+    const data = await fs.readFile(getTokensFile(), "utf-8");
     return JSON.parse(data);
   } catch {
     return null;
@@ -38,8 +42,8 @@ async function loadTokens(): Promise<StravaTokens | null> {
 }
 
 async function saveTokens(tokens: StravaTokens): Promise<void> {
-  await fs.mkdir(STRAVA_DATA_DIR, { recursive: true });
-  await fs.writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+  await fs.mkdir(getStravaDataDir(), { recursive: true });
+  await fs.writeFile(getTokensFile(), JSON.stringify(tokens, null, 2));
 }
 
 export function getAuthUrl(): string {
@@ -330,7 +334,7 @@ export async function syncActivities(days: number = 30): Promise<SyncResult> {
       page++;
     }
 
-    await fs.mkdir(STRAVA_DATA_DIR, { recursive: true });
+    await fs.mkdir(getStravaDataDir(), { recursive: true });
     upsertActivities(activities);
     await generateRecentSummary();
 
