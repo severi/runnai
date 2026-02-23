@@ -8,8 +8,9 @@ import {
   getStravaBestEfforts,
   getPersonalRecords,
   getActivitiesDbPath,
+  getActivityLaps,
 } from "../utils/activities-db.js";
-import type { ActivityStream, BestEffortResult, EffortContext } from "../types/index.js";
+import type { ActivityStream, BestEffortResult, ActivityLapRecord } from "../types/index.js";
 
 const DISTANCE_TOLERANCE = 50;
 
@@ -40,22 +41,95 @@ interface Activity {
   run_type: string | null;
 }
 
-function computeEffortContext(
-  effortDistanceMeters: number,
-  activityDistanceMeters: number,
-  workoutType: number | null,
-  runType: string | null,
-): EffortContext {
-  const isRace = workoutType === 1 || runType === "race";
-  if (isRace) {
-    return activityDistanceMeters > effortDistanceMeters * 1.3
-      ? "race_with_warmup"
-      : "race";
+/** Phase grouping threshold: laps within this pace range (sec/km) are grouped together */
+const PHASE_PACE_TOLERANCE = 20;
+
+function lapPaceSecPerKm(lap: ActivityLapRecord): number {
+  if (lap.distance <= 0) return 0;
+  return (lap.moving_time / lap.distance) * 1000;
+}
+
+function fmtPace(secPerKm: number): string {
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function groupLapPhases(laps: ActivityLapRecord[]): string {
+  if (laps.length === 0) return "";
+
+  const phases: { minPace: number; maxPace: number; count: number }[] = [];
+  let currentPhase = {
+    minPace: lapPaceSecPerKm(laps[0]),
+    maxPace: lapPaceSecPerKm(laps[0]),
+    count: 1,
+  };
+
+  for (let i = 1; i < laps.length; i++) {
+    const pace = lapPaceSecPerKm(laps[i]);
+    // Check if this lap fits in the current phase
+    const phaseAvg = (currentPhase.minPace + currentPhase.maxPace) / 2;
+    if (Math.abs(pace - phaseAvg) <= PHASE_PACE_TOLERANCE) {
+      currentPhase.minPace = Math.min(currentPhase.minPace, pace);
+      currentPhase.maxPace = Math.max(currentPhase.maxPace, pace);
+      currentPhase.count++;
+    } else {
+      phases.push(currentPhase);
+      currentPhase = { minPace: pace, maxPace: pace, count: 1 };
+    }
   }
-  if (activityDistanceMeters > effortDistanceMeters * 1.5) {
-    return "training_embedded";
+  phases.push(currentPhase);
+
+  return phases
+    .map((p) => {
+      const paceRange =
+        p.minPace === p.maxPace || Math.abs(p.maxPace - p.minPace) < 5
+          ? fmtPace((p.minPace + p.maxPace) / 2)
+          : `${fmtPace(p.minPace)}-${fmtPace(p.maxPace)}`;
+      return `${paceRange} (${p.count})`;
+    })
+    .join(" | ");
+}
+
+function formatCompactLaps(laps: ActivityLapRecord[]): string | null {
+  if (laps.length === 0) return null;
+
+  let paceStr: string;
+  if (laps.length <= 15) {
+    paceStr = laps.map((l) => fmtPace(lapPaceSecPerKm(l))).join(" ");
+  } else {
+    paceStr = groupLapPhases(laps);
   }
-  return "dedicated_training";
+
+  // HR trend: first → peak → last
+  const hrsWithValues = laps.filter((l) => l.average_heartrate !== null);
+  let hrStr = "";
+  if (hrsWithValues.length >= 3) {
+    const first = Math.round(hrsWithValues[0].average_heartrate!);
+    const peak = Math.round(
+      Math.max(...hrsWithValues.map((l) => l.average_heartrate!))
+    );
+    const last = Math.round(
+      hrsWithValues[hrsWithValues.length - 1].average_heartrate!
+    );
+    hrStr = ` | HR: ${first}->${peak}->${last}`;
+  }
+
+  return `Laps (${laps.length}): ${paceStr}${hrStr}`;
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (days <= 0) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${(days / 365).toFixed(1)}y ago`;
 }
 
 function findFastestSegment(
@@ -125,15 +199,6 @@ function formatPace(seconds: number, meters: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}/km`;
 }
 
-function formatEffortContext(ctx: EffortContext, activityKm: string): string {
-  switch (ctx) {
-    case "race": return "Race";
-    case "race_with_warmup": return `Race (${activityKm}km total)`;
-    case "training_embedded": return `Training (${activityKm}km run)`;
-    case "dedicated_training": return "Training";
-  }
-}
-
 function formatDistanceName(meters: number): string {
   if (meters >= 42000) return "Marathon";
   if (meters >= 21000) return "Half Marathon";
@@ -144,22 +209,25 @@ function formatDistanceName(meters: number): string {
 
 function queryStravaEfforts(dist: string, config: { dbName: string; meters: number }, limit: number): BestEffortResult[] {
   const rows = getStravaBestEfforts(config.dbName);
-  return rows.slice(0, limit).map((row) => ({
-    activityId: row.activity_id,
-    activityName: row.activity_name,
-    activityDate: row.start_date_local.split("T")[0],
-    segmentTimeSeconds: row.elapsed_time,
-    segmentDistanceMeters: row.distance_meters,
-    formattedTime: formatTime(row.elapsed_time),
-    pacePerKm: formatPace(row.elapsed_time, config.meters),
-    stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
-    source: "strava" as const,
-    activityDistance: row.activity_distance,
-    workoutType: row.workout_type,
-    runType: row.run_type,
-    prRank: row.pr_rank,
-    effortContext: computeEffortContext(config.meters, row.activity_distance, row.workout_type, row.run_type),
-  }));
+  return rows.slice(0, limit).map((row) => {
+    const laps = getActivityLaps(row.activity_id);
+    return {
+      activityId: row.activity_id,
+      activityName: row.activity_name,
+      activityDate: row.start_date_local.split("T")[0],
+      segmentTimeSeconds: row.elapsed_time,
+      segmentDistanceMeters: row.distance_meters,
+      formattedTime: formatTime(row.elapsed_time),
+      pacePerKm: formatPace(row.elapsed_time, config.meters),
+      stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
+      source: "strava" as const,
+      activityDistance: row.activity_distance,
+      workoutType: row.workout_type,
+      runType: row.run_type,
+      prRank: row.pr_rank,
+      compactLaps: formatCompactLaps(laps),
+    };
+  });
 }
 
 async function computeEfforts(dist: string, config: { dbName: string; meters: number }, limit: number): Promise<BestEffortResult[]> {
@@ -200,6 +268,7 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
         computed_at: new Date().toISOString().split("T")[0],
       });
 
+      const laps = getActivityLaps(run.id);
       efforts.push({
         activityId: run.id,
         activityName: run.name,
@@ -214,7 +283,7 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
         workoutType: run.workout_type,
         runType: run.run_type,
         prRank: null,
-        effortContext: computeEffortContext(config.meters, run.distance, run.workout_type, run.run_type),
+        compactLaps: formatCompactLaps(laps),
       });
 
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -249,7 +318,7 @@ function mergeEfforts(strava: BestEffortResult[], computed: BestEffortResult[], 
 
 export const bestEffortsTool = tool(
   "best_efforts",
-  "Find the athlete's fastest times for standard running distances. Uses Strava's native best efforts (accurate) with GPS stream analysis as fallback.",
+  "Find the athlete's fastest times for standard running distances. Returns each effort with compact lap data showing the run structure (pace per km, HR trend). Use the lap patterns to assess whether each effort represents the athlete's true capability for that distance — look for warmup/cooldown structure, even vs variable splits, and fade patterns. Strava native best efforts with GPS stream analysis as fallback.",
   {
     distance: z
       .enum(["1k", "5k", "10k", "half", "marathon", "all"])
@@ -325,25 +394,29 @@ export const bestEffortsTool = tool(
         }
 
         if (efforts.length > 0) {
-          output += `| Rank | Time | Pace | Date | Activity | Context |\n`;
-          output += `|------|------|------|------|----------|----------|\n`;
+          // Summary table for quick scanning
+          output += `| # | Time | Pace | Date | Activity |\n`;
+          output += `|---|------|------|------|----------|\n`;
 
           efforts.forEach((e, i) => {
             const actKm = (e.activityDistance / 1000).toFixed(1);
-            const contextLabel = formatEffortContext(e.effortContext, actKm);
-            output += `| #${i + 1} | **${e.formattedTime}** | ${e.pacePerKm} | ${e.activityDate} | [${e.activityName}](${e.stravaUrl}) | ${contextLabel} |\n`;
+            const ago = formatTimeAgo(e.activityDate);
+            output += `| ${i + 1} | **${e.formattedTime}** | ${e.pacePerKm} | ${e.activityDate} (${ago}) | [${e.activityName}](${e.stravaUrl}) — ${actKm}km total |\n`;
           });
 
           output += `\n`;
 
-          if (!declaredPR) {
-            const pr = efforts[0];
-            output += `**GPS PR: ${pr.formattedTime}** (${pr.pacePerKm}) from "${pr.activityName}" on ${pr.activityDate}`;
-            if (pr.effortContext === "training_embedded") {
-              output += ` — NOTE: embedded in ${(pr.activityDistance / 1000).toFixed(1)}km training run, not a race effort`;
+          // Lap detail for LLM analysis
+          output += `Lap detail:\n`;
+          efforts.forEach((e, i) => {
+            if (e.compactLaps) {
+              output += `${i + 1}. ${e.formattedTime} "${e.activityName}" — ${e.compactLaps}\n`;
+            } else {
+              output += `${i + 1}. ${e.formattedTime} "${e.activityName}" — (no lap data)\n`;
             }
-            output += `\n`;
-          }
+          });
+
+          output += `\n`;
         }
 
         output += `\n`;
@@ -374,22 +447,25 @@ function getComputedFromDb(config: { dbName: string; meters: number }): BestEffo
       )
       .all(config.dbName) as any[];
 
-    return rows.map((row: any) => ({
-      activityId: row.activity_id,
-      activityName: row.activity_name,
-      activityDate: row.start_date_local.split("T")[0],
-      segmentTimeSeconds: row.elapsed_time,
-      segmentDistanceMeters: row.distance_meters,
-      formattedTime: formatTime(row.elapsed_time),
-      pacePerKm: formatPace(row.elapsed_time, config.meters),
-      stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
-      source: "computed" as const,
-      activityDistance: row.activity_distance,
-      workoutType: row.workout_type ?? null,
-      runType: row.run_type ?? null,
-      prRank: null,
-      effortContext: computeEffortContext(config.meters, row.activity_distance, row.workout_type ?? null, row.run_type ?? null),
-    }));
+    return rows.map((row: any) => {
+      const laps = getActivityLaps(row.activity_id);
+      return {
+        activityId: row.activity_id,
+        activityName: row.activity_name,
+        activityDate: row.start_date_local.split("T")[0],
+        segmentTimeSeconds: row.elapsed_time,
+        segmentDistanceMeters: row.distance_meters,
+        formattedTime: formatTime(row.elapsed_time),
+        pacePerKm: formatPace(row.elapsed_time, config.meters),
+        stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
+        source: "computed" as const,
+        activityDistance: row.activity_distance,
+        workoutType: row.workout_type ?? null,
+        runType: row.run_type ?? null,
+        prRank: null,
+        compactLaps: formatCompactLaps(laps),
+      };
+    });
   } finally {
     db.close();
   }

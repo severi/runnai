@@ -135,6 +135,9 @@ function renderInline(tokens?: Token[]): React.ReactNode {
         return <React.Fragment key={i}>{textToken.text}</React.Fragment>;
       }
 
+      case "paragraph":
+        return <React.Fragment key={i}>{renderInline((token as Tokens.Paragraph).tokens)}</React.Fragment>;
+
       case "br":
         return <Text key={i}>{"\n"}</Text>;
 

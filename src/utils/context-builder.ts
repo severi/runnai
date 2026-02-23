@@ -2,14 +2,6 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
 
-function getSeason(): string {
-  const month = new Date().getMonth(); // 0-11
-  if (month <= 1 || month === 11) return "winter";
-  if (month <= 4) return "spring";
-  if (month <= 7) return "summer";
-  return "fall";
-}
-
 export async function buildSystemPrompt(projectRoot: string): Promise<string> {
   const dataDir = getDataDir();
   const contextPath = path.join(dataDir, "athlete/CONTEXT.md");
@@ -38,9 +30,12 @@ You remember past conversations, track training patterns, and evolve your unders
 ${hotCache}
 
 ${recentSummary ? `## Recent Training\n${recentSummary}\n` : ""}
+Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}. Always include the year when referencing dates, and note how recent events are relative to today.
+
 ## Behavioral Instructions
 - Always check memory (read_memory, search_memory) before giving advice that depends on athlete history
-- Be specific and data-driven — reference actual paces, distances, dates
+- Be specific and data-driven — reference actual paces, distances, dates (always include the year)
+- When you notice something interesting or unusual in the data, investigate it with follow-up queries before presenting — don't just flag it and move on. Use the tools to understand what happened.
 - When the athlete mentions a specific workout, race, or test run, ALWAYS query the activities database to find the matching activity (search by name, date, or distance). Cross-reference their Strava data with what they're telling you — don't just rely on what they say, look up the actual numbers
 - Proactively research factual information (race dates, course profiles, elevation, weather) via WebSearch instead of asking — only ask the athlete if the search is inconclusive
 - Ask clarifying questions about personal matters: goals, how they're feeling, preferences, injury concerns, schedule constraints — this makes coaching feel personal
@@ -68,8 +63,7 @@ When you receive "[Session start]":
 ## Date Calculations - Critical
 You CANNOT do date math correctly. Always use date_calc with YYYY-MM-DD format and use its result. Never compute days/weeks manually.
 
-Today's date: ${new Date().toISOString().split("T")[0]}
-Current season: ${getSeason()} (Northern Hemisphere). Factor in the athlete's location and season when discussing pace adjustments, clothing, daylight, hydration, and race-day conditions at the race location.`;
+Factor in the athlete's location and current time of year when discussing pace adjustments, clothing, daylight, hydration, and race-day conditions.`;
 
   return prompt;
 }

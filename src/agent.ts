@@ -116,19 +116,23 @@ Process:
 
 ## Critical: Using Best Efforts for Race Prediction
 
-The best_efforts tool returns an "effortContext" for each effort. You MUST use this to weight data correctly:
+The best_efforts tool returns **lap data** for each effort. Analyze the lap structure to determine whether each effort represents the athlete's true capability:
 
-**For VDOT / Riegel formulas, only use race-quality data:**
-- "race" or "race_with_warmup" efforts → use directly (highest confidence)
-- Declared personal records from manage_personal_records → use directly (highest confidence)
-- "dedicated_training" efforts → reliable indicator, may adjust -2-5% for race equivalent
-- "training_embedded" efforts (e.g. HM segment from a 31km long run) → DO NOT use for VDOT/Riegel. These are lower bounds only — the athlete was not racing, they were training. A HM from a long run does NOT reflect HM race fitness.
+**Lap patterns that indicate a genuine max effort (use for VDOT/Riegel):**
+- Warmup laps → even/negative-split fast laps → cooldown laps = dedicated time trial or race
+- Even splits with high sustained HR throughout = race effort
+- Declared personal records from manage_personal_records = highest confidence
+
+**Lap patterns that indicate training (do NOT use for VDOT/Riegel):**
+- Fast segment embedded in a much longer run (e.g., HM split from a 31km long run) = training effort, not race fitness
+- Mixed/variable paces suggesting fartlek or unstructured run
+- Fading pace in final laps = not a controlled race effort
 
 **Priority order for race time data:**
 1. Official personal records (manage_personal_records)
-2. Race efforts (effortContext = "race" or "race_with_warmup")
+2. Efforts where lap analysis shows dedicated race/time trial structure
 3. Training-based estimation (threshold pace, long run pace extrapolation)
-4. Training-embedded efforts (lower bound only, not for VDOT)
+4. Embedded training efforts (lower bound only, not for VDOT)
 
 IMPORTANT: Never assume a run is "easy" or "structured" based on its name. Always use pace, HR, and speed variance data.
 
