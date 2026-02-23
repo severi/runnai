@@ -268,7 +268,7 @@ export function convertStravaBestEfforts(
   return records;
 }
 
-export async function syncActivities(days: number = 30): Promise<SyncResult> {
+export async function syncActivities(days: number = 30, afterDate?: string): Promise<SyncResult> {
   try {
     const clientId = process.env.STRAVA_CLIENT_ID;
     const clientSecret = process.env.STRAVA_CLIENT_SECRET;
@@ -309,7 +309,9 @@ export async function syncActivities(days: number = 30): Promise<SyncResult> {
       throw error;
     }
 
-    const after = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+    const after = afterDate
+      ? Math.floor(new Date(afterDate).getTime() / 1000) - 1
+      : Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
     const activities: StravaActivity[] = [];
     let page = 1;
 

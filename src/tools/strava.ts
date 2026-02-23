@@ -330,7 +330,11 @@ export const stravaProfileTool = tool(
       }
       const athlete = profileResult.athlete;
 
-      const syncResult = await syncActivities(days);
+      // Incremental sync if we already have data, full sync otherwise
+      const latestDate = getLatestActivityDate();
+      const syncResult = latestDate
+        ? await syncActivities(days, latestDate)
+        : await syncActivities(days);
 
       // Backfill activity detail (best efforts, laps) for runs that don't have it yet
       let backfillCount = 0;

@@ -2,9 +2,12 @@ import chalk from "chalk";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getSessionUsage, formatTokens } from "../utils/usage-tracker.js";
+import { PROJECT_ROOT } from "../utils/paths.js";
+
+const COMMANDS_DIR = path.join(PROJECT_ROOT, "plugins/coach/commands");
 
 export interface Message {
-  role: "user" | "assistant" | "system" | "tool" | "tool_activity" | "debug" | "status" | "error";
+  role: "user" | "assistant" | "thinking" | "system" | "tool" | "tool_activity" | "debug" | "status" | "error";
   content: string;
 }
 
@@ -114,8 +117,12 @@ export const commands: Command[] = [
     description: "Initial setup — connect Strava and create your profile",
     usage: "/setup",
     handler: async (_args, ctx) => {
+      const protocol = await fs.readFile(
+        path.join(COMMANDS_DIR, "setup.md"),
+        "utf-8"
+      );
       await ctx.streamResponse(
-        "[Onboarding] Follow the setup command protocol. Start with Phase 1: connect Strava (strava_auth), fetch profile + 180 days of data (strava_profile), analyze my training patterns. Then move to Phase 2: ask me ONE specific question about an anomaly you found in my data. Stop and wait for my response."
+        `[Onboarding] Follow this protocol exactly:\n\n${protocol}`
       );
     },
   },

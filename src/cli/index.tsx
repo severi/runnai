@@ -51,6 +51,9 @@ export async function startCLI(): Promise<void> {
 
   await ensureDataDirs();
 
-  const { waitUntilExit } = render(<App resume={resumeFlag} />);
+  const { waitUntilExit } = render(<App resume={resumeFlag} />, {
+    // Ink 6.5+: only update changed lines, reduces flickering
+    patchConsole: false,
+  });
   await waitUntilExit();
 }

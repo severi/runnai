@@ -5,7 +5,7 @@ import Fuse from "fuse.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createAgentOptions, PROJECT_ROOT } from "../agent.js";
+import { createAgentOptions } from "../agent.js";
 import { getDataDir } from "../utils/paths.js";
 import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory, clearChatHistory } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
@@ -14,10 +14,8 @@ import { commands, getCommandByName, type Command, type CommandContext, type Mes
 import { ChatBubble } from "./components/ChatBubble.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
-const STRAVA_DB = path.join(getDataDir(), "strava/activities.db");
 
 // Distinguish "/help" (command) from "/Users/foo/bar.pdf" (file path).
-// A command is /word where the word contains no further slashes.
 function isSlashCommand(text: string): boolean {
   if (!text.startsWith("/")) return false;
   if (text === "/") return true;
@@ -25,40 +23,32 @@ function isSlashCommand(text: string): boolean {
   return !firstToken.includes("/");
 }
 
-// Fuse.js for fuzzy command matching
 const fuse = new Fuse(commands, {
   keys: ["name", "description"],
   threshold: 0.4,
   minMatchCharLength: 1,
 });
 
-// Item rendered once via <Static> — never re-rendered
-interface StaticItem {
+interface MessageItem {
   id: number;
   message: Message;
 }
 
-let nextStaticId = 0;
+// nextId is a useRef inside the component — see nextIdRef
 
-// Extract the most useful argument to show in the status bar
 function extractKeyArg(input: Record<string, unknown>): string {
-  // File path tools
   const filePath = input.file_path || input.path;
   if (typeof filePath === "string") {
-    const parts = filePath.split("/");
-    return parts.slice(-2).join("/");
+    return filePath.split("/").slice(-2).join("/");
   }
-  // Query tools
-  const query = input.query || input.sql;
-  if (typeof query === "string") {
-    return query.length > 50 ? query.slice(0, 50) + "..." : query;
+  const q = input.query || input.sql;
+  if (typeof q === "string") {
+    return q.length > 50 ? q.slice(0, 50) + "..." : q;
   }
-  // Memory / keyed tools
   const key = input.key || input.name || input.topic;
   if (typeof key === "string") {
     return key.length > 50 ? key.slice(0, 50) + "..." : key;
   }
-  // Fallback: first short string arg
   for (const v of Object.values(input)) {
     if (typeof v === "string" && v.length > 0) {
       return v.length > 50 ? v.slice(0, 50) + "..." : v;
@@ -67,7 +57,6 @@ function extractKeyArg(input: Record<string, unknown>): string {
   return "";
 }
 
-// Extract tool_use_id from a user message containing tool_result blocks
 function extractToolUseId(message: SDKMessage): string | null {
   const content = (message as any).message?.content;
   if (Array.isArray(content)) {
@@ -88,8 +77,8 @@ function formatElapsed(seconds: number): string {
 }
 
 interface ActiveTool {
-  id: string;        // tool_use_id from SDK
-  index: number;     // sequential counter
+  id: string;
+  index: number;
   name: string;
   keyArg: string;
   startTime: number;
@@ -98,14 +87,7 @@ interface ActiveTool {
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function ActiveToolsBar({ tools, elapsed }: { tools: ActiveTool[]; elapsed: number }) {
-  if (tools.length === 0) {
-    if (elapsed === 0) return null;
-    return (
-      <Box>
-        <Text color="gray" dimColor>  Thinking... ({formatElapsed(elapsed)})</Text>
-      </Box>
-    );
-  }
+  if (tools.length === 0) return null;
 
   return (
     <Box flexDirection="column">
@@ -125,7 +107,6 @@ function ActiveToolsBar({ tools, elapsed }: { tools: ActiveTool[]; elapsed: numb
 function ToolActivityLine({ content }: { content: string }) {
   const [label, timeStr] = content.split("|||");
   const isError = label.startsWith("✗");
-
   return (
     <Box>
       <Text color={isError ? "red" : "gray"} dimColor={!isError}>  {label}</Text>
@@ -134,15 +115,43 @@ function ToolActivityLine({ content }: { content: string }) {
   );
 }
 
+function renderMessage(item: MessageItem) {
+  const { role, content } = item.message;
+  switch (role) {
+    case "user":
+    case "assistant":
+      return <ChatBubble role={role}>{content}</ChatBubble>;
+    case "thinking":
+      return (
+        <Box marginLeft={1}>
+          <Text dimColor wrap="wrap">{content}</Text>
+        </Box>
+      );
+    case "tool_activity":
+      return <ToolActivityLine content={content} />;
+    case "status":
+      return <Text color="gray">{content}</Text>;
+    case "system":
+      return (
+        <Box marginBottom={1}>
+          <Text color="yellow">{content}</Text>
+        </Box>
+      );
+    default:
+      return null;
+  }
+}
+
 export default function App({ resume = false }: { resume?: boolean }) {
   const { exit } = useApp();
   const [input, setInput] = useState("");
 
-  // Static items: rendered once, pushed to stdout, never re-rendered
-  const [staticItems, setStaticItems] = useState<StaticItem[]>([]);
-  // Live streaming text: re-renders as chunks arrive
+  // Two-tier rendering: committed (Static, scrollback) + dynamic (live, below Static)
+  // Items stay in dynamic until the NEXT user interaction commits them to Static.
+  // This avoids the race condition where items exist in both areas simultaneously.
+  const [committed, setCommitted] = useState<MessageItem[]>([]);
+  const [dynamic, setDynamic] = useState<MessageItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
-  // Debug messages: only shown in verbose panel
   const [debugMessages, setDebugMessages] = useState<Message[]>([]);
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -153,19 +162,14 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const [hasCheckedFirstTime, setHasCheckedFirstTime] = useState(false);
   const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
 
-  // Ref to avoid stale closures in suggestion effect
+  const nextIdRef = useRef(0);
   const prevSuggestionsLen = useRef(0);
-  // Track tool calls per exchange for richer progress display
   const toolCountRef = useRef(0);
-  // Map of active tools keyed by tool_use_id — source of truth (safe in closures)
   const activeToolsMapRef = useRef(new Map<string, ActiveTool>());
-  // AbortController for cancelling active queries
   const abortControllerRef = useRef<AbortController | null>(null);
-  // Live elapsed timer during processing
   const processingStartRef = useRef(0);
   const [elapsed, setElapsed] = useState(0);
 
-  // Live elapsed timer: ticks every second while processing
   useEffect(() => {
     if (!isProcessing) {
       setElapsed(0);
@@ -178,7 +182,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
     return () => clearInterval(interval);
   }, [isProcessing]);
 
-  // Update suggestions when input changes
   useEffect(() => {
     if (isSlashCommand(input)) {
       const partial = input.slice(1).split(/\s+/)[0];
@@ -190,9 +193,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
         setSuggestions(matches);
         setSelectedSuggestion(0);
       }
-      prevSuggestionsLen.current = -1; // force: has suggestions
+      prevSuggestionsLen.current = -1;
     } else {
-      // Only clear if we previously had suggestions (avoid no-op re-render)
       if (prevSuggestionsLen.current !== 0) {
         setSuggestions([]);
         prevSuggestionsLen.current = 0;
@@ -200,12 +202,10 @@ export default function App({ resume = false }: { resume?: boolean }) {
     }
   }, [input]);
 
-  // Check for first-time user and auto-trigger onboarding
   useEffect(() => {
     if (hasCheckedFirstTime || isProcessing) return;
 
     const checkFirstTimeUser = async () => {
-      // If --resume flag: load last session and replay chat history
       if (resume) {
         const lastSession = await loadPersistedSession();
         if (lastSession) {
@@ -215,75 +215,46 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
           const history = await loadChatHistory();
           if (history.length > 0) {
-            setStaticItems(history.map((message) => ({ id: nextStaticId++, message })));
+            setCommitted(history.map((message) => ({ id: nextIdRef.current++, message })));
           }
-          commitMessage("status", "Resumed previous session");
+          addMessage("status", "Resumed previous session", true);
           return;
         }
-        // No session to resume — fall through to normal startup
-        commitMessage("status", "No previous session found, starting fresh");
+        addMessage("status", "No previous session found, starting fresh", true);
       }
 
+      let needsOnboarding = false;
       try {
         const contextContent = await fs.readFile(CONTEXT_FILE, "utf-8");
-        const isFirstTime = contextContent.includes("[not set]") || contextContent.includes("[No goals set yet]");
-
-        if (isFirstTime) {
-          setHasCheckedFirstTime(true);
-          setShowWelcome(false);
-          commitMessage("system", "Welcome! Let me help you get started...\n");
-
-          const setupCommand = getCommandByName("setup");
-          if (setupCommand) {
-            const context: CommandContext = {
-              print: (text) => commitMessage("system", text),
-              streamResponse,
-              getMessages: () => staticItems.map((i) => i.message),
-            };
-            await setupCommand.handler([], context);
-          }
-        } else {
-          setHasCheckedFirstTime(true);
-          setShowWelcome(false);
-          await streamResponse("[Session start]");
-        }
+        needsOnboarding = contextContent.includes("[not set]") || contextContent.includes("[No goals set yet]");
       } catch {
-        // CONTEXT.md missing — check if Strava data exists (reset vs truly first-time)
+        needsOnboarding = true;
+      }
+
+      if (needsOnboarding) {
         setHasCheckedFirstTime(true);
         setShowWelcome(false);
+        addMessage("system", "Welcome! Let me help you get started...\n", true);
 
-        let hasStravaData = false;
-        try {
-          await fs.access(STRAVA_DB);
-          hasStravaData = true;
-        } catch {}
-
-        if (hasStravaData) {
-          // Profile was reset but Strava data exists — rebuild from existing data
-          await streamResponse(
-            "[Profile reset] My profile was reset but Strava data is intact. Rebuild my athlete profile from existing Strava data: fetch my profile (strava_profile), read the recent summary, analyze my training patterns, then ask me about my goals. Do NOT re-sync Strava — the database is already up to date."
-          );
-        } else {
-          // Truly first-time user — full setup
-          commitMessage("system", "Welcome! Let me help you get started...\n");
-
-          const setupCommand = getCommandByName("setup");
-          if (setupCommand) {
-            const context: CommandContext = {
-              print: (text) => commitMessage("system", text),
-              streamResponse,
-              getMessages: () => staticItems.map((i) => i.message),
-            };
-            await setupCommand.handler([], context);
-          }
+        const setupCommand = getCommandByName("setup");
+        if (setupCommand) {
+          const context: CommandContext = {
+            print: (text) => addMessage("system", text),
+            streamResponse,
+            getMessages: () => [...committed, ...dynamic].map((i) => i.message),
+          };
+          await setupCommand.handler([], context);
         }
+      } else {
+        setHasCheckedFirstTime(true);
+        setShowWelcome(false);
+        await streamResponse("[Session start]");
       }
     };
 
     checkFirstTimeUser();
   }, [hasCheckedFirstTime, isProcessing]);
 
-  // Handle Escape to cancel active query
   useInput(
     (_char, key) => {
       if (key.escape && isProcessing && abortControllerRef.current) {
@@ -293,7 +264,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
     { isActive: isProcessing }
   );
 
-  // Handle keyboard input for navigation
   useInput(
     (_char, key) => {
       if (isProcessing) return;
@@ -316,17 +286,34 @@ export default function App({ resume = false }: { resume?: boolean }) {
     { isActive: suggestions.length > 0 || isSlashCommand(input) }
   );
 
-  // Commit a finalized message to static output
-  const commitMessage = (role: Message["role"], content: string) => {
+  // Add a message. direct=true goes straight to Static (startup/non-streaming).
+  // direct=false goes to the dynamic area (during streaming or user interaction).
+  const addMessage = (role: Message["role"], content: string, direct = false) => {
     if (role === "tool" || role === "debug" || role === "error") {
       setDebugMessages((prev) => [...prev.slice(-100), { role, content }]);
-    } else {
-      const message: Message = { role, content };
-      setStaticItems((prev) => [...prev, { id: nextStaticId++, message }]);
-      if (role === "user" || role === "assistant") {
-        appendChatMessage(message);
-      }
+      return;
     }
+    const item: MessageItem = { id: nextIdRef.current++, message: { role, content } };
+    if (direct) {
+      setCommitted((prev) => [...prev, item]);
+    } else {
+      setDynamic((prev) => [...prev, item]);
+    }
+    if (role === "user" || role === "assistant") {
+      appendChatMessage({ role, content });
+    }
+  };
+
+  // Move all dynamic items to Static in one batch. Called at the START of
+  // the next user interaction, not at the end of a response. This ensures
+  // items never exist in both Static and dynamic simultaneously.
+  const commitDynamic = () => {
+    setDynamic((prev) => {
+      if (prev.length > 0) {
+        setCommitted((c) => [...c, ...prev]);
+      }
+      return [];
+    });
   };
 
   const streamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
@@ -345,7 +332,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
       const options = await createAgentOptions();
 
       if (attachments && attachments.length > 0) {
-        // Multimodal path: send content blocks with file attachments
         const contentBlocks = buildContentBlocks(prompt, attachments);
         async function* messageStream(): AsyncIterable<SDKUserMessage> {
           yield {
@@ -360,7 +346,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
           handleMessage(message);
         }
       } else {
-        // Simple string path (unchanged)
         for await (const message of query({ prompt, options })) {
           if (abortController.signal.aborted) break;
           handleMessage(message);
@@ -368,29 +353,31 @@ export default function App({ resume = false }: { resume?: boolean }) {
       }
     } catch (error) {
       if (!abortController.signal.aborted) {
-        commitMessage("system", `Error: ${error instanceof Error ? error.message : error}`);
+        addMessage("system", `Error: ${error instanceof Error ? error.message : error}`);
       }
     }
 
-    // Commit final streaming text as a static message
+    // Add final streaming text as a message
     if (currentResponse.trim()) {
-      commitMessage("assistant", currentResponse);
+      addMessage("assistant", currentResponse);
     }
     if (abortController.signal.aborted) {
-      commitMessage("status", "Cancelled");
+      addMessage("status", "Cancelled");
     }
-    abortControllerRef.current = null;
+
+    // Clean up — items stay in dynamic until next user interaction commits them
     setStreamingText(null);
-    activeToolsMapRef.current.clear();
     setActiveTools([]);
     setIsProcessing(false);
+    abortControllerRef.current = null;
+    activeToolsMapRef.current.clear();
 
     function handleMessage(message: SDKMessage) {
       switch (message.type) {
         case "system":
           if ("subtype" in message && message.subtype === "init") {
             const initMsg = message as SDKMessage & { model: string; session_id?: string };
-            commitMessage("debug", `Model: ${initMsg.model}`);
+            addMessage("debug", `Model: ${initMsg.model}`);
             if (initMsg.session_id) {
               saveSession(initMsg.session_id);
             }
@@ -401,17 +388,18 @@ export default function App({ resume = false }: { resume?: boolean }) {
           for (const block of message.message.content) {
             if (block.type === "text") {
               if (hadToolCall) {
-                // Commit previous response, start new bubble
-                if (currentResponse.trim()) {
-                  commitMessage("assistant", currentResponse);
-                }
-                currentResponse = "";
                 hadToolCall = false;
               }
 
               currentResponse += block.text;
               setStreamingText(currentResponse);
             } else if (block.type === "tool_use") {
+              // Flush accumulated text as thinking
+              if (currentResponse.trim()) {
+                addMessage("thinking", currentResponse);
+                currentResponse = "";
+                setStreamingText(null);
+              }
               hadToolCall = true;
               toolCountRef.current++;
 
@@ -425,7 +413,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
               setActiveTools([...activeToolsMapRef.current.values()]);
 
               const inputStr = formatToolInput(block.input as Record<string, unknown>);
-              commitMessage("tool", `→ ${toolName}(${inputStr})`);
+              addMessage("tool", `→ ${toolName}(${inputStr})`);
             }
           }
           break;
@@ -436,47 +424,41 @@ export default function App({ resume = false }: { resume?: boolean }) {
             const isError = typeof result === "object" && result !== null &&
               "isError" in result && (result as Record<string, unknown>).isError === true;
 
-            // Find which tool this result belongs to via tool_use_id
             const toolUseId = extractToolUseId(message);
             const matchedTool = toolUseId ? activeToolsMapRef.current.get(toolUseId) : null;
-            // Fallback: grab first tool in map if we can't match by ID
             const tool = matchedTool || activeToolsMapRef.current.values().next().value || null;
 
             if (tool) {
               const elapsed = ((Date.now() - tool.startTime) / 1000).toFixed(1);
               const prefix = isError ? "✗" : "✓";
               const label = `${prefix} [${tool.index}] ${tool.name}${tool.keyArg ? `: ${tool.keyArg}` : ""}`;
-              commitMessage("tool_activity", `${label}|||${elapsed}s`);
+              addMessage("tool_activity", `${label}|||${elapsed}s`);
               activeToolsMapRef.current.delete(tool.id);
               setActiveTools([...activeToolsMapRef.current.values()]);
             }
 
-            // Still log details to debug
             if (isError) {
               const errorStr = typeof result === "string"
                 ? result
                 : JSON.stringify(result, null, 2);
-              commitMessage("error", `Tool error: ${errorStr.slice(0, 500)}`);
+              addMessage("error", `Tool error: ${errorStr.slice(0, 500)}`);
             } else {
               const resultStr = typeof result === "string"
                 ? result.slice(0, 200) + (result.length > 200 ? "..." : "")
                 : JSON.stringify(result).slice(0, 200);
-              commitMessage("tool", `← ${resultStr}`);
+              addMessage("tool", `← ${resultStr}`);
             }
           }
           break;
 
-        case "tool_progress": {
-          // Elapsed is computed from startTime; no state update needed
+        case "tool_progress":
           break;
-        }
 
         case "result": {
           if (message.session_id) {
             saveSession(message.session_id);
           }
 
-          // Handle error subtypes
           const subtype = (message as any).subtype as string | undefined;
           if (subtype && subtype !== "success") {
             const errorMessages: Record<string, string> = {
@@ -484,10 +466,9 @@ export default function App({ resume = false }: { resume?: boolean }) {
               error_during_execution: "An error occurred during execution.",
               error_tool_use: "A tool use error occurred.",
             };
-            commitMessage("system", errorMessages[subtype] || `Session ended with: ${subtype}`);
+            addMessage("system", errorMessages[subtype] || `Session ended with: ${subtype}`);
           }
 
-          // Sum token counts from modelUsage (Record<string, ModelUsage>)
           let inputTokens = 0;
           let outputTokens = 0;
           let cacheReadTokens = 0;
@@ -512,7 +493,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
             numTurns: message.num_turns,
           };
           recordExchange(exchange);
-          commitMessage("status", formatExchangeLine(exchange));
+          addMessage("status", formatExchangeLine(exchange));
           break;
         }
       }
@@ -535,7 +516,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const handleSubmit = async (value: string) => {
     if (isProcessing) return;
 
-    // If suggestions are visible, select and execute the highlighted command
     if (suggestions.length > 0) {
       const selected = suggestions[selectedSuggestion];
       if (selected) {
@@ -548,6 +528,10 @@ export default function App({ resume = false }: { resume?: boolean }) {
     }
 
     if (!value.trim()) return;
+
+    // Commit previous dynamic items (previous response) to Static
+    commitDynamic();
+    setInput("");
 
     setShowWelcome(false);
     setSuggestions([]);
@@ -565,16 +549,17 @@ export default function App({ resume = false }: { resume?: boolean }) {
       }
 
       if (command) {
-        commitMessage("user", value);
+        addMessage("user", value);
 
         if (command.name === "exit") {
-          commitMessage("system", "Happy running!");
+          addMessage("system", "Happy running!");
           setTimeout(() => exit(), 500);
           return;
         }
 
         if (command.name === "clear") {
-          setStaticItems([]);
+          setCommitted([]);
+          setDynamic([]);
           setDebugMessages([]);
           setInput("");
           clearPersistedSession();
@@ -585,13 +570,12 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
         if (command.name === "verbose") {
           setVerbose((v) => !v);
-          commitMessage("system", `Verbose mode: ${!verbose ? "ON" : "OFF"}`);
+          addMessage("system", `Verbose mode: ${!verbose ? "ON" : "OFF"}`);
           setInput("");
           return;
         }
 
         if (command.name === "reset-profile") {
-          // Delete profile and memory, keep Strava data
           const dirsToClean = ["athlete", "memory", "plans", "research"];
           for (const dir of dirsToClean) {
             const fullPath = path.join(getDataDir(), dir);
@@ -603,18 +587,18 @@ export default function App({ resume = false }: { resume?: boolean }) {
                 await fs.rm(entryPath, { recursive: true });
               }
             } catch {
-              // Directory doesn't exist yet, that's fine
+              // Directory doesn't exist yet
             }
           }
 
-          // Reset UI and session state, re-trigger onboarding
-          setStaticItems([]);
+          setCommitted([]);
+          setDynamic([]);
           setDebugMessages([]);
           clearPersistedSession();
           resetUsage();
           setHasCheckedFirstTime(false);
           console.clear();
-          commitMessage("system", "Profile reset. Strava data preserved. Restarting onboarding...\n");
+          addMessage("system", "Profile reset. Strava data preserved. Restarting onboarding...\n", true);
           setInput("");
           return;
         }
@@ -624,33 +608,32 @@ export default function App({ resume = false }: { resume?: boolean }) {
           commands.forEach((cmd) => {
             helpText += `  /${cmd.name} — ${cmd.description}\n`;
           });
-          commitMessage("system", helpText);
+          addMessage("system", helpText);
           setInput("");
           return;
         }
 
         const context: CommandContext = {
-          print: (text) => commitMessage("system", text),
+          print: (text) => addMessage("system", text),
           streamResponse,
-          getMessages: () => staticItems.map((i) => i.message),
+          getMessages: () => [...committed, ...dynamic].map((i) => i.message),
         };
 
         await command.handler(args, context);
       } else {
-        commitMessage("system", `Unknown command: /${cmdName}\nType /help for available commands.`);
+        addMessage("system", `Unknown command: /${cmdName}\nType /help for available commands.`);
       }
     } else {
       const { cleanText, attachments } = await detectAndReadFiles(value);
 
-      commitMessage("user", value);
+      addMessage("user", value);
       if (attachments.length > 0) {
-        commitMessage("status", `Attached ${attachments.length} file(s)`);
+        addMessage("status", `Attached ${attachments.length} file(s)`);
       }
 
       await streamResponse(cleanText, attachments.length > 0 ? attachments : undefined);
     }
 
-    setInput("");
   };
 
   return (
@@ -670,31 +653,23 @@ export default function App({ resume = false }: { resume?: boolean }) {
         </Box>
       )}
 
-      {/* Static message history — rendered once, never re-rendered on keystrokes */}
-      <Static items={staticItems}>
+      {/* Committed messages — persisted in scrollback */}
+      <Static items={committed}>
         {(item) => (
           <Box key={item.id} flexDirection="column">
-            {(item.message.role === "user" || item.message.role === "assistant") && (
-              <ChatBubble role={item.message.role}>{item.message.content}</ChatBubble>
-            )}
-            {item.message.role === "tool_activity" && (
-              <ToolActivityLine content={item.message.content} />
-            )}
-            {item.message.role === "status" && (
-              <Box>
-                <Text color="gray">{item.message.content}</Text>
-              </Box>
-            )}
-            {item.message.role === "system" && (
-              <Box marginBottom={1}>
-                <Text color="yellow">{item.message.content}</Text>
-              </Box>
-            )}
+            {renderMessage(item)}
           </Box>
         )}
       </Static>
 
-      {/* Live streaming message — re-renders as chunks arrive */}
+      {/* Dynamic items — stays here until next user interaction commits to Static */}
+      {dynamic.map((item) => (
+        <Box key={item.id} flexDirection="column">
+          {renderMessage(item)}
+        </Box>
+      ))}
+
+      {/* Live streaming message */}
       {streamingText && (
         <ChatBubble role="assistant">{streamingText}</ChatBubble>
       )}
