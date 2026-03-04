@@ -125,6 +125,13 @@ export function initDatabase(): Database {
     // Column already exists
   }
 
+  // Migration: add streams_fetched column
+  try {
+    db.exec("ALTER TABLE activities ADD COLUMN streams_fetched INTEGER DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
+
   // Create activity_laps table
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_laps (
@@ -141,6 +148,20 @@ export function initDatabase(): Database {
       start_index INTEGER,
       end_index INTEGER,
       UNIQUE(activity_id, lap_index)
+    );
+  `);
+
+  // Create activity_streams table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_streams (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      time_data TEXT,
+      distance_data TEXT,
+      heartrate_data TEXT,
+      altitude_data TEXT,
+      grade_smooth_data TEXT,
+      cadence_data TEXT,
+      fetched_at TEXT
     );
   `);
 
