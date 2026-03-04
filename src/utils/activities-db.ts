@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
-import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType } from "../types/index.js";
+import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord } from "../types/index.js";
 
 export function getActivitiesDbPath(): string {
   return path.join(getDataDir(), "strava/activities.db");
@@ -546,6 +546,53 @@ export function getUnclassifiedActivities(limit: number = 50): { id: number; nam
        WHERE type = 'Run' AND trainer = 0 AND detail_fetched = 1 AND run_type IS NULL
        ORDER BY start_date_local DESC LIMIT ?`
     ).all(limit) as any[];
+  } finally {
+    db.close();
+  }
+}
+
+export function saveActivityStreams(activityId: number, streams: ActivityStream): void {
+  const db = initDatabase();
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO activity_streams (
+        activity_id, time_data, distance_data, heartrate_data,
+        altitude_data, grade_smooth_data, cadence_data, fetched_at
+      ) VALUES (
+        $activity_id, $time_data, $distance_data, $heartrate_data,
+        $altitude_data, $grade_smooth_data, $cadence_data, $fetched_at
+      )
+    `).run({
+      $activity_id: activityId,
+      $time_data: JSON.stringify(streams.time),
+      $distance_data: JSON.stringify(streams.distance),
+      $heartrate_data: streams.heartrate ? JSON.stringify(streams.heartrate) : null,
+      $altitude_data: streams.altitude ? JSON.stringify(streams.altitude) : null,
+      $grade_smooth_data: streams.grade_smooth ? JSON.stringify(streams.grade_smooth) : null,
+      $cadence_data: streams.cadence ? JSON.stringify(streams.cadence) : null,
+      $fetched_at: new Date().toISOString(),
+    });
+    db.prepare("UPDATE activities SET streams_fetched = 1 WHERE id = ?").run(activityId);
+  } finally {
+    db.close();
+  }
+}
+
+export function getActivityStreams(activityId: number): ActivityStream | null {
+  const db = initDatabase();
+  try {
+    const row = db.prepare(
+      "SELECT * FROM activity_streams WHERE activity_id = ?"
+    ).get(activityId) as ActivityStreamRecord | undefined;
+    if (!row) return null;
+    return {
+      time: JSON.parse(row.time_data!),
+      distance: JSON.parse(row.distance_data!),
+      heartrate: row.heartrate_data ? JSON.parse(row.heartrate_data) : undefined,
+      altitude: row.altitude_data ? JSON.parse(row.altitude_data) : undefined,
+      grade_smooth: row.grade_smooth_data ? JSON.parse(row.grade_smooth_data) : undefined,
+      cadence: row.cadence_data ? JSON.parse(row.cadence_data) : undefined,
+    };
   } finally {
     db.close();
   }

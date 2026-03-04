@@ -104,6 +104,17 @@ export interface ActivityStream {
   cadence?: number[];
 }
 
+export interface ActivityStreamRecord {
+  activity_id: number;
+  time_data: string | null;
+  distance_data: string | null;
+  heartrate_data: string | null;
+  altitude_data: string | null;
+  grade_smooth_data: string | null;
+  cadence_data: string | null;
+  fetched_at: string;
+}
+
 export interface BestEffortResult {
   activityId: number;
   activityName: string;
