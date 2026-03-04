@@ -1,4 +1,4 @@
-import { type Options, type AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
+import { type Options, type AgentDefinition, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import path from "path";
 import { buildSystemPrompt } from "./utils/context-builder.js";
 import { getCurrentSessionId } from "./utils/session.js";
@@ -209,15 +209,14 @@ Today: ${new Date().toISOString().split("T")[0]}`,
   },
 };
 
-export async function createAgentOptions(): Promise<Options> {
+export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Options> {
   const systemPrompt = await buildSystemPrompt(PROJECT_ROOT);
 
   return {
     cwd: PROJECT_ROOT,
     model: "opus",
     systemPrompt,
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
+    permissionMode: "default",
     settingSources: ["project"],
     plugins: [{ type: "local", path: path.join(PROJECT_ROOT, "plugins/coach") }],
     agents,
@@ -225,6 +224,7 @@ export async function createAgentOptions(): Promise<Options> {
     mcpServers: {
       runnai: coachMcpServer,
     },
+    // AskUserQuestion intentionally NOT listed — routes through canUseTool for interactive handling
     allowedTools: [
       "Skill",
       "Read",
@@ -237,6 +237,7 @@ export async function createAgentOptions(): Promise<Options> {
       "WebFetch",
       "Task",
     ],
+    ...(canUseTool ? { canUseTool } : {}),
     resume: getCurrentSessionId() ?? undefined,
   };
 }

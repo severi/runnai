@@ -10,8 +10,11 @@ import { getDataDir } from "../utils/paths.js";
 import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory, clearChatHistory } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
 import { recordExchange, resetUsage, formatExchangeLine, type ExchangeUsage } from "../utils/usage-tracker.js";
+import { log } from "../utils/logger.js";
 import { commands, getCommandByName, type Command, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
+import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
+import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
 
@@ -162,6 +165,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const [hasCheckedFirstTime, setHasCheckedFirstTime] = useState(false);
   const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
 
+  // AskUserQuestion support — deferred promise pattern
+  const [pendingQuestion, setPendingQuestion] = useState<AskQuestion[] | null>(null);
+  const questionResolverRef = useRef<((result: PermissionResult) => void) | null>(null);
+  const questionInputRef = useRef<Record<string, unknown> | null>(null);
+
   const nextIdRef = useRef(0);
   const prevSuggestionsLen = useRef(0);
   const toolCountRef = useRef(0);
@@ -261,12 +269,12 @@ export default function App({ resume = false }: { resume?: boolean }) {
         abortControllerRef.current.abort();
       }
     },
-    { isActive: isProcessing }
+    { isActive: isProcessing && !pendingQuestion }
   );
 
   useInput(
     (_char, key) => {
-      if (isProcessing) return;
+      if (isProcessing || pendingQuestion) return;
 
       if (key.upArrow && suggestions.length > 0) {
         setSelectedSuggestion((prev) => Math.max(0, prev - 1));
@@ -329,7 +337,33 @@ export default function App({ resume = false }: { resume?: boolean }) {
     abortControllerRef.current = abortController;
 
     try {
-      const options = await createAgentOptions();
+      // canUseTool callback — auto-approves everything except AskUserQuestion,
+      // which gets rendered as an interactive prompt. The SDK blocks the query()
+      // generator while this Promise is pending.
+      const canUseTool = async (
+        toolName: string,
+        input: Record<string, unknown>,
+        options: { signal: AbortSignal },
+      ): Promise<PermissionResult> => {
+        log("canUseTool", toolName, { inputKeys: Object.keys(input) });
+        if (toolName !== "AskUserQuestion") {
+          return { behavior: "allow", updatedInput: input };
+        }
+        const questions = (input as { questions: AskQuestion[] }).questions;
+        return new Promise<PermissionResult>((resolve) => {
+          options.signal.addEventListener("abort", () => {
+            setPendingQuestion(null);
+            questionResolverRef.current = null;
+            questionInputRef.current = null;
+            resolve({ behavior: "deny", message: "Aborted" });
+          }, { once: true });
+          questionResolverRef.current = resolve;
+          questionInputRef.current = input;
+          setPendingQuestion(questions);
+        });
+      };
+
+      const options = await createAgentOptions(canUseTool);
 
       if (attachments && attachments.length > 0) {
         const contentBlocks = buildContentBlocks(prompt, attachments);
@@ -365,6 +399,14 @@ export default function App({ resume = false }: { resume?: boolean }) {
       addMessage("status", "Cancelled");
     }
 
+    // Clean up pending question if stream ended while prompt was active
+    if (questionResolverRef.current) {
+      questionResolverRef.current({ behavior: "deny", message: "Session ended" });
+      questionResolverRef.current = null;
+      questionInputRef.current = null;
+      setPendingQuestion(null);
+    }
+
     // Clean up — items stay in dynamic until next user interaction commits them
     setStreamingText(null);
     setActiveTools([]);
@@ -373,8 +415,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
     activeToolsMapRef.current.clear();
 
     function handleMessage(message: SDKMessage) {
+      log("sdk_message", message.type, "subtype" in message ? { subtype: (message as any).subtype } : undefined);
+
       switch (message.type) {
         case "system":
+          log("system_msg", JSON.stringify(message).slice(0, 2000));
           if ("subtype" in message && message.subtype === "init") {
             const initMsg = message as SDKMessage & { model: string; session_id?: string };
             addMessage("debug", `Model: ${initMsg.model}`);
@@ -394,6 +439,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
               currentResponse += block.text;
               setStreamingText(currentResponse);
             } else if (block.type === "tool_use") {
+              log("tool_use", block.name, block.input);
               // Flush accumulated text as thinking
               if (currentResponse.trim()) {
                 addMessage("thinking", currentResponse);
@@ -421,6 +467,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
         case "user":
           if (message.tool_use_result !== undefined) {
             const result = message.tool_use_result as unknown;
+            const resultStr = typeof result === "string" ? result : JSON.stringify(result);
+            log("tool_result", resultStr.slice(0, 1000));
             const isError = typeof result === "object" && result !== null &&
               "isError" in result && (result as Record<string, unknown>).isError === true;
 
@@ -674,8 +722,38 @@ export default function App({ resume = false }: { resume?: boolean }) {
         <ChatBubble role="assistant">{streamingText}</ChatBubble>
       )}
 
-      {/* Active tools progress */}
-      {isProcessing && (
+      {/* AskUserQuestion interactive prompt */}
+      {pendingQuestion && (
+        <QuestionPrompt
+          questions={pendingQuestion}
+          onSubmit={(answers) => {
+            const resolver = questionResolverRef.current;
+            const input = questionInputRef.current;
+            questionResolverRef.current = null;
+            questionInputRef.current = null;
+            setPendingQuestion(null);
+            resolver?.({
+              behavior: "allow",
+              updatedInput: { ...input, answers },
+            });
+          }}
+          onCancel={(reason) => {
+            const resolver = questionResolverRef.current;
+            questionResolverRef.current = null;
+            questionInputRef.current = null;
+            setPendingQuestion(null);
+            resolver?.({
+              behavior: "deny",
+              message: reason === "chat"
+                ? "User wants to discuss this conversationally instead. Ask them in natural language."
+                : "User dismissed the question prompt.",
+            });
+          }}
+        />
+      )}
+
+      {/* Active tools progress — hidden during question prompt */}
+      {isProcessing && !pendingQuestion && (
         <ActiveToolsBar tools={activeTools} elapsed={elapsed} />
       )}
 
@@ -723,20 +801,22 @@ export default function App({ resume = false }: { resume?: boolean }) {
         </Box>
       )}
 
-      {/* Input area */}
-      <Box borderStyle="round" borderColor={isProcessing ? "gray" : "cyan"} paddingX={1}>
-        <Text color="cyan" bold>{">"} </Text>
-        {isProcessing ? (
-          <Text dimColor>Thinking...{elapsed > 0 ? ` (${formatElapsed(elapsed)})` : ""} · Esc to cancel</Text>
-        ) : (
-          <TextInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            placeholder="Ask anything or type / for commands"
-          />
-        )}
-      </Box>
+      {/* Input area — hidden during question prompt */}
+      {!pendingQuestion && (
+        <Box borderStyle="round" borderColor={isProcessing ? "gray" : "cyan"} paddingX={1}>
+          <Text color="cyan" bold>{">"} </Text>
+          {isProcessing ? (
+            <Text dimColor>Thinking...{elapsed > 0 ? ` (${formatElapsed(elapsed)})` : ""} · Esc to cancel</Text>
+          ) : (
+            <TextInput
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              placeholder="Ask anything or type / for commands"
+            />
+          )}
+        </Box>
+      )}
 
       {/* Footer hint */}
       {!showWelcome && !isProcessing && (

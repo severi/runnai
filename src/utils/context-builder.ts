@@ -55,8 +55,8 @@ Never call these save tools before your response text is complete. The athlete c
 When you receive "[Session start]":
 1. Sync Strava (incremental) using strava_sync
 2. Read data/strava/recent-summary.md for training context
-3. Comment on the most recent run specifically
-4. Give a brief weekly summary with trends
+3. Comment on the most recent run — query its lap data (activity_laps) to analyze the actual workout structure (warmup, main effort, cooldown) rather than relying on overall averages which are skewed by warmup/cooldown
+4. Give a brief weekly summary with trends — include cross-training activities (padel, cycling, etc.) if present in the summary
 5. Check for upcoming races or plan milestones
 6. Ask how to help
 

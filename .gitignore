@@ -21,5 +21,8 @@ evals/results/
 evals/output/
 .promptfoo/
 
+# Debug logs
+logs/
+
 # OS
 .DS_Store

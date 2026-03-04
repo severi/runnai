@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Text, useInput } from "ink";
 
 interface TextInputProps {
@@ -39,11 +39,35 @@ export function TextInput({
   focus = true,
   showCursor = true,
 }: TextInputProps) {
-  const [cursorOffset, setCursorOffset] = useState(value.length);
+  // Display state — drives rendering, always consistent with each other
+  const [displayValue, setDisplayValue] = useState(value);
+  const [displayCursor, setDisplayCursor] = useState(value.length);
 
-  // Clamp cursor when value changes externally
+  // Refs — synchronous source of truth for the useInput handler.
+  // NEVER overwritten during render. Only updated by the handler and
+  // the external-sync effect.
+  const valueRef = useRef(value);
+  const cursorRef = useRef(value.length);
+
+  // Set when the handler calls onChange; cleared by the sync effect.
+  // While true, the effect knows our change is propagating through React
+  // and skips overwriting our refs with a stale prop.
+  const selfUpdatedRef = useRef(false);
+
+  // Sync from external value changes (tab completion, escape, clear).
+  // Only acts when the handler HASN'T recently updated — if selfUpdatedRef
+  // is true, the arriving prop is just our own onChange echoing back.
   useEffect(() => {
-    setCursorOffset((prev) => Math.min(prev, value.length));
+    if (selfUpdatedRef.current) {
+      selfUpdatedRef.current = false;
+      return;
+    }
+    if (value !== valueRef.current) {
+      valueRef.current = value;
+      cursorRef.current = value.length;
+      setDisplayValue(value);
+      setDisplayCursor(value.length);
+    }
   }, [value]);
 
   useInput(
@@ -61,12 +85,14 @@ export function TextInput({
       }
 
       if (key.return) {
-        onSubmit?.(value);
+        onSubmit?.(valueRef.current);
         return;
       }
 
-      let nextCursor = cursorOffset;
-      let nextValue = value;
+      // Read from refs — always the latest state, even between renders
+      const oldValue = valueRef.current;
+      let nextCursor = cursorRef.current;
+      let nextValue = oldValue;
 
       // --- Readline keybindings ---
 
@@ -75,78 +101,88 @@ export function TextInput({
         nextCursor = 0;
       } else if (key.ctrl && input === "e") {
         // Ctrl+E: end of line
-        nextCursor = value.length;
+        nextCursor = nextValue.length;
       } else if (key.ctrl && input === "b") {
         // Ctrl+B: back one char
-        nextCursor = Math.max(0, cursorOffset - 1);
+        nextCursor = Math.max(0, nextCursor - 1);
       } else if (key.ctrl && input === "f") {
         // Ctrl+F: forward one char
-        nextCursor = Math.min(value.length, cursorOffset + 1);
+        nextCursor = Math.min(nextValue.length, nextCursor + 1);
       } else if (key.meta && input === "b") {
         // Alt+B: back one word
-        nextCursor = prevWordBoundary(value, cursorOffset);
+        nextCursor = prevWordBoundary(nextValue, nextCursor);
       } else if (key.meta && input === "f") {
         // Alt+F: forward one word
-        nextCursor = nextWordBoundary(value, cursorOffset);
+        nextCursor = nextWordBoundary(nextValue, nextCursor);
       } else if (key.ctrl && input === "k") {
         // Ctrl+K: kill to end of line
-        nextValue = value.slice(0, cursorOffset);
+        nextValue = nextValue.slice(0, nextCursor);
       } else if (key.ctrl && input === "u") {
         // Ctrl+U: kill to start of line
-        nextValue = value.slice(cursorOffset);
+        nextValue = nextValue.slice(nextCursor);
         nextCursor = 0;
       } else if (key.ctrl && input === "w") {
         // Ctrl+W: delete word backward
-        const boundary = prevWordBoundary(value, cursorOffset);
-        nextValue = value.slice(0, boundary) + value.slice(cursorOffset);
+        const boundary = prevWordBoundary(nextValue, nextCursor);
+        nextValue = nextValue.slice(0, boundary) + nextValue.slice(nextCursor);
         nextCursor = boundary;
       } else if (key.meta && input === "d") {
         // Alt+D: delete word forward
-        const boundary = nextWordBoundary(value, cursorOffset);
-        nextValue = value.slice(0, cursorOffset) + value.slice(boundary);
+        const boundary = nextWordBoundary(nextValue, nextCursor);
+        nextValue = nextValue.slice(0, nextCursor) + nextValue.slice(boundary);
       } else if (key.ctrl && input === "d") {
         // Ctrl+D: delete char forward
-        if (cursorOffset < value.length) {
-          nextValue = value.slice(0, cursorOffset) + value.slice(cursorOffset + 1);
+        if (nextCursor < nextValue.length) {
+          nextValue = nextValue.slice(0, nextCursor) + nextValue.slice(nextCursor + 1);
         }
       } else if (key.leftArrow) {
         if (showCursor) {
           nextCursor = key.meta
-            ? prevWordBoundary(value, cursorOffset)
-            : Math.max(0, cursorOffset - 1);
+            ? prevWordBoundary(nextValue, nextCursor)
+            : Math.max(0, nextCursor - 1);
         }
       } else if (key.rightArrow) {
         if (showCursor) {
           nextCursor = key.meta
-            ? nextWordBoundary(value, cursorOffset)
-            : Math.min(value.length, cursorOffset + 1);
+            ? nextWordBoundary(nextValue, nextCursor)
+            : Math.min(nextValue.length, nextCursor + 1);
         }
       } else if (key.backspace || key.delete) {
-        if (cursorOffset > 0) {
+        if (nextCursor > 0) {
           nextValue =
-            value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
-          nextCursor = cursorOffset - 1;
+            nextValue.slice(0, nextCursor - 1) + nextValue.slice(nextCursor);
+          nextCursor = nextCursor - 1;
         }
       } else if (input && !key.ctrl && !key.meta) {
         // Regular character(s) — includes paste
         nextValue =
-          value.slice(0, cursorOffset) + input + value.slice(cursorOffset);
-        nextCursor = cursorOffset + input.length;
+          nextValue.slice(0, nextCursor) + input + nextValue.slice(nextCursor);
+        nextCursor = nextCursor + input.length;
       }
 
       nextCursor = Math.max(0, Math.min(nextCursor, nextValue.length));
-      setCursorOffset(nextCursor);
 
-      if (nextValue !== value) {
+      // Update refs synchronously — next keystroke sees correct state
+      // even if React hasn't re-rendered yet
+      cursorRef.current = nextCursor;
+      valueRef.current = nextValue;
+
+      // Update display state (React batches these)
+      setDisplayCursor(nextCursor);
+      setDisplayValue(nextValue);
+
+      // Notify parent if value changed
+      if (nextValue !== oldValue) {
+        selfUpdatedRef.current = true;
         onChange(nextValue);
       }
     },
     { isActive: focus }
   );
 
-  // --- Render ---
+  // --- Render from display state (never from prop) ---
 
-  if (!value && placeholder) {
+  if (!displayValue && placeholder) {
     if (showCursor && focus) {
       return (
         <Text>
@@ -159,14 +195,14 @@ export function TextInput({
   }
 
   if (!showCursor || !focus) {
-    return <Text>{value}</Text>;
+    return <Text>{displayValue}</Text>;
   }
 
-  const before = value.slice(0, cursorOffset);
+  const before = displayValue.slice(0, displayCursor);
   const cursorChar =
-    cursorOffset < value.length ? value[cursorOffset] : " ";
+    displayCursor < displayValue.length ? displayValue[displayCursor] : " ";
   const after =
-    cursorOffset < value.length ? value.slice(cursorOffset + 1) : "";
+    displayCursor < displayValue.length ? displayValue.slice(displayCursor + 1) : "";
 
   return (
     <Text>
