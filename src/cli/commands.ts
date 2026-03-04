@@ -142,11 +142,14 @@ export const commands: Command[] = [
     description: "Create or update a training plan",
     usage: "/plan [goal] — e.g., /plan marathon sub-4",
     handler: async (args, ctx) => {
-      const goal = args.length > 0 ? args.join(" ") : "";
-      const prompt = goal
-        ? `Create a training plan for: ${goal}. First assess my current fitness, then build a periodized plan.`
-        : `Read data/athlete/CONTEXT.md for my goals and help me create a training plan. First assess my current fitness.`;
-      await ctx.streamResponse(prompt);
+      const protocol = await fs.readFile(
+        path.join(COMMANDS_DIR, "plan.md"),
+        "utf-8"
+      );
+      const goal = args.length > 0 ? `Goal: ${args.join(" ")}\n\n` : "";
+      await ctx.streamResponse(
+        `[Training Plan] ${goal}Follow this protocol exactly:\n\n${protocol}`
+      );
     },
   },
   {
