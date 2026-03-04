@@ -473,7 +473,7 @@ export const stravaAuthTool = tool(
 
 export const queryActivitiesTool = tool(
   "query_activities",
-  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data), 'activity_laps' (per-lap splits with distance, pace, HR — JOIN on activity_id), 'best_efforts' (PRs for standard distances).",
+  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data, includes streams_fetched flag), 'activity_laps' (per-lap splits with distance, pace, HR — JOIN on activity_id), 'activity_streams' (per-second data — use get_activity_streams tool instead for easier access), 'best_efforts' (PRs for standard distances).",
   {
     query: z.string().describe("SQL SELECT query. Can query activities, activity_laps (activity_id, lap_index, distance, elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate), and best_efforts tables."),
   },
