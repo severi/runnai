@@ -10,6 +10,7 @@ import {
   syncActivities,
   getAthleteProfile,
   fetchActivityDetail,
+  fetchActivityStream,
   convertStravaBestEfforts,
   updateActivity,
 } from "../strava/client.js";
@@ -25,6 +26,7 @@ import {
   getActivityLaps,
   setRunType,
   getUnclassifiedActivities,
+  saveActivityStreams,
 } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
@@ -137,6 +139,15 @@ export const stravaSyncTool = tool(
             upsertActivityLaps(run.id, lapRecords);
           }
           markActivityDetailFetched(run.id);
+          // Fetch per-second streams for detailed analysis
+          try {
+            const streams = await fetchActivityStream(run.id);
+            if (streams) {
+              saveActivityStreams(run.id, streams);
+            }
+          } catch {
+            // Stream fetch is best-effort, don't fail sync
+          }
           detailFetched++;
           await new Promise((resolve) => setTimeout(resolve, 50));
         } catch (error) {
@@ -173,6 +184,15 @@ export const stravaSyncTool = tool(
               upsertActivityLaps(activity.id, lapRecords);
             }
             markActivityDetailFetched(activity.id);
+            // Fetch per-second streams for detailed analysis
+            try {
+              const streams = await fetchActivityStream(activity.id);
+              if (streams) {
+                saveActivityStreams(activity.id, streams);
+              }
+            } catch {
+              // Stream fetch is best-effort
+            }
             backfillCount++;
             await new Promise((resolve) => setTimeout(resolve, 100));
           } catch (error) {
