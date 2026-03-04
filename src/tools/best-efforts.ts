@@ -2,13 +2,13 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
 import { Database } from "bun:sqlite";
-import { fetchActivityStream } from "../strava/client.js";
 import {
   upsertBestEffort,
   getStravaBestEfforts,
   getPersonalRecords,
   getActivitiesDbPath,
   getActivityLaps,
+  getActivityStreams,
 } from "../utils/activities-db.js";
 import type { ActivityStream, BestEffortResult, ActivityLapRecord } from "../types/index.js";
 
@@ -247,7 +247,7 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
     const efforts: BestEffortResult[] = [];
 
     for (const run of runs) {
-      const stream = await fetchActivityStream(run.id);
+      const stream = getActivityStreams(run.id);
       if (!stream) continue;
 
       const segment = findFastestSegment(stream, config.meters);
