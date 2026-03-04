@@ -98,6 +98,10 @@ export interface MemoryFile {
 export interface ActivityStream {
   time: number[];
   distance: number[];
+  heartrate?: number[];
+  altitude?: number[];
+  grade_smooth?: number[];
+  cadence?: number[];
 }
 
 export interface BestEffortResult {
