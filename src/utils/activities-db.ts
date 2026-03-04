@@ -155,8 +155,8 @@ export function initDatabase(): Database {
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_streams (
       activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
-      time_data TEXT,
-      distance_data TEXT,
+      time_data TEXT NOT NULL,
+      distance_data TEXT NOT NULL,
       heartrate_data TEXT,
       altitude_data TEXT,
       grade_smooth_data TEXT,

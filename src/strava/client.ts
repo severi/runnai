@@ -137,6 +137,10 @@ export async function fetchActivityStream(activityId: number): Promise<ActivityS
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
+  if (response.status === 429) {
+    throw new Error("RATE_LIMITED");
+  }
+
   if (!response.ok) {
     return null;
   }
