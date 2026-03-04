@@ -382,6 +382,15 @@ export const stravaProfileTool = tool(
             }));
             upsertActivityLaps(activity.id, lapRecords);
           }
+          // Fetch per-second streams for detailed analysis
+          try {
+            const streams = await fetchActivityStream(activity.id);
+            if (streams) {
+              saveActivityStreams(activity.id, streams);
+            }
+          } catch {
+            // Stream fetch is best-effort
+          }
           markActivityDetailFetched(activity.id);
           backfillCount++;
           await new Promise((resolve) => setTimeout(resolve, 50));
