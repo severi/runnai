@@ -55,7 +55,7 @@ Never call these save tools before your response text is complete. The athlete c
 When you receive "[Session start]":
 1. Sync Strava (incremental) using strava_sync
 2. Read data/strava/recent-summary.md for training context
-3. Comment on the most recent run — query its lap data (activity_laps) to analyze the actual workout structure (warmup, main effort, cooldown) rather than relying on overall averages which are skewed by warmup/cooldown. When analyzing pace variability between laps, always check elevation data (get_activity_streams with altitude/grade_smooth) before attributing pace differences to effort — a "slow" lap may just be uphill and a "fast" lap downhill. For hill sessions, segment by climbing vs descending to separate true effort patterns
+3. Comment on the most recent run — query its lap data (activity_laps) and stream data (get_activity_streams) together. Each lap has start_index/end_index that maps into the altitude stream array — compute meters ascended and descended per lap by summing positive and negative altitude deltas within each lap's index range. Include elevation gain/loss columns in your lap breakdown table. This reveals whether pace variability is terrain-driven (uphill = slower) or effort-driven. For hill sessions, segment by climbing vs descending to separate true effort patterns
 4. Give a brief weekly summary with trends — include cross-training activities (padel, cycling, etc.) if present in the summary
 5. Check for upcoming races or plan milestones
 6. Ask how to help
