@@ -10,6 +10,7 @@
     "dev": "bun src/index.tsx",
     "reset": "rm -rf data/athlete data/memory data/plans data/research data/.session data/.chat-history.json && echo 'Reset complete. Strava data preserved.'",
     "reset:all": "rm -rf data/athlete data/memory data/plans data/research data/strava/activities.db data/strava/recent-summary.md data/.session data/.chat-history.json && echo 'Full reset complete. Strava tokens preserved.'",
+    "test": "bun test src/",
     "evals": "cd evals && bunx promptfoo eval",
     "evals:view": "bunx promptfoo view"
   },

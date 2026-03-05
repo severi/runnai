@@ -18,6 +18,26 @@ import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
 
+/** Iterate an async iterable but break immediately when an AbortSignal fires. */
+async function* abortable<T>(iterable: AsyncIterable<T>, signal: AbortSignal): AsyncGenerator<T> {
+  const iterator = iterable[Symbol.asyncIterator]();
+  const abortPromise = new Promise<never>((_, reject) => {
+    signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+  });
+  try {
+    while (true) {
+      const result = await Promise.race([iterator.next(), abortPromise]);
+      if (result.done) break;
+      yield result.value;
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return;
+    throw err;
+  } finally {
+    iterator.return?.();
+  }
+}
+
 // Distinguish "/help" (command) from "/Users/foo/bar.pdf" (file path).
 function isSlashCommand(text: string): boolean {
   if (!text.startsWith("/")) return false;
@@ -375,13 +395,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
             session_id: getCurrentSessionId() ?? crypto.randomUUID(),
           };
         }
-        for await (const message of query({ prompt: messageStream(), options })) {
-          if (abortController.signal.aborted) break;
+        for await (const message of abortable(query({ prompt: messageStream(), options }), abortController.signal)) {
           handleMessage(message);
         }
       } else {
-        for await (const message of query({ prompt, options })) {
-          if (abortController.signal.aborted) break;
+        for await (const message of abortable(query({ prompt, options }), abortController.signal)) {
           handleMessage(message);
         }
       }

@@ -1,4 +1,4 @@
-import type { ActivityLapRecord, HrZones, ClassificationResult, RunType } from "../types/index.js";
+import type { ActivityLapRecord, HrZones, ClassificationResult, RunType, HillProfile } from "../types/index.js";
 
 interface ActivityData {
   id: number;
@@ -9,28 +9,102 @@ interface ActivityData {
   workout_type: number | null;
 }
 
+export function detectHillProfile(
+  laps: ActivityLapRecord[],
+  totalDistanceM: number
+): HillProfile | null {
+  const lapsWithElev = laps.filter(
+    l => l.elevation_gain !== null && l.elevation_loss !== null
+  );
+  if (lapsWithElev.length === 0) return null;
+
+  const totalGain = lapsWithElev.reduce((s, l) => s + (l.elevation_gain ?? 0), 0);
+  const totalLoss = lapsWithElev.reduce((s, l) => s + (l.elevation_loss ?? 0), 0);
+  const gainPerKm = totalDistanceM > 0 ? (totalGain / totalDistanceM) * 1000 : 0;
+  const maxSegmentGain = Math.max(...lapsWithElev.map(l => l.elevation_gain ?? 0));
+
+  // Hill repeat detection: structured laps with alternating high-gain and high-loss laps
+  let hillRepeatCount: number | null = null;
+  if (lapsWithElev.length >= 4) {
+    const climbLaps = lapsWithElev.filter(l => (l.elevation_gain ?? 0) > 25);
+    const descendLaps = lapsWithElev.filter(l => (l.elevation_loss ?? 0) > 25);
+    if (climbLaps.length >= 2 && descendLaps.length >= 2) {
+      if (checkAlternatingElevation(lapsWithElev)) {
+        hillRepeatCount = climbLaps.length;
+      }
+    }
+  }
+
+  if (hillRepeatCount !== null) {
+    return { category: "hill_repeat", totalGainM: totalGain, totalLossM: totalLoss,
+             gainPerKm, maxSegmentGainM: maxSegmentGain, hillRepeatCount };
+  }
+  if (gainPerKm >= 25) {
+    return { category: "hilly", totalGainM: totalGain, totalLossM: totalLoss,
+             gainPerKm, maxSegmentGainM: maxSegmentGain, hillRepeatCount: null };
+  }
+  if (gainPerKm >= 12) {
+    return { category: "rolling", totalGainM: totalGain, totalLossM: totalLoss,
+             gainPerKm, maxSegmentGainM: maxSegmentGain, hillRepeatCount: null };
+  }
+  return { category: "flat", totalGainM: totalGain, totalLossM: totalLoss,
+           gainPerKm, maxSegmentGainM: maxSegmentGain, hillRepeatCount: null };
+}
+
+function checkAlternatingElevation(laps: ActivityLapRecord[]): boolean {
+  // Check if laps alternate between primarily-climbing and primarily-descending
+  let alternations = 0;
+  for (let i = 1; i < laps.length; i++) {
+    const prevClimb = (laps[i - 1].elevation_gain ?? 0) > (laps[i - 1].elevation_loss ?? 0);
+    const currClimb = (laps[i].elevation_gain ?? 0) > (laps[i].elevation_loss ?? 0);
+    if (prevClimb !== currClimb) alternations++;
+  }
+  return alternations >= Math.floor(laps.length * 0.6);
+}
+
 export function classifyRun(
   activity: ActivityData,
   laps: ActivityLapRecord[],
   hrZones: HrZones | null,
-  easyPaceRef: number
+  easyPaceRef: number,
+  hillProfile?: HillProfile | null
 ): ClassificationResult {
   // Race override from Strava workout_type
   if (activity.workout_type === 1) {
     return { run_type: "race", run_type_detail: null, confidence: "high" };
   }
 
+  // Hill repeat override
+  if (hillProfile?.category === "hill_repeat" && hillProfile.hillRepeatCount) {
+    return {
+      run_type: "hill_repeat",
+      run_type_detail: `${hillProfile.hillRepeatCount}x reps, +${Math.round(hillProfile.totalGainM)}m`,
+      confidence: "high",
+    };
+  }
+
+  let result: ClassificationResult;
+
   if (laps.length === 0) {
-    return classifyByPaceAndHr(activity, hrZones, easyPaceRef);
+    result = classifyByPaceAndHr(activity, hrZones, easyPaceRef);
+  } else {
+    const isAutoLap = detectAutoLaps(laps);
+    if (isAutoLap) {
+      result = classifyAutoLapRun(activity, hrZones, easyPaceRef);
+    } else {
+      result = classifyStructuredLapRun(activity, laps, hrZones, easyPaceRef);
+    }
   }
 
-  const isAutoLap = detectAutoLaps(laps);
-
-  if (isAutoLap) {
-    return classifyAutoLapRun(activity, hrZones, easyPaceRef);
+  // Annotate with terrain info for rolling/hilly runs
+  if (hillProfile && hillProfile.category !== "flat" && hillProfile.category !== "hill_repeat") {
+    const elevNote = `+${Math.round(hillProfile.gainPerKm)}m/km`;
+    result.run_type_detail = result.run_type_detail
+      ? `${result.run_type_detail}, ${elevNote}`
+      : elevNote;
   }
 
-  return classifyStructuredLapRun(activity, laps, hrZones, easyPaceRef);
+  return result;
 }
 
 function detectAutoLaps(laps: ActivityLapRecord[]): boolean {
