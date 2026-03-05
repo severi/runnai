@@ -144,7 +144,7 @@ export interface StravaBestEffort {
   pr_rank: number | null;
 }
 
-export type RunType = "easy" | "tempo" | "intervals" | "fartlek" | "long_run" | "race" | "recovery" | "threshold" | "progression" | "unknown";
+export type RunType = "easy" | "tempo" | "intervals" | "fartlek" | "long_run" | "race" | "recovery" | "threshold" | "progression" | "hill_repeat" | "unknown";
 
 export interface StravaLap {
   id: number;
@@ -172,6 +172,8 @@ export interface ActivityLapRecord {
   max_heartrate: number | null;
   start_index: number;
   end_index: number;
+  elevation_gain: number | null;
+  elevation_loss: number | null;
 }
 
 export interface HrZones {
@@ -201,4 +203,103 @@ export interface StravaBestEffortRecord {
   end_index: number;
   pr_rank: number | null;
   fetched_at: string;
+}
+
+export interface HillProfile {
+  category: "flat" | "rolling" | "hilly" | "hill_repeat";
+  totalGainM: number;
+  totalLossM: number;
+  gainPerKm: number;
+  maxSegmentGainM: number;
+  hillRepeatCount: number | null;
+}
+
+export interface LapSummary {
+  lap_index: number;
+  distance_m: number;
+  pace_sec_per_km: number;
+  elevation_gain: number | null;
+  elevation_loss: number | null;
+  avg_heartrate: number | null;
+}
+
+export interface ActivityAnalysisRecord {
+  activity_id: number;
+  run_type: string;
+  run_type_detail: string | null;
+  classification_confidence: string;
+  hill_category: string | null;
+  distance_m: number;
+  moving_time_s: number;
+  pace_sec_per_km: number;
+  elevation_gain_m: number | null;
+  elevation_loss_m: number | null;
+  grade_adjusted_pace_sec_per_km: number | null;
+  avg_heartrate: number | null;
+  max_heartrate: number | null;
+  lap_summaries: LapSummary[];
+  similar_runs_7d: number;
+  similar_runs_30d: number;
+  avg_pace_similar_30d: number | null;
+  pace_vs_similar_delta: number | null;
+  prose_summary: string | null;
+  prose_generated_at: string | null;
+  analyzed_at: string;
+  analysis_version: number;
+}
+
+// --- Stream Analysis Types ---
+
+export interface HrZoneDistribution {
+  zone1_s: number;  // recovery (< LT1 * 0.88)
+  zone2_s: number;  // aerobic (LT1 * 0.88 to LT1)
+  zone3_s: number;  // tempo (LT1 to LT2)
+  zone4_s: number;  // threshold (LT2 to maxHR * 0.97)
+  zone5_s: number;  // VO2max / anaerobic (> maxHR * 0.97)
+  total_hr_s: number;
+}
+
+export type SplitType = "negative" | "positive" | "even";
+
+export interface PhaseSegment {
+  phase: "warmup" | "work" | "recovery" | "cooldown" | "stopped";
+  start_s: number;
+  end_s: number;
+  distance_m: number;
+  avg_pace_sec_per_km: number | null;
+  avg_hr: number | null;
+  elevation_gain_m: number | null;
+  elevation_loss_m: number | null;
+}
+
+export interface DetectedInterval {
+  rep_number: number;
+  work_start_s: number;
+  work_end_s: number;
+  work_distance_m: number;
+  work_avg_pace_sec_per_km: number;
+  work_avg_hr: number | null;
+  rest_start_s: number | null;
+  rest_end_s: number | null;
+  rest_distance_m: number | null;
+}
+
+export interface StreamAnalysisResult {
+  // Tier 1
+  hr_zones: HrZoneDistribution | null;
+  cardiac_drift_pct: number | null;
+  pace_variability_cv: number | null;
+  split_type: SplitType | null;
+  trimp: number | null;
+  // Tier 2
+  ngp_sec_per_km: number | null;
+  fatigue_index_pct: number | null;
+  cadence_drift_spm: number | null;
+  efficiency_factor: number | null;
+  // Tier 3
+  phases: PhaseSegment[];
+  intervals: DetectedInterval[];
+
+  computed_at: string;
+  stream_analysis_version: number;
 }

@@ -62,8 +62,29 @@ The activities table has:
 The activity_laps table has per-lap/split data (JOIN on activity_id):
 - activity_id, lap_index, distance (meters), elapsed_time (seconds), moving_time (seconds)
 - average_speed (m/s), max_speed, average_heartrate, max_heartrate
+- elevation_gain, elevation_loss (meters, computed from altitude stream)
 
-IMPORTANT: Always query activity_laps when analyzing specific workouts to understand effort structure (intervals, tempo segments, pacing, HR drift across splits). Don't rely on averages alone.
+The activity_analysis table has pre-computed per-run analysis (JOIN on activity_id):
+- run_type, run_type_detail, classification_confidence, hill_category
+- pace_sec_per_km, grade_adjusted_pace_sec_per_km, elevation_gain_m, elevation_loss_m
+- similar_runs_7d, similar_runs_30d, avg_pace_similar_30d, pace_vs_similar_delta
+- lap_summaries (JSON), prose_summary (cached LLM-generated narrative)
+
+The activity_stream_analysis table has stream-derived metrics (JOIN on activity_id):
+- hr_zone1_s..hr_zone5_s, hr_total_s (time-in-zone in seconds, Friel zones)
+- cardiac_drift_pct (Pa:HR decoupling %, <5 excellent, 5-10 normal, >10 high)
+- pace_variability_cv (coefficient of variation %)
+- split_type (negative/positive/even)
+- trimp (Banister training impulse)
+- ngp_sec_per_km (Normalized Graded Pace, Minetti polynomial)
+- fatigue_index_pct (pace fade in final quarter, positive = slowed)
+- cadence_drift_spm (cadence change first vs last third)
+- efficiency_factor (NGP speed / avg HR, higher = more efficient)
+- phases (JSON: warmup/work/recovery/cooldown segments with pace and HR)
+- intervals (JSON: detected work/rest pairs with pace and HR per rep)
+
+Use get_run_analysis tool for individual run narratives with prose summaries.
+Query activity_analysis and activity_stream_analysis tables for bulk comparisons and trend analysis.
 
 Useful patterns:
 - Weekly totals: SELECT strftime('%Y-W%W', start_date_local) as week, SUM(distance)/1000 as km, COUNT(*) as runs FROM activities WHERE type='Run' GROUP BY week ORDER BY week DESC
@@ -88,7 +109,7 @@ IMPORTANT: Never write to Strava without showing a preview and getting confirmat
 Return findings clearly with specific dates, distances in km, paces as min:sec/km.
 
 Today: ${new Date().toISOString().split("T")[0]}`,
-    tools: ["Read", "query_activities", "calculator", "get_weather", "strava_update_activity"],
+    tools: ["Read", "query_activities", "get_run_analysis", "calculator", "get_weather", "strava_update_activity"],
     model: "opus",
   },
   "fitness-assessor": {

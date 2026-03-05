@@ -27,12 +27,24 @@ import {
   setRunType,
   getUnclassifiedActivities,
   saveActivityStreams,
+  computeLapElevation,
 } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
-import { classifyRun } from "../utils/run-classifier.js";
+import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
-import type { StravaActivity, StravaTokens, ActivityLapRecord } from "../types/index.js";
+import {
+  computeActivityAnalysis,
+  saveActivityAnalysis,
+  getActivityAnalysis,
+  getRecentUnanalyzedActivityIds,
+  formatPace,
+  buildProsePrompt,
+} from "../utils/activity-analysis.js";
+import { initDatabase as initDb } from "../utils/activities-db.js";
+import Anthropic from "@anthropic-ai/sdk";
+import { getStreamAnalysis } from "../utils/activities-db.js";
+import type { StravaActivity, StravaTokens, ActivityLapRecord, ActivityStream } from "../types/index.js";
 
 import { getDataDir } from "../utils/paths.js";
 
@@ -113,7 +125,7 @@ export const stravaSyncTool = tool(
       const newNonRuns = newActivities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));
       const allRuns = activities.filter((a) => a.type === "Run" || a.sport_type === "Run");
 
-      // Fetch best efforts + laps from Strava detail API for new runs
+      // Fetch best efforts + laps + streams from Strava detail API for new runs
       let detailFetched = 0;
       for (const run of newRuns) {
         try {
@@ -122,32 +134,43 @@ export const stravaSyncTool = tool(
             const records = convertStravaBestEfforts(run.id, detail.bestEfforts);
             upsertStravaBestEfforts(records);
           }
-          if (detail.laps.length > 0) {
-            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => ({
-              activity_id: run.id,
-              lap_index: lap.lap_index,
-              distance: lap.distance,
-              elapsed_time: lap.elapsed_time,
-              moving_time: lap.moving_time,
-              average_speed: lap.average_speed,
-              max_speed: lap.max_speed,
-              average_heartrate: lap.average_heartrate ?? null,
-              max_heartrate: lap.max_heartrate ?? null,
-              start_index: lap.start_index,
-              end_index: lap.end_index,
-            }));
-            upsertActivityLaps(run.id, lapRecords);
-          }
-          markActivityDetailFetched(run.id);
-          // Fetch per-second streams for detailed analysis
+          // Fetch streams before laps so we can compute per-lap elevation
+          let altitude: number[] | undefined;
+          let runStreams: ActivityStream | undefined;
           try {
             const streams = await fetchActivityStream(run.id);
             if (streams) {
               saveActivityStreams(run.id, streams);
+              altitude = streams.altitude;
+              runStreams = streams;
             }
           } catch {
             // Stream fetch is best-effort, don't fail sync
           }
+          if (detail.laps.length > 0) {
+            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
+              const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
+              return {
+                activity_id: run.id,
+                lap_index: lap.lap_index,
+                distance: lap.distance,
+                elapsed_time: lap.elapsed_time,
+                moving_time: lap.moving_time,
+                average_speed: lap.average_speed,
+                max_speed: lap.max_speed,
+                average_heartrate: lap.average_heartrate ?? null,
+                max_heartrate: lap.max_heartrate ?? null,
+                start_index: lap.start_index,
+                end_index: lap.end_index,
+                elevation_gain: elev?.gain ?? null,
+                elevation_loss: elev?.loss ?? null,
+              };
+            });
+            upsertActivityLaps(run.id, lapRecords);
+          }
+          // Stash streams for later analysis pass
+          if (runStreams) (run as any)._streams = runStreams;
+          markActivityDetailFetched(run.id);
           detailFetched++;
           await new Promise((resolve) => setTimeout(resolve, 50));
         } catch (error) {
@@ -167,32 +190,39 @@ export const stravaSyncTool = tool(
               const records = convertStravaBestEfforts(activity.id, detail.bestEfforts);
               upsertStravaBestEfforts(records);
             }
-            if (detail.laps.length > 0) {
-              const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => ({
-                activity_id: activity.id,
-                lap_index: lap.lap_index,
-                distance: lap.distance,
-                elapsed_time: lap.elapsed_time,
-                moving_time: lap.moving_time,
-                average_speed: lap.average_speed,
-                max_speed: lap.max_speed,
-                average_heartrate: lap.average_heartrate ?? null,
-                max_heartrate: lap.max_heartrate ?? null,
-                start_index: lap.start_index,
-                end_index: lap.end_index,
-              }));
-              upsertActivityLaps(activity.id, lapRecords);
-            }
-            markActivityDetailFetched(activity.id);
-            // Fetch per-second streams for detailed analysis
+            // Fetch streams before laps so we can compute per-lap elevation
+            let altitude: number[] | undefined;
             try {
               const streams = await fetchActivityStream(activity.id);
               if (streams) {
                 saveActivityStreams(activity.id, streams);
+                altitude = streams.altitude;
               }
             } catch {
               // Stream fetch is best-effort
             }
+            if (detail.laps.length > 0) {
+              const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
+                const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
+                return {
+                  activity_id: activity.id,
+                  lap_index: lap.lap_index,
+                  distance: lap.distance,
+                  elapsed_time: lap.elapsed_time,
+                  moving_time: lap.moving_time,
+                  average_speed: lap.average_speed,
+                  max_speed: lap.max_speed,
+                  average_heartrate: lap.average_heartrate ?? null,
+                  max_heartrate: lap.max_heartrate ?? null,
+                  start_index: lap.start_index,
+                  end_index: lap.end_index,
+                  elevation_gain: elev?.gain ?? null,
+                  elevation_loss: elev?.loss ?? null,
+                };
+              });
+              upsertActivityLaps(activity.id, lapRecords);
+            }
+            markActivityDetailFetched(activity.id);
             backfillCount++;
             await new Promise((resolve) => setTimeout(resolve, 100));
           } catch (error) {
@@ -201,10 +231,9 @@ export const stravaSyncTool = tool(
         }
       }
 
-      // Classify runs (only if HR zones are confirmed)
-      // Track classification results for new runs so we can include them in output
+      // Analyze runs: classify (with hill detection) + compute structured analysis + generate prose
       const classificationMap = new Map<number, { run_type: string; run_type_detail: string | null }>();
-      let classifiedCount = 0;
+      let analyzedCount = 0;
       let zonesNeedConfirmation = false;
       let estimatedZones: { lt1: number; lt2: number; max_hr: number } | null = null;
       try {
@@ -215,36 +244,83 @@ export const stravaSyncTool = tool(
           estimatedZones = { lt1: zones.lt1, lt2: zones.lt2, max_hr: zones.max_hr };
         } else {
           const easyPaceRef = computeEasyPaceRef();
+          const hrZones = zones;
+          const analysisDb = initDb();
 
-          // Classify newly fetched runs
-          for (const run of newRuns) {
-            const laps = getActivityLaps(run.id);
-            const result = classifyRun(
-              { id: run.id, distance: run.distance, moving_time: run.moving_time, average_speed: run.average_speed, average_heartrate: run.average_heartrate ?? null, workout_type: run.workout_type ?? null },
-              laps, zones, easyPaceRef
-            );
-            setRunType(run.id, result.run_type, result.run_type_detail);
-            classificationMap.set(run.id, { run_type: result.run_type, run_type_detail: result.run_type_detail });
-            classifiedCount++;
+          try {
+            // Analyze newly fetched runs (pass cached streams for stream analysis)
+            for (const run of newRuns) {
+              const cachedStreams = (run as any)._streams as ActivityStream | undefined;
+              const result = computeActivityAnalysis(run.id, analysisDb, hrZones, easyPaceRef, cachedStreams);
+              if (result) {
+                saveActivityAnalysis(result.analysis, analysisDb);
+                setRunType(run.id, result.analysis.run_type as any, result.analysis.run_type_detail);
+                classificationMap.set(run.id, { run_type: result.analysis.run_type, run_type_detail: result.analysis.run_type_detail });
+                analyzedCount++;
+              }
+            }
+
+            // Backfill: analyze runs with detail but no analysis yet (last 7 days + unclassified)
+            const toAnalyze = getRecentUnanalyzedActivityIds(analysisDb, 7);
+            for (const actId of toAnalyze) {
+              const result = computeActivityAnalysis(actId, analysisDb, hrZones, easyPaceRef);
+              if (result) {
+                saveActivityAnalysis(result.analysis, analysisDb);
+                setRunType(actId, result.analysis.run_type as any, result.analysis.run_type_detail);
+                analyzedCount++;
+              }
+            }
+
+            // Also classify any remaining unclassified runs (older than 7 days, no analysis needed)
+            const unclassified = getUnclassifiedActivities(50);
+            for (const a of unclassified) {
+              const laps = getActivityLaps(a.id);
+              const hillProfile = detectHillProfile(laps, a.distance);
+              const result = classifyRun(
+                { id: a.id, distance: a.distance, moving_time: a.moving_time, average_speed: a.average_speed, average_heartrate: a.average_heartrate, workout_type: a.workout_type },
+                laps, hrZones, easyPaceRef, hillProfile
+              );
+              setRunType(a.id, result.run_type, result.run_type_detail);
+            }
+          } finally {
+            analysisDb.close();
           }
 
-          // Backfill: classify runs with detail_fetched=1 but run_type=NULL
-          const unclassified = getUnclassifiedActivities(50);
-          for (const a of unclassified) {
-            const laps = getActivityLaps(a.id);
-            const result = classifyRun(
-              { id: a.id, distance: a.distance, moving_time: a.moving_time, average_speed: a.average_speed, average_heartrate: a.average_heartrate, workout_type: a.workout_type },
-              laps, zones, easyPaceRef
-            );
-            setRunType(a.id, result.run_type, result.run_type_detail);
-            classifiedCount++;
+          // Generate prose summaries for new runs (LLM call)
+          try {
+            const client = new Anthropic();
+            const proseDb = initDb();
+            try {
+              for (const run of newRuns) {
+                const record = getActivityAnalysis(run.id, proseDb);
+                if (record && !record.prose_summary) {
+                  const sa = getStreamAnalysis(run.id, proseDb);
+                  const prompt = buildProsePrompt(record, run.name, sa);
+                  const message = await client.messages.create({
+                    model: "claude-haiku-4-5-20251001",
+                    max_tokens: 300,
+                    messages: [{ role: "user", content: prompt }],
+                  });
+                  const prose = message.content[0].type === "text" ? message.content[0].text : null;
+                  if (prose) {
+                    record.prose_summary = prose;
+                    record.prose_generated_at = new Date().toISOString();
+                    saveActivityAnalysis(record, proseDb);
+                  }
+                }
+              }
+            } finally {
+              proseDb.close();
+            }
+          } catch {
+            // Prose generation is best-effort
           }
 
           // Regenerate training patterns
           await generateTrainingPatterns();
         }
       } catch {
-        // Classification is best-effort, don't fail the sync
+        // Analysis is best-effort, don't fail the sync
       }
 
       // --- Build output text (after classification so we can include run types) ---
@@ -303,8 +379,48 @@ export const stravaSyncTool = tool(
         const remaining = getActivitiesWithoutDetail(1).length;
         text += `\nBackfilled best efforts for ${backfillCount} historical run${backfillCount > 1 ? "s" : ""}${remaining > 0 ? ` (${remaining} remaining)` : " (all done)"}.`;
       }
-      if (classifiedCount > 0) {
-        text += `\nClassified ${classifiedCount} run${classifiedCount > 1 ? "s" : ""}.`;
+      if (analyzedCount > 0) {
+        text += `\nAnalyzed ${analyzedCount} run${analyzedCount > 1 ? "s" : ""}.`;
+      }
+
+      // Write pending-analyses.md for session-start consumption
+      try {
+        const analysesLines: string[] = [];
+        const readDb = initDb();
+        try {
+          for (const run of newRuns) {
+            const analysis = getActivityAnalysis(run.id, readDb);
+            if (analysis) {
+              const date = run.start_date_local.split("T")[0];
+              const distKm = (analysis.distance_m / 1000).toFixed(1);
+              const pace = formatPace(analysis.pace_sec_per_km);
+              const hillTag = analysis.hill_category && analysis.hill_category !== "flat"
+                ? ` [${analysis.hill_category}]` : "";
+              const elevStr = analysis.elevation_gain_m != null
+                ? `, +${Math.round(analysis.elevation_gain_m)}m` : "";
+              const hrStr = analysis.avg_heartrate
+                ? `, HR ${Math.round(analysis.avg_heartrate)}` : "";
+              const typeTag = analysis.run_type_detail
+                ? `${analysis.run_type}: ${analysis.run_type_detail}`
+                : analysis.run_type;
+              let entry = `### ${date}: ${run.name} [${typeTag}]${hillTag}\n`;
+              entry += `${distKm}km @ ${pace}${elevStr}${hrStr}\n`;
+              if (analysis.prose_summary) {
+                entry += `${analysis.prose_summary}\n`;
+              }
+              analysesLines.push(entry);
+            }
+          }
+        } finally {
+          readDb.close();
+        }
+        if (analysesLines.length > 0) {
+          const pendingFile = path.join(getDataDir(), "strava/pending-analyses.md");
+          const content = `# New Runs Since Last Sync\nGenerated: ${new Date().toISOString()}\n\n` + analysesLines.join("\n");
+          await fs.writeFile(pendingFile, content);
+        }
+      } catch {
+        // Best-effort
       }
 
       if (zonesNeedConfirmation) {
@@ -366,30 +482,37 @@ export const stravaProfileTool = tool(
             const records = convertStravaBestEfforts(activity.id, detail.bestEfforts);
             upsertStravaBestEfforts(records);
           }
-          if (detail.laps.length > 0) {
-            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => ({
-              activity_id: activity.id,
-              lap_index: lap.lap_index,
-              distance: lap.distance,
-              elapsed_time: lap.elapsed_time,
-              moving_time: lap.moving_time,
-              average_speed: lap.average_speed,
-              max_speed: lap.max_speed,
-              average_heartrate: lap.average_heartrate ?? null,
-              max_heartrate: lap.max_heartrate ?? null,
-              start_index: lap.start_index,
-              end_index: lap.end_index,
-            }));
-            upsertActivityLaps(activity.id, lapRecords);
-          }
-          // Fetch per-second streams for detailed analysis
+          // Fetch streams before laps so we can compute per-lap elevation
+          let altitude: number[] | undefined;
           try {
             const streams = await fetchActivityStream(activity.id);
             if (streams) {
               saveActivityStreams(activity.id, streams);
+              altitude = streams.altitude;
             }
           } catch {
             // Stream fetch is best-effort
+          }
+          if (detail.laps.length > 0) {
+            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
+              const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
+              return {
+                activity_id: activity.id,
+                lap_index: lap.lap_index,
+                distance: lap.distance,
+                elapsed_time: lap.elapsed_time,
+                moving_time: lap.moving_time,
+                average_speed: lap.average_speed,
+                max_speed: lap.max_speed,
+                average_heartrate: lap.average_heartrate ?? null,
+                max_heartrate: lap.max_heartrate ?? null,
+                start_index: lap.start_index,
+                end_index: lap.end_index,
+                elevation_gain: elev?.gain ?? null,
+                elevation_loss: elev?.loss ?? null,
+              };
+            });
+            upsertActivityLaps(activity.id, lapRecords);
           }
           markActivityDetailFetched(activity.id);
           backfillCount++;
@@ -482,9 +605,9 @@ export const stravaAuthTool = tool(
 
 export const queryActivitiesTool = tool(
   "query_activities",
-  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data, includes streams_fetched flag), 'activity_laps' (per-lap splits with distance, pace, HR — JOIN on activity_id), 'activity_streams' (per-second data — use get_activity_streams tool instead for easier access), 'best_efforts' (PRs for standard distances).",
+  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data), 'activity_laps' (per-lap splits with elevation), 'activity_analysis' (pre-computed per-run analysis: hill_category, grade_adjusted_pace, comparison metrics, prose_summary — JOIN on activity_id), 'activity_stream_analysis' (stream-derived metrics: hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases JSON, intervals JSON — JOIN on activity_id), 'activity_streams' (per-second data — use get_activity_streams tool instead), 'best_efforts' (PRs). Use activity_analysis for quick per-run summaries. Use get_run_analysis tool for individual run narratives.",
   {
-    query: z.string().describe("SQL SELECT query. Can query activities, activity_laps (activity_id, lap_index, distance, elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate), and best_efforts tables."),
+    query: z.string().describe("SQL SELECT query. Can query activities, activity_laps (activity_id, lap_index, distance, elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate, elevation_gain, elevation_loss), and best_efforts tables."),
   },
   async ({ query }) => {
     try {

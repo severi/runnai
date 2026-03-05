@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
-import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord } from "../types/index.js";
+import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult } from "../types/index.js";
 
 export function getActivitiesDbPath(): string {
   return path.join(getDataDir(), "strava/activities.db");
@@ -151,6 +151,18 @@ export function initDatabase(): Database {
     );
   `);
 
+  // Migration: add elevation columns to activity_laps
+  try {
+    db.exec("ALTER TABLE activity_laps ADD COLUMN elevation_gain REAL");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE activity_laps ADD COLUMN elevation_loss REAL");
+  } catch {
+    // Column already exists
+  }
+
   // Create activity_streams table
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_streams (
@@ -162,6 +174,59 @@ export function initDatabase(): Database {
       grade_smooth_data TEXT,
       cadence_data TEXT,
       fetched_at TEXT
+    );
+  `);
+
+  // Create activity_stream_analysis table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_stream_analysis (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      hr_zone1_s INTEGER,
+      hr_zone2_s INTEGER,
+      hr_zone3_s INTEGER,
+      hr_zone4_s INTEGER,
+      hr_zone5_s INTEGER,
+      hr_total_s INTEGER,
+      cardiac_drift_pct REAL,
+      pace_variability_cv REAL,
+      split_type TEXT,
+      trimp REAL,
+      ngp_sec_per_km REAL,
+      fatigue_index_pct REAL,
+      cadence_drift_spm REAL,
+      efficiency_factor REAL,
+      phases TEXT,
+      intervals TEXT,
+      computed_at TEXT NOT NULL,
+      stream_analysis_version INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
+  // Create activity_analysis table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_analysis (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      run_type TEXT NOT NULL,
+      run_type_detail TEXT,
+      classification_confidence TEXT,
+      hill_category TEXT,
+      distance_m REAL,
+      moving_time_s INTEGER,
+      pace_sec_per_km REAL,
+      elevation_gain_m REAL,
+      elevation_loss_m REAL,
+      grade_adjusted_pace_sec_per_km REAL,
+      avg_heartrate REAL,
+      max_heartrate REAL,
+      lap_summaries TEXT,
+      similar_runs_7d INTEGER,
+      similar_runs_30d INTEGER,
+      avg_pace_similar_30d REAL,
+      pace_vs_similar_delta REAL,
+      prose_summary TEXT,
+      prose_generated_at TEXT,
+      analyzed_at TEXT NOT NULL DEFAULT '',
+      analysis_version INTEGER DEFAULT 1
     );
   `);
 
@@ -421,6 +486,19 @@ export function getStravaBestEfforts(distanceName?: string): (StravaBestEffortRe
   }
 }
 
+export function computeLapElevation(altitude: number[], startIndex: number, endIndex: number): { gain: number; loss: number } {
+  let gain = 0;
+  let loss = 0;
+  const start = Math.max(0, startIndex);
+  const end = Math.min(altitude.length - 1, endIndex);
+  for (let i = start + 1; i <= end; i++) {
+    const delta = altitude[i] - altitude[i - 1];
+    if (delta > 0) gain += delta;
+    else loss += -delta;
+  }
+  return { gain: Math.round(gain * 10) / 10, loss: Math.round(loss * 10) / 10 };
+}
+
 export function upsertActivityLaps(activityId: number, laps: ActivityLapRecord[]): void {
   const db = initDatabase();
   try {
@@ -428,11 +506,11 @@ export function upsertActivityLaps(activityId: number, laps: ActivityLapRecord[]
       INSERT OR REPLACE INTO activity_laps (
         activity_id, lap_index, distance, elapsed_time, moving_time,
         average_speed, max_speed, average_heartrate, max_heartrate,
-        start_index, end_index
+        start_index, end_index, elevation_gain, elevation_loss
       ) VALUES (
         $activity_id, $lap_index, $distance, $elapsed_time, $moving_time,
         $average_speed, $max_speed, $average_heartrate, $max_heartrate,
-        $start_index, $end_index
+        $start_index, $end_index, $elevation_gain, $elevation_loss
       )
     `);
 
@@ -450,6 +528,8 @@ export function upsertActivityLaps(activityId: number, laps: ActivityLapRecord[]
           $max_heartrate: r.max_heartrate,
           $start_index: r.start_index,
           $end_index: r.end_index,
+          $elevation_gain: r.elevation_gain,
+          $elevation_loss: r.elevation_loss,
         });
       }
     });
@@ -596,4 +676,80 @@ export function getActivityStreams(activityId: number): ActivityStream | null {
   } finally {
     db.close();
   }
+}
+
+export function saveStreamAnalysis(activityId: number, result: StreamAnalysisResult, db: Database): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO activity_stream_analysis (
+      activity_id, hr_zone1_s, hr_zone2_s, hr_zone3_s, hr_zone4_s, hr_zone5_s, hr_total_s,
+      cardiac_drift_pct, pace_variability_cv, split_type, trimp,
+      ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor,
+      phases, intervals, computed_at, stream_analysis_version
+    ) VALUES (
+      $activity_id, $z1, $z2, $z3, $z4, $z5, $zt,
+      $cardiac_drift, $pace_cv, $split_type, $trimp,
+      $ngp, $fatigue, $cadence_drift, $ef,
+      $phases, $intervals, $computed_at, $version
+    )
+  `).run({
+    $activity_id: activityId,
+    $z1: result.hr_zones?.zone1_s ?? null,
+    $z2: result.hr_zones?.zone2_s ?? null,
+    $z3: result.hr_zones?.zone3_s ?? null,
+    $z4: result.hr_zones?.zone4_s ?? null,
+    $z5: result.hr_zones?.zone5_s ?? null,
+    $zt: result.hr_zones?.total_hr_s ?? null,
+    $cardiac_drift: result.cardiac_drift_pct,
+    $pace_cv: result.pace_variability_cv,
+    $split_type: result.split_type,
+    $trimp: result.trimp,
+    $ngp: result.ngp_sec_per_km,
+    $fatigue: result.fatigue_index_pct,
+    $cadence_drift: result.cadence_drift_spm,
+    $ef: result.efficiency_factor,
+    $phases: JSON.stringify(result.phases),
+    $intervals: JSON.stringify(result.intervals),
+    $computed_at: result.computed_at,
+    $version: result.stream_analysis_version,
+  });
+}
+
+export function getStreamAnalysis(activityId: number, db: Database): StreamAnalysisResult | null {
+  const row = db.prepare(
+    "SELECT * FROM activity_stream_analysis WHERE activity_id = ?"
+  ).get(activityId) as any;
+  if (!row) return null;
+  return {
+    hr_zones: row.hr_total_s != null ? {
+      zone1_s: row.hr_zone1_s ?? 0,
+      zone2_s: row.hr_zone2_s ?? 0,
+      zone3_s: row.hr_zone3_s ?? 0,
+      zone4_s: row.hr_zone4_s ?? 0,
+      zone5_s: row.hr_zone5_s ?? 0,
+      total_hr_s: row.hr_total_s,
+    } : null,
+    cardiac_drift_pct: row.cardiac_drift_pct,
+    pace_variability_cv: row.pace_variability_cv,
+    split_type: row.split_type,
+    trimp: row.trimp,
+    ngp_sec_per_km: row.ngp_sec_per_km,
+    fatigue_index_pct: row.fatigue_index_pct,
+    cadence_drift_spm: row.cadence_drift_spm,
+    efficiency_factor: row.efficiency_factor,
+    phases: JSON.parse(row.phases || "[]"),
+    intervals: JSON.parse(row.intervals || "[]"),
+    computed_at: row.computed_at,
+    stream_analysis_version: row.stream_analysis_version,
+  };
+}
+
+export function getActivitiesWithoutStreamAnalysis(db: Database, limit: number = 50): number[] {
+  return (db.prepare(`
+    SELECT a.id FROM activities a
+    INNER JOIN activity_streams s ON a.id = s.activity_id
+    LEFT JOIN activity_stream_analysis sa ON a.id = sa.activity_id
+    WHERE a.type = 'Run' AND a.trainer = 0 AND a.detail_fetched = 1
+      AND sa.activity_id IS NULL
+    ORDER BY a.start_date_local DESC LIMIT ?
+  `).all(limit) as { id: number }[]).map(r => r.id);
 }

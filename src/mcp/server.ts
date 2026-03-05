@@ -7,6 +7,7 @@ import {
   stravaUpdateActivityTool,
   bestEffortsTool,
   getActivityStreamsTool,
+  getRunAnalysisTool,
   planManagerTool,
   dateCalcTool,
   calculatorTool,
@@ -38,6 +39,8 @@ export const coachMcpServer = createSdkMcpServer({
     bestEffortsTool,
     // Activity streams
     getActivityStreamsTool,
+    // Run analysis
+    getRunAnalysisTool,
     // Planning & utility
     planManagerTool,
     dateCalcTool,
