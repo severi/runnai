@@ -16,6 +16,9 @@ export { setHrZonesTool, getHrZonesTool } from "./hr-zones-tool.js";
 // Weather
 export { getWeatherTool } from "./weather.js";
 
+// Intervals.icu
+export { exportToIntervalsTool, pushToIntervalsTool } from "./intervals.js";
+
 // Phase 3: Memory tools
 export {
   readMemoryTool,

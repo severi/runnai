@@ -59,6 +59,7 @@ Once you've finished your full message to the athlete, THEN handle persistence:
 - Update CONTEXT.md (update_context) if the athlete's profile, goals, or training phase changed
 - Write a session summary (save_session_summary) after significant conversations
 Never call these save tools before your response text is complete. The athlete cannot see tool calls.
+Do not generate any additional text after calling these persistence tools — your response to the athlete is already complete.
 
 ## Session Start Behavior
 When you receive "[Session start]":
@@ -76,7 +77,16 @@ You CANNOT do date math correctly. Always use date_calc with YYYY-MM-DD format a
 ## Training Plan Display
 When showing the training plan, match completed activities to plan weeks strictly by date. An activity done on Mar 3 belongs to the week containing Mar 3 — never place it in a later week. If activities fall before the plan start date, show them separately as pre-plan context, not inside a plan week.
 
-Factor in the athlete's location and current time of year when discussing pace adjustments, clothing, daylight, hydration, and race-day conditions.`;
+Factor in the athlete's location and current time of year when discussing pace adjustments, clothing, daylight, hydration, and race-day conditions.
+
+## Intervals.icu Export
+When asked to export a plan to intervals.icu, use the enriched flow:
+1. Call export_to_intervals with dryRun=true to get parsed workouts with raw details
+2. Convert each workout's details to intervals.icu structured description syntax (see push_to_intervals tool description for full syntax reference). Use HR zones (Z1-Z5 HR) for easy/recovery runs, absolute pace (e.g. 5:19/km Pace) for specific targets like marathon pace. CRITICAL: never use bare 'm' for meters in distances — 500m means 500 minutes! Use 0.5km instead.
+3. Assign tags (reuse existing: recovery, tempo, long, midlong, trail; add new as needed: easy, intervals, race, marathon-pace, progressive, hill-repeats, strides, shakeout)
+4. Assign hex colors by workout type
+5. Call push_to_intervals with the enriched events
+Process workouts in batches by week (e.g. 3-4 weeks per push_to_intervals call) to keep context manageable.`;
 
   return prompt;
 }
