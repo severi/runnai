@@ -347,7 +347,7 @@ export function buildProsePrompt(
   const isEasyRun = ["easy", "recovery", "long_run"].includes(record.run_type);
   const lengthGuide = isEasyRun ? "1-2 sentences" : "2-3 sentences";
 
-  return `Write a brief coaching summary for this run (${lengthGuide}). Describe what the run was, then mention only what's genuinely noteworthy. Most metrics are expected — skip them. If a coach would glance at a number, shrug, and not mention it to the athlete, leave it out. Never list metrics — weave observations into natural prose. Use impersonal voice (not "you"). Do not use bullet points, headers, or emoji. Only reference data provided below.
+  return `Write a brief coaching summary for this run (${lengthGuide}). Describe what the run was, then mention only what's genuinely noteworthy. Most metrics are expected — skip them. If a coach would glance at a number, shrug, and not mention it to the athlete, leave it out. Never list metrics — weave observations into natural prose. Use impersonal voice (not "you"). Do not use bullet points, headers, or emoji. Use regular hyphens (-), never em dashes (—). Only reference data provided below.
 
 <examples>
 <example>
