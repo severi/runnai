@@ -200,27 +200,46 @@
     .section p:last-child { margin-bottom: 0; }
 
     /* -- Feature list -- */
-    .how-list {
+    .features {
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
-      margin-top: 1.5rem;
+      gap: 2rem;
+      margin-top: 2rem;
     }
 
-    .how-list li {
-      padding-left: 1.25rem;
-      border-left: 2px solid var(--border);
+    .feature {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
     }
 
-    .how-list li strong {
+    .feature-icon {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-warm);
+      border-radius: 8px;
+      color: var(--green);
+      margin-top: 0.1rem;
+    }
+
+    .feature-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .feature-body strong {
       display: block;
       font-size: 0.95rem;
       color: var(--text);
-      margin-bottom: 0.2rem;
+      margin-bottom: 0.25rem;
     }
 
-    .how-list li span {
+    .feature-body span {
       font-size: 0.95rem;
       color: var(--text-2);
       line-height: 1.65;
@@ -325,41 +344,53 @@
       <p>
         RunnAI is a coaching agent that runs in your terminal. It connects to your Strava,
         builds a picture of who you are as a runner, and uses that context in every conversation.
-        Unlike a chatbot, it maintains structured memory across sessions - it knows your
-        injury history, training preferences, and how you respond to different workloads.
+        Coaching advice is grounded in running science, not generic LLM output.
       </p>
-      <ul class="how-list">
-        <li>
-          <strong>Learns and remembers you</strong>
-          <span>The coach builds a profile that evolves over time - your strengths, injury patterns, preferred training structure, how you respond to volume changes. It decides what to remember, what's important right now, and what to archive.</span>
+      <ul class="features">
+        <li class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/><path d="M10 24h4"/></svg>
+          </div>
+          <div class="feature-body">
+            <strong>Persistent memory</strong>
+            <span>Remembers your injury history, training preferences, and how you respond to different workloads. The coach's picture of you evolves over sessions - not a blank slate every time.</span>
+          </div>
         </li>
-        <li>
-          <strong>Strava sync and write-back</strong>
-          <span>Syncs your activities, automatically classifies every run (easy, tempo, intervals, long, hills), and writes concise coaching notes back to your Strava descriptions.</span>
+        <li class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          </div>
+          <div class="feature-body">
+            <strong>Strava sync and write-back</strong>
+            <span>Syncs your activities, classifies every run, and writes coaching notes back to your Strava descriptions - the kind of feedback a human coach would give.</span>
+          </div>
         </li>
-        <li>
-          <strong>Deep run analysis</strong>
-          <span>Per-second stream analysis: HR zone distribution, cardiac drift, grade-adjusted pace, fatigue index, workout phase detection, and interval extraction. Every run gets a structured breakdown.</span>
+        <li class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          </div>
+          <div class="feature-body">
+            <strong>Deep run analysis</strong>
+            <span>Every run is broken down from per-second data: HR zones, cardiac drift, grade-adjusted pace, fatigue index, workout phases, and interval detection.</span>
+          </div>
         </li>
-        <li>
-          <strong>Adaptive training plans</strong>
-          <span>Periodized plans that adjust weekly based on what you actually ran - not a static spreadsheet. The coach accounts for missed sessions, fatigue patterns, and upcoming races.</span>
+        <li class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="feature-body">
+            <strong>Adaptive training plans</strong>
+            <span>Plans that adjust weekly based on what you actually ran, with export to <a href="https://intervals.icu">intervals.icu</a> as structured workouts with HR/pace targets and color-coded tags.</span>
+          </div>
         </li>
-        <li>
-          <strong>Intervals.icu export</strong>
-          <span>Push training plans directly to <a href="https://intervals.icu">intervals.icu</a> as structured workouts with HR/pace targets, color-coded tags, and repeat blocks. Re-exporting safely updates existing events.</span>
-        </li>
-        <li>
-          <strong>Race predictions</strong>
-          <span>Estimates that evolve as your fitness changes, tracked over time so you can see the trend leading into a goal race.</span>
-        </li>
-        <li>
-          <strong>Weather-aware coaching</strong>
-          <span>Fetches conditions for your location to adjust pace recommendations, clothing, and hydration advice for actual temperature, humidity, and wind.</span>
-        </li>
-        <li>
-          <strong>Evidence-based coaching knowledge</strong>
-          <span>Modular skills for periodization, injury management, workout analysis, and race prediction - grounded in running science rather than generic LLM output.</span>
+        <li class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="feature-body">
+            <strong>Race predictions</strong>
+            <span>Estimates that evolve as your fitness changes, tracked over time so you can see the trend heading into a goal race.</span>
+          </div>
         </li>
       </ul>
     </section>
