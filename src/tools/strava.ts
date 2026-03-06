@@ -596,7 +596,7 @@ export const stravaUpdateActivityTool = tool(
   "Updates a Strava activity's name, description, or private note. Use after analyzing a workout to write AI analysis back to Strava. IMPORTANT: Always preview changes with the athlete and get explicit confirmation before calling this tool.",
   {
     activity_id: z.number().describe("Strava activity ID"),
-    name: z.string().optional().describe("New activity name (e.g. 'Easy Recovery 8K', 'Tempo 10K — Progression Finish')"),
+    name: z.string().optional().describe("New activity name (e.g. 'Easy Recovery 8K', 'Tempo 10K - Progression Finish')"),
     description: z.string().optional().describe("Activity description — AI analysis with athlete notes. Attribution is appended automatically."),
   },
   async ({ activity_id, name, description }) => {

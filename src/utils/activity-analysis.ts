@@ -352,11 +352,11 @@ export function buildProsePrompt(
 <examples>
 <example>
 <run>Easy, 8.5km, 5:40/km, avg HR 136. HR Zones: Z1 40%, Z2 58%, Z3 2%. Cardiac drift: 2.8%.</run>
-<summary>Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note — exactly what a recovery day should look like.</summary>
+<summary>Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note - exactly what a recovery day should look like.</summary>
 </example>
 <example>
 <run>Tempo, 12km, 4:45/km. Laps: 2km warmup, 8km at 4:15-4:22, 2km cooldown. HR Zones: Z3 35%, Z4 55%. Cardiac drift: 6.2%. Fatigue: 7.1%.</run>
-<summary>8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing — the 7% fade suggests the effort was right at the limit. Good session to build from.</summary>
+<summary>8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing - the 7% fade suggests the effort was right at the limit. Good session to build from.</summary>
 </example>
 <example>
 <run>Hill run, 18km, 8:30/km (GAP: 5:50/km), 1200m gain. Climbs: 80min, avg HR 165, ~12:00/km. Descents: 65min, avg HR 140, ~5:30/km. Cardiac drift: 4.8%.</run>

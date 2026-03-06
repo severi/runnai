@@ -18,10 +18,10 @@ Short and descriptive. No emoji, no stats, no race countdowns.
 
 | Good | Bad |
 |------|-----|
-| Easy Long Run — Rolling Hills | 16km Easy Long \| Transition Week \| 6 weeks to Vienna |
+| Easy Long Run - Rolling Hills | 16km Easy Long \| Transition Week \| 6 weeks to Vienna |
 | Tempo 8K | 40min tempo — Z3/Z4 threshold session |
 | Recovery 6K | Easy Recovery Run (HR 132, Z1-Z2) |
-| Hill Repeats — 1500m Vert | Mountain session — 20km vertical work |
+| Hill Repeats - 1500m Vert | Mountain session — 20km vertical work |
 
 ## How to Write the Description
 
@@ -32,14 +32,14 @@ The description is the COMPLETE text — plain prose, no headers, no emoji, no s
 **Data:** 8.5km, 5:40/km, HR 136, Z1 40%, Z2 58%, Z3 2%, cardiac drift 2.8%, fatigue 0.3%
 
 **Complete description:**
-Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note — exactly what a recovery day should look like.
+Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note - exactly what a recovery day should look like.
 
 ### Example 2: Tempo
 
 **Data:** 12km, 4:45/km avg, laps: 2km warmup then 8km at 4:15-4:22, 2km cooldown. Z3 35%, Z4 55%, cardiac drift 6.2%, fatigue 7.1%
 
 **Complete description:**
-8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing — the 7% fade suggests the effort was right at the limit. Good session to build from.
+8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing - the 7% fade suggests the effort was right at the limit. Good session to build from.
 
 ### Example 3: Hilly long run
 
