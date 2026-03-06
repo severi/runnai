@@ -14,7 +14,7 @@ description: Write run analysis back to Strava with coaching-style names and des
 
 ## How to Write the Name
 
-Short and descriptive. No emoji, no stats, no race countdowns.
+Short and descriptive. No emoji, no stats, no race countdowns. Use regular hyphens (-), never em dashes (—).
 
 | Good | Bad |
 |------|-----|
@@ -25,7 +25,7 @@ Short and descriptive. No emoji, no stats, no race countdowns.
 
 ## How to Write the Description
 
-The description is the COMPLETE text — plain prose, no headers, no emoji, no stats lines, no bullet points. It distills the analysis data into what a coach would actually say. These examples show the ENTIRE description, not excerpts:
+The description is the COMPLETE text - plain prose, no headers, no emoji, no stats lines, no bullet points. Use regular hyphens (-), never em dashes (—). It distills the analysis data into what a coach would actually say. These examples show the ENTIRE description, not excerpts:
 
 ### Example 1: Easy run
 
