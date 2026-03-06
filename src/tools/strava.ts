@@ -589,7 +589,7 @@ export const queryActivitiesTool = tool(
   }
 );
 
-const ATTRIBUTION = "\n\nAnalysis by RunnAI · severi.github.io/runnai";
+const ATTRIBUTION = "\n\nAnalysis by\n🏃 RunnAI → severi.github.io/runnai";
 
 export const stravaUpdateActivityTool = tool(
   "strava_update_activity",
