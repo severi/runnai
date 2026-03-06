@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RunnAI — AI Running Coach That Actually Remembers You</title>
+  <title>RunnAI - AI Running Coach That Actually Remembers You</title>
 
-  <meta name="description" content="Open-source AI running coach with persistent memory. Connects to Strava, learns your patterns, adapts plans. Built on Claude Agent SDK.">
-  <meta property="og:title" content="RunnAI — AI Running Coach That Actually Remembers You">
-  <meta property="og:description" content="Open-source AI running coach with persistent memory and Strava integration.">
+  <meta name="description" content="Open-source AI running coach with persistent memory. Connects to Strava, learns your patterns, adapts plans, exports to intervals.icu. Built on Claude Agent SDK.">
+  <meta property="og:title" content="RunnAI - AI Running Coach That Actually Remembers You">
+  <meta property="og:description" content="Open-source AI running coach with persistent memory, Strava integration, and intervals.icu export.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://severi.github.io/runnai/">
   <meta name="twitter:card" content="summary_large_image">
@@ -65,7 +65,7 @@
 
     .wrap { max-width: var(--max-w); margin: 0 auto; padding: 0 1.5rem; }
 
-    /* ── Hero ── */
+    /* -- Hero -- */
     .hero {
       padding: 6rem 0 3rem;
     }
@@ -98,7 +98,6 @@
       gap: 0.75rem;
       flex-wrap: wrap;
       justify-content: center;
-      margin-bottom: 2.5rem;
     }
 
     .btn {
@@ -138,7 +137,7 @@
       text-decoration: none;
     }
 
-    /* ── Terminal ── */
+    /* -- Terminal -- */
     .terminal {
       background: var(--bg-code);
       border-radius: var(--radius);
@@ -180,25 +179,7 @@
     .terminal .green { color: #5EC26A; }
     .terminal .dim { color: #5A5A5A; }
 
-    .copy-btn {
-      position: absolute;
-      top: 0.55rem;
-      right: 0.65rem;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.1);
-      color: #A0A0A0;
-      padding: 0.2rem 0.55rem;
-      border-radius: 5px;
-      font-family: var(--mono);
-      font-size: 0.68rem;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      z-index: 2;
-    }
-    .copy-btn:hover { border-color: rgba(255,255,255,0.25); color: #D4D4D4; }
-    .copy-btn.copied { color: #E07A52; border-color: #E07A52; }
-
-    /* ── Sections ── */
+    /* -- Sections -- */
     .section { padding: 3.5rem 0; }
 
     .section + .section { border-top: 1px solid var(--border); }
@@ -218,7 +199,7 @@
 
     .section p:last-child { margin-bottom: 0; }
 
-    /* ── How it works list ── */
+    /* -- Feature list -- */
     .how-list {
       list-style: none;
       display: flex;
@@ -245,7 +226,7 @@
       line-height: 1.65;
     }
 
-    /* ── Demo ── */
+    /* -- Demo -- */
     .demo-pair {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -267,46 +248,7 @@
       margin-top: 1.5rem;
     }
 
-    /* ── Install ── */
-    .install-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 1.75rem;
-      margin-top: 1.5rem;
-    }
-
-    .install-step h3 {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 0.35rem;
-    }
-    .install-step p {
-      font-size: 0.92rem;
-      margin-bottom: 0.6rem;
-    }
-    .install-step ul {
-      list-style: none;
-      margin: 0.5rem 0 0.75rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-    }
-    .install-step li {
-      font-size: 0.92rem;
-      color: var(--text-2);
-      line-height: 1.6;
-    }
-    .install-step li strong {
-      color: var(--text);
-      font-weight: 600;
-    }
-    .install-step li::before {
-      content: "—";
-      color: var(--text-muted);
-      margin-right: 0.5rem;
-    }
-
-    /* ── Footer ── */
+    /* -- Footer -- */
     footer {
       padding: 2.5rem 0;
       border-top: 1px solid var(--border);
@@ -345,7 +287,7 @@
       margin-bottom: 0.75rem;
     }
 
-    /* ── Responsive ── */
+    /* -- Responsive -- */
     @media (max-width: 640px) {
       .hero { padding: 3.5rem 0 1.5rem; }
       .demo-pair { grid-template-columns: 1fr; }
@@ -364,67 +306,61 @@
         <h1>RunnAI</h1>
         <p class="hero-tagline">An AI running coach that actually remembers you.</p>
         <p class="hero-intro">
-          Open-source coaching agent with persistent memory and Strava integration.
-          Learns your patterns, adapts your training, gets smarter every session.
-          Built on the <a href="https://github.com/anthropics/claude-code">Claude Agent SDK</a>.
+          Open-source coaching agent that connects to Strava, learns your patterns,
+          builds adaptive training plans, and gets smarter every session.
+          All your data stays on your machine.
         </p>
         <div class="hero-links">
         <a href="https://github.com/severi/runnai" class="btn btn-primary">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           GitHub
         </a>
-        <a href="https://github.com/severi/runnai#readme" class="btn btn-ghost">Documentation</a>
+        <a href="https://github.com/severi/runnai#readme" class="btn btn-ghost">Get started</a>
         </div>
-      </div>
-      <div class="terminal">
-        <button class="copy-btn" data-copy="git clone https://github.com/severi/runnai.git && cd runnai && bun install && bun run build && bun run start" aria-label="Copy install command">Copy</button>
-        <div class="terminal-bar">
-          <span class="dot dot-r"></span>
-          <span class="dot dot-y"></span>
-          <span class="dot dot-g"></span>
-          <span class="title">Terminal</span>
-        </div>
-<pre><span class="prompt">$</span> git clone https://github.com/severi/runnai.git
-<span class="prompt">$</span> cd runnai && bun install && bun run build
-<span class="prompt">$</span> bun run start
-
-<span class="output">Welcome to </span><span class="hl">RunnAI</span><span class="output"> &mdash; your AI running coach.</span>
-<span class="output">Let's get you set up. Connecting to Strava...</span></pre>
       </div>
     </header>
 
-    <!-- How it works -->
+    <!-- Features -->
     <section class="section">
-      <h2>How it works</h2>
+      <h2>What it does</h2>
       <p>
-        RunnAI is a coaching agent that runs in your terminal. It syncs with your Strava account,
-        builds a picture of who you are as a runner, and uses that context every time you talk to it.
-        Unlike a regular chatbot, it maintains structured memory across sessions.
+        RunnAI is a coaching agent that runs in your terminal. It connects to your Strava,
+        builds a picture of who you are as a runner, and uses that context in every conversation.
+        Unlike a chatbot, it maintains structured memory across sessions - it knows your
+        injury history, training preferences, and how you respond to different workloads.
       </p>
       <ul class="how-list">
         <li>
-          <strong>Persistent memory</strong>
-          <span>Three tiers: a hot cache loaded into every conversation, a deep memory store for detailed observations, and a SQLite database with all your activity data. The agent decides what to remember, promote, or archive.</span>
+          <strong>Learns and remembers you</strong>
+          <span>The coach builds a profile that evolves over time - your strengths, injury patterns, preferred training structure, how you respond to volume changes. It decides what to remember, what's important right now, and what to archive.</span>
         </li>
         <li>
-          <strong>Strava integration</strong>
-          <span>Full sync with automatic run classification, per-second stream analysis (HR zones, cardiac drift, pace variability, phase detection), and write-back of coaching notes to your Strava descriptions. All data stays on your machine.</span>
+          <strong>Strava sync and write-back</strong>
+          <span>Syncs your activities, automatically classifies every run (easy, tempo, intervals, long, hills), and writes concise coaching notes back to your Strava descriptions.</span>
         </li>
         <li>
           <strong>Deep run analysis</strong>
-          <span>Every run is automatically classified (easy, tempo, intervals, long run, hill session) and analyzed: HR zone distribution, cardiac drift, grade-adjusted pace, fatigue index, detected workout phases, and interval extraction.</span>
+          <span>Per-second stream analysis: HR zone distribution, cardiac drift, grade-adjusted pace, fatigue index, workout phase detection, and interval extraction. Every run gets a structured breakdown.</span>
         </li>
         <li>
           <strong>Adaptive training plans</strong>
-          <span>Periodized plans that adjust weekly based on what actually happened &mdash; not a static spreadsheet. Exports to <a href="https://intervals.icu">intervals.icu</a> with structured workouts, HR/pace targets, and color-coded tags.</span>
+          <span>Periodized plans that adjust weekly based on what you actually ran - not a static spreadsheet. The coach accounts for missed sessions, fatigue patterns, and upcoming races.</span>
         </li>
         <li>
-          <strong>Coaching skills</strong>
-          <span>Modular knowledge for periodization, injury management, workout analysis, race prediction, and weekly planning &mdash; grounded in running science rather than generic LLM output.</span>
+          <strong>Intervals.icu export</strong>
+          <span>Push training plans directly to <a href="https://intervals.icu">intervals.icu</a> as structured workouts with HR/pace targets, color-coded tags, and repeat blocks. Re-exporting safely updates existing events.</span>
+        </li>
+        <li>
+          <strong>Race predictions</strong>
+          <span>Estimates that evolve as your fitness changes, tracked over time so you can see the trend leading into a goal race.</span>
         </li>
         <li>
           <strong>Weather-aware coaching</strong>
-          <span>Fetches conditions for your run location to adjust pace recommendations, clothing, and hydration advice based on actual temperature, humidity, and wind.</span>
+          <span>Fetches conditions for your location to adjust pace recommendations, clothing, and hydration advice for actual temperature, humidity, and wind.</span>
+        </li>
+        <li>
+          <strong>Evidence-based coaching knowledge</strong>
+          <span>Modular skills for periodization, injury management, workout analysis, and race prediction - grounded in running science rather than generic LLM output.</span>
         </li>
       </ul>
     </section>
@@ -433,8 +369,8 @@
     <section class="section">
       <h2>Memory in action</h2>
       <p>
-        The hot cache evolves as the coach learns about you. Here's what it looks like
-        after a few weeks compared to the first session.
+        The coach's picture of you evolves as it learns. Here's what the athlete profile
+        looks like after a few weeks compared to the first session.
       </p>
       <div class="demo-pair">
         <div>
@@ -444,7 +380,7 @@
               <span class="dot dot-r"></span>
               <span class="dot dot-y"></span>
               <span class="dot dot-g"></span>
-              <span class="title">CONTEXT.md</span>
+              <span class="title">Athlete profile</span>
             </div>
 <pre><span class="dim">## Athlete Profile</span>
 Name: Alex
@@ -465,7 +401,7 @@ No observations yet.</pre>
               <span class="dot dot-r"></span>
               <span class="dot dot-y"></span>
               <span class="dot dot-g"></span>
-              <span class="title">CONTEXT.md</span>
+              <span class="title">Athlete profile</span>
             </div>
 <pre><span class="dim">## Athlete Profile</span>
 Name: Alex &middot; 32 &middot; 5 years running
@@ -491,7 +427,8 @@ Goal: Sub-3:00 marathon <span class="green">(12 weeks out)</span>
     <section class="section">
       <h2>Strava write-back</h2>
       <p>
-        After analyzing a run, the coach writes concise coaching notes directly to your Strava activity &mdash; the kind of thing a coach would actually say, not a data dump.
+        After analyzing a run, the coach writes concise coaching notes directly to your
+        Strava activity - the kind of feedback a human coach would give, not a data dump.
       </p>
       <div class="demo-pair">
         <div>
@@ -501,13 +438,13 @@ Goal: Sub-3:00 marathon <span class="green">(12 weeks out)</span>
               <span class="dot dot-r"></span>
               <span class="dot dot-y"></span>
               <span class="dot dot-g"></span>
-              <span class="title">Easy Long Run &mdash; Rolling Hills</span>
+              <span class="title">Easy Long Run - Rolling Hills</span>
             </div>
 <pre>18km on rolling terrain with HR comfortably
 in Z1-Z2 throughout. Grade-adjusted pace
 5:50/km accounts for the 200m of climbing.
 Only 1.7% cardiac drift over 100 minutes
-&mdash; strong aerobic control.
+- strong aerobic control.
 </pre>
           </div>
         </div>
@@ -523,7 +460,7 @@ Only 1.7% cardiac drift over 100 minutes
 <pre>8km of threshold work at 4:18/km after a
 warm-up. Pacing was disciplined through 6km
 but the last two drifted to 4:22 with HR
-climbing &mdash; the 7% fade suggests the effort
+climbing - the 7% fade suggests the effort
 was right at the limit. Good session to
 build from.
 </pre>
@@ -534,16 +471,17 @@ build from.
 
     <!-- Analysis -->
     <section class="section">
-      <h2>What it analyzes</h2>
+      <h2>Run analysis</h2>
       <p>
-        Every synced run is automatically classified and analyzed from per-second stream data. The structured analysis feeds into coaching advice, Strava write-backs, and training plan adjustments.
+        Every synced run is automatically classified and broken down from per-second stream data.
+        The analysis feeds into coaching advice, Strava write-backs, and plan adjustments.
       </p>
       <div class="terminal terminal-solo">
         <div class="terminal-bar">
           <span class="dot dot-r"></span>
           <span class="dot dot-y"></span>
           <span class="dot dot-g"></span>
-          <span class="title">get_run_analysis</span>
+          <span class="title">Run analysis</span>
         </div>
 <pre><span class="dim">Classification</span>    <span class="hl">tempo</span> &middot; rolling hills &middot; 12.1km
 <span class="dim">Pace</span>              4:45/km &middot; GAP 4:38/km
@@ -555,54 +493,48 @@ build from.
       </div>
     </section>
 
-    <!-- Getting started -->
+    <!-- Intervals.icu -->
     <section class="section">
-      <h2>Getting started</h2>
-
-      <div class="install-grid">
-        <div class="install-step">
-          <h3>Prerequisites</h3>
-          <ul>
-            <li><strong><a href="https://bun.sh">Bun</a></strong> runtime</li>
-            <li><strong><a href="https://www.strava.com/settings/api">Strava API application</a></strong> &mdash; create one at strava.com/settings/api, set callback domain to <code>localhost</code>. This gives you a Client ID and Client Secret.</li>
-            <li><strong>Claude auth</strong> &mdash; either an <a href="https://console.anthropic.com">Anthropic API key</a> or <a href="https://claude.ai/code">Claude Code</a> installed (Pro/Max subscription &mdash; RunnAI piggybacks on its auth)</li>
-          </ul>
+      <h2>Intervals.icu integration</h2>
+      <p>
+        Training plans export directly to <a href="https://intervals.icu">intervals.icu</a>
+        as structured workout events. Each workout gets HR/pace targets, color-coded tags,
+        and repeat blocks that intervals.icu renders as visual workout steps.
+        Re-exporting the same plan safely updates existing events.
+      </p>
+      <div class="terminal terminal-solo">
+        <div class="terminal-bar">
+          <span class="dot dot-r"></span>
+          <span class="dot dot-y"></span>
+          <span class="dot dot-g"></span>
+          <span class="title">intervals.icu calendar</span>
         </div>
-
-        <div class="install-step">
-          <h3>Install and configure</h3>
-          <div class="terminal">
-            <button class="copy-btn" data-copy="git clone https://github.com/severi/runnai.git && cd runnai && bun install && cp .env.example .env" aria-label="Copy">Copy</button>
-            <div class="terminal-bar">
-              <span class="dot dot-r"></span>
-              <span class="dot dot-y"></span>
-              <span class="dot dot-g"></span>
-            </div>
-<pre><span class="prompt">$</span> git clone https://github.com/severi/runnai.git
-<span class="prompt">$</span> cd runnai && bun install
-<span class="prompt">$</span> cp .env.example .env</pre>
-          </div>
-          <p>Edit <code>.env</code> and fill in:</p>
-          <ul>
-            <li><code>STRAVA_CLIENT_ID</code> and <code>STRAVA_CLIENT_SECRET</code> from your Strava app</li>
-            <li><code>ANTHROPIC_API_KEY</code> if using an API key (skip if using Claude Code auth)</li>
-          </ul>
-        </div>
-
-        <div class="install-step">
-          <h3>Run</h3>
-          <div class="terminal">
-            <button class="copy-btn" data-copy="bun run build && bun run start" aria-label="Copy">Copy</button>
-            <div class="terminal-bar">
-              <span class="dot dot-r"></span>
-              <span class="dot dot-y"></span>
-              <span class="dot dot-g"></span>
-            </div>
-<pre><span class="prompt">$</span> bun run build && bun run start</pre>
-          </div>
-          <p>On first launch the coach connects your Strava account via OAuth, syncs your activities, and builds your profile.</p>
-        </div>
+<pre><span class="dim">Mon</span>  <span class="green">Easy 9km</span>         Z2 HR                <span style="color:#4CAF50">&block;</span>
+<span class="dim">Tue</span>  <span class="hl">Intervals</span>        4x 1km Z4 + recovery <span style="color:#FF5722">&block;</span>
+<span class="dim">Wed</span>  <span class="green">Easy 8km</span>         Z1-Z2 HR             <span style="color:#4CAF50">&block;</span>
+<span class="dim">Thu</span>  <span class="hl">Tempo 8km</span>        Z3 HR                <span style="color:#FF9800">&block;</span>
+<span class="dim">Fri</span>  <span style="color:#81C784">Recovery 5km</span>     Z1 HR                <span style="color:#81C784">&block;</span>
+<span class="dim">Sat</span>  <span style="color:#9C27B0">Long Run 22km</span>    Z2 HR + MP finish    <span style="color:#9C27B0">&block;</span>
+<span class="dim">Sun</span>  <span class="dim">Rest</span></pre>
       </div>
+    </section>
+
+    <!-- Architecture overview -->
+    <section class="section">
+      <h2>How it's built</h2>
+      <p>
+        RunnAI is a standalone TypeScript app built on the
+        <a href="https://github.com/anthropics/claude-code">Claude Agent SDK</a>
+        with a React/Ink terminal UI. It uses a 3-tier memory system: a hot cache
+        loaded into every conversation, a deep memory store for detailed observations,
+        and a local SQLite database with all your activity data. The agent decides
+        what to remember, promote, or archive - inspired by
+        <a href="https://github.com/cpacker/MemGPT">MemGPT</a>'s self-editing memory pattern.
+      </p>
+      <p>
+        See the <a href="https://github.com/severi/runnai#readme">README</a> for
+        setup instructions, architecture details, and the full tool reference.
+      </p>
     </section>
 
   </div>
@@ -616,6 +548,7 @@ build from.
           <a href="https://github.com/severi/runnai#readme">Docs</a>
           <a href="https://github.com/severi/runnai/blob/main/LICENSE">MIT License</a>
           <a href="https://github.com/anthropics/claude-code">Claude Agent SDK</a>
+          <a href="https://intervals.icu">intervals.icu</a>
         </div>
         <div class="footer-note">
           Built by <a href="https://github.com/severi">@severi</a>
@@ -623,20 +556,6 @@ build from.
       </div>
     </div>
   </footer>
-
-  <script>
-    document.querySelectorAll('.copy-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(btn.dataset.copy);
-          const orig = btn.textContent;
-          btn.textContent = 'Copied!';
-          btn.classList.add('copied');
-          setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
-        } catch (e) {}
-      });
-    });
-  </script>
 
 </body>
 </html>
