@@ -458,9 +458,9 @@ export default function App({ resume = false }: { resume?: boolean }) {
               setStreamingText(currentResponse);
             } else if (block.type === "tool_use") {
               log("tool_use", block.name, block.input);
-              // Flush accumulated text as thinking
+              // Flush accumulated text as a proper message
               if (currentResponse.trim()) {
-                addMessage("thinking", currentResponse);
+                addMessage("assistant", currentResponse);
                 currentResponse = "";
                 setStreamingText(null);
               }
