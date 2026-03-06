@@ -47,8 +47,8 @@ Today: ${new Date().toISOString().split("T")[0]}`,
   },
   "activity-analyzer": {
     description:
-      "Analyzes running activities from SQLite and can write analysis back to Strava. Use for workout analysis, training queries, and Strava write-back.",
-    prompt: `You analyze running data by querying the SQLite database and can write analysis back to Strava.
+      "Analyzes running activities from SQLite. Use for workout analysis and training queries.",
+    prompt: `You analyze running data by querying the SQLite database.
 
 Use query_activities to run SQL queries.
 
@@ -70,7 +70,7 @@ The activity_analysis table has pre-computed per-run analysis (JOIN on activity_
 - run_type, run_type_detail, classification_confidence, hill_category
 - pace_sec_per_km, grade_adjusted_pace_sec_per_km, elevation_gain_m, elevation_loss_m
 - similar_runs_7d, similar_runs_30d, avg_pace_similar_30d, pace_vs_similar_delta
-- lap_summaries (JSON), prose_summary (cached LLM-generated narrative)
+- lap_summaries (JSON)
 
 The activity_stream_analysis table has stream-derived metrics (JOIN on activity_id):
 - hr_zone1_s..hr_zone5_s, hr_total_s (time-in-zone in seconds, Friel zones)
@@ -94,12 +94,8 @@ Useful patterns:
 - Lap splits: SELECT lap_index, distance/1000 as km, moving_time, average_heartrate FROM activity_laps WHERE activity_id=? ORDER BY lap_index
 - Detect structured workouts: SELECT activity_id, COUNT(*) as laps, MIN(distance) as min_lap, MAX(distance) as max_lap FROM activity_laps GROUP BY activity_id HAVING max_lap/min_lap > 1.5
 
-## Strava Write-Back
-
-When asked to update Strava activities, follow the strava-writeback skill.
-
 Today: ${new Date().toISOString().split("T")[0]}`,
-    tools: ["Read", "query_activities", "get_run_analysis", "calculator", "get_weather", "strava_update_activity"],
+    tools: ["Read", "query_activities", "get_run_analysis", "calculator", "get_weather"],
     model: "opus",
   },
   "fitness-assessor": {

@@ -10,7 +10,7 @@ import { getDataDir } from "../utils/paths.js";
 import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory, clearChatHistory } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
 import { recordExchange, resetUsage, formatExchangeLine, type ExchangeUsage } from "../utils/usage-tracker.js";
-import { log } from "../utils/logger.js";
+import { log, logEvent, saveToolResult, saveSystemPrompt, updateMeta, getLogPath } from "../utils/logger.js";
 import { commands, getCommandByName, type Command, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
@@ -365,7 +365,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
         input: Record<string, unknown>,
         options: { signal: AbortSignal },
       ): Promise<PermissionResult> => {
-        log("canUseTool", toolName, { inputKeys: Object.keys(input) });
+        logEvent("can_use_tool", { tool: toolName, input_keys: Object.keys(input) });
         if (toolName !== "AskUserQuestion") {
           return { behavior: "allow", updatedInput: input };
         }
@@ -384,6 +384,12 @@ export default function App({ resume = false }: { resume?: boolean }) {
       };
 
       const options = await createAgentOptions(canUseTool);
+
+      // Log system prompt on first exchange
+      if (options.systemPrompt) {
+        saveSystemPrompt(typeof options.systemPrompt === "string" ? options.systemPrompt : JSON.stringify(options.systemPrompt));
+      }
+      logEvent("user_message", { prompt: prompt.slice(0, 2000), has_attachments: !!(attachments && attachments.length > 0) });
 
       if (attachments && attachments.length > 0) {
         const contentBlocks = buildContentBlocks(prompt, attachments);
@@ -405,6 +411,10 @@ export default function App({ resume = false }: { resume?: boolean }) {
       }
     } catch (error) {
       if (!abortController.signal.aborted) {
+        logEvent("error", {
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
         addMessage("system", `Error: ${error instanceof Error ? error.message : error}`);
       }
     }
@@ -433,13 +443,20 @@ export default function App({ resume = false }: { resume?: boolean }) {
     activeToolsMapRef.current.clear();
 
     function handleMessage(message: SDKMessage) {
-      log("sdk_message", message.type, "subtype" in message ? { subtype: (message as any).subtype } : undefined);
+      logEvent("sdk_message", {
+        sdk_type: message.type,
+        ...("subtype" in message ? { subtype: (message as any).subtype } : {}),
+      });
 
       switch (message.type) {
         case "system":
-          log("system_msg", JSON.stringify(message).slice(0, 2000));
           if ("subtype" in message && message.subtype === "init") {
             const initMsg = message as SDKMessage & { model: string; session_id?: string };
+            logEvent("system_init", {
+              model: initMsg.model,
+              session_id: initMsg.session_id,
+            });
+            updateMeta({ model: initMsg.model, session_id: initMsg.session_id });
             addMessage("debug", `Model: ${initMsg.model}`);
             if (initMsg.session_id) {
               saveSession(initMsg.session_id);
@@ -456,8 +473,14 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
               currentResponse += block.text;
               setStreamingText(currentResponse);
+              logEvent("assistant_text", { text: block.text });
             } else if (block.type === "tool_use") {
-              log("tool_use", block.name, block.input);
+              const toolUseId = (block as any).id as string || `fallback-${toolCountRef.current + 1}`;
+              logEvent("tool_use", {
+                tool: block.name,
+                tool_use_id: toolUseId,
+                input: block.input,
+              });
               // Flush accumulated text as a proper message
               if (currentResponse.trim()) {
                 addMessage("assistant", currentResponse);
@@ -470,7 +493,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
               const toolName = block.name.replace("mcp__runnai__", "");
               const keyArg = extractKeyArg(block.input as Record<string, unknown>);
               const count = toolCountRef.current;
-              const toolUseId = (block as any).id as string || `fallback-${count}`;
 
               const activeTool: ActiveTool = { id: toolUseId, index: count, name: toolName, keyArg, startTime: Date.now() };
               activeToolsMapRef.current.set(toolUseId, activeTool);
@@ -486,13 +508,24 @@ export default function App({ resume = false }: { resume?: boolean }) {
           if (message.tool_use_result !== undefined) {
             const result = message.tool_use_result as unknown;
             const resultStr = typeof result === "string" ? result : JSON.stringify(result);
-            log("tool_result", resultStr.slice(0, 1000));
             const isError = typeof result === "object" && result !== null &&
               "isError" in result && (result as Record<string, unknown>).isError === true;
 
             const toolUseId = extractToolUseId(message);
             const matchedTool = toolUseId ? activeToolsMapRef.current.get(toolUseId) : null;
             const tool = matchedTool || activeToolsMapRef.current.values().next().value || null;
+
+            const preview = resultStr.slice(0, 500);
+            const fullResultFile = toolUseId ? saveToolResult(toolUseId, result) : null;
+            logEvent("tool_result", {
+              tool_use_id: toolUseId,
+              tool_name: tool?.name ?? null,
+              is_error: isError,
+              duration_ms: tool ? Date.now() - tool.startTime : null,
+              preview,
+              ...(fullResultFile ? { full_result_file: fullResultFile } : {}),
+              ...(resultStr.length <= 1024 ? { result: resultStr } : {}),
+            });
 
             if (tool) {
               const elapsed = ((Date.now() - tool.startTime) / 1000).toFixed(1);
@@ -509,10 +542,10 @@ export default function App({ resume = false }: { resume?: boolean }) {
                 : JSON.stringify(result, null, 2);
               addMessage("error", `Tool error: ${errorStr.slice(0, 500)}`);
             } else {
-              const resultStr = typeof result === "string"
+              const resultStr2 = typeof result === "string"
                 ? result.slice(0, 200) + (result.length > 200 ? "..." : "")
                 : JSON.stringify(result).slice(0, 200);
-              addMessage("tool", `← ${resultStr}`);
+              addMessage("tool", `← ${resultStr2}`);
             }
           }
           break;
@@ -558,6 +591,10 @@ export default function App({ resume = false }: { resume?: boolean }) {
             durationMs: message.duration_ms,
             numTurns: message.num_turns,
           };
+          logEvent("result", {
+            subtype,
+            ...exchange,
+          });
           recordExchange(exchange);
           addMessage("status", formatExchangeLine(exchange));
           break;

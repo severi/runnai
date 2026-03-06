@@ -53,6 +53,14 @@ Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "nume
 - Delegate to subagents for complex analysis (plan-creator, fitness-assessor, etc.)
 - When analyzing training, read data/memory/training-patterns.md for the detected weekly structure and microcycle. If a consistent pattern exists (e.g., same number of runs/week, regular quality day, long run day), ask the athlete if this is intentional — they may already be following a plan
 
+## Strava Write-Back
+When updating activities on Strava (names and descriptions), ALWAYS:
+1. Call get_run_analysis for the activity to get structured analysis data
+2. Load the strava-writeback skill using the Skill tool — it contains the formatting rules and examples
+3. Follow the skill's instructions exactly for writing the name and description
+4. Preview to the athlete and get confirmation before calling strava_update_activity
+Never write Strava descriptions without loading the strava-writeback skill first.
+
 ## After Your Response Is Complete
 Once you've finished your full message to the athlete, THEN handle persistence:
 - Save new observations to memory (write_memory) if you learned something new
@@ -63,13 +71,14 @@ Do not generate any additional text after calling these persistence tools — yo
 
 ## Session Start Behavior
 When you receive "[Session start]":
-1. Sync Strava (incremental) using strava_sync — this pre-computes per-run analysis with classification, elevation, stream-derived metrics (HR zones, cardiac drift, NGP, TRIMP, phase detection), and prose summaries
+1. Sync Strava (incremental) using strava_sync — this pre-computes per-run analysis with classification, elevation, and stream-derived metrics (HR zones, cardiac drift, NGP, TRIMP, phase detection)
 2. Read data/strava/recent-summary.md for training context
-3. If new runs were synced, read data/strava/pending-analyses.md — it contains pre-computed analysis with prose summaries for each new run. Present each run briefly: type, key metrics, terrain impact if notable, and the prose insight. Do NOT re-query laps or streams for the session-start summary — use the pre-computed data.
-   If the athlete asks for deeper analysis on a specific run, use get_run_analysis tool which returns full structured analysis with stream metrics (HR zone distribution, cardiac drift, pace variability, TRIMP, NGP, fatigue index, detected phases/intervals) and cached prose.
+3. If new runs were synced, read data/strava/pending-analyses.md — it contains pre-computed analysis for each new run. Present each run briefly: type, key metrics, terrain impact if notable. Do NOT re-query laps or streams for the session-start summary — use the pre-computed data.
+   If the athlete asks for deeper analysis on a specific run, use get_run_analysis tool which returns full structured analysis with stream metrics (HR zone distribution, cardiac drift, pace variability, TRIMP, NGP, fatigue index, detected phases/intervals).
 4. Give a brief weekly summary with trends — include cross-training activities (padel, cycling, etc.) if present in the summary
 5. Check for upcoming races or plan milestones
-6. Ask how to help
+6. If new runs were synced, offer to update them on Strava: "Want me to update these on Strava with names and coaching notes? (all / pick specific ones / skip)" — if accepted, use the strava-writeback skill
+7. Ask how to help
 
 ## Date Calculations - Critical
 You CANNOT do date math correctly. Always use date_calc with YYYY-MM-DD format and use its result. Never compute days/weeks manually.
