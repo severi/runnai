@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useReducer, useRef } from "react";
 import { Text, useInput } from "ink";
 
 interface TextInputProps {
@@ -35,28 +35,29 @@ export function TextInput({
   focus = true,
   showCursor = true,
 }: TextInputProps) {
-  const [cursor, setCursor] = useState(value.length);
+  // Force re-render without any state for value/cursor.
+  // Refs are the single source of truth — no stale closures, no async effects.
+  const [, rerender] = useReducer((x: number) => x + 1, 0);
 
-  // Refs for synchronous access in useInput handler
   const valueRef = useRef(value);
   const cursorRef = useRef(value.length);
 
-  // Tracks the last value we emitted via onChange, so we can distinguish
-  // our own changes echoing back from external changes (tab complete, clear)
-  const lastEmittedRef = useRef(value);
+  // Version counter: incremented on every keystroke in useInput.
+  // At render time, if version hasn't changed since last render,
+  // any value prop change must be external (tab completion, escape, clear).
+  // If version HAS changed, the prop change is our own onChange echo — ignore it.
+  const versionRef = useRef(0);
+  const lastSyncedVersionRef = useRef(0);
 
-  // Sync from prop changes
-  useEffect(() => {
-    valueRef.current = value;
-
-    if (value !== lastEmittedRef.current) {
-      // External change (tab completion, escape, clear)
+  // --- External change detection (runs at render time, NOT in useEffect) ---
+  if (versionRef.current === lastSyncedVersionRef.current) {
+    // No keystrokes since last render — prop change is external
+    if (value !== valueRef.current) {
+      valueRef.current = value;
       cursorRef.current = value.length;
-      setCursor(value.length);
     }
-
-    lastEmittedRef.current = value;
-  }, [value]);
+  }
+  lastSyncedVersionRef.current = versionRef.current;
 
   useInput(
     (input, key) => {
@@ -106,7 +107,8 @@ export function TextInput({
         nextValue = nextValue.slice(0, nextCursor) + nextValue.slice(boundary);
       } else if (key.ctrl && input === "d") {
         if (nextCursor < nextValue.length) {
-          nextValue = nextValue.slice(0, nextCursor) + nextValue.slice(nextCursor + 1);
+          nextValue =
+            nextValue.slice(0, nextCursor) + nextValue.slice(nextCursor + 1);
         }
       } else if (key.leftArrow) {
         if (showCursor) {
@@ -127,30 +129,45 @@ export function TextInput({
           nextCursor = nextCursor - 1;
         }
       } else if (input && !key.ctrl && !key.meta) {
-        nextValue =
-          nextValue.slice(0, nextCursor) + input + nextValue.slice(nextCursor);
-        nextCursor = nextCursor + input.length;
+        // Count any DEL chars (\x7f) as additional backspaces — the terminal
+        // batches multiple \x7f bytes in one stdin read during key repeat,
+        // and Ink only parses the first as key.backspace.
+        const delCount = (input.match(/\x7f/g) || []).length;
+        if (delCount > 0) {
+          const toDelete = Math.min(delCount, nextCursor);
+          nextValue =
+            nextValue.slice(0, nextCursor - toDelete) + nextValue.slice(nextCursor);
+          nextCursor = nextCursor - toDelete;
+        }
+        const printable = input.replace(/[^\x20-\x7e\u00a0-\uffff]/g, "");
+        if (printable) {
+          nextValue =
+            nextValue.slice(0, nextCursor) + printable + nextValue.slice(nextCursor);
+          nextCursor = nextCursor + printable.length;
+        }
       }
 
       nextCursor = Math.max(0, Math.min(nextCursor, nextValue.length));
 
       // Update refs synchronously — next keystroke sees correct state
-      cursorRef.current = nextCursor;
+      versionRef.current++;
       valueRef.current = nextValue;
-      setCursor(nextCursor);
+      cursorRef.current = nextCursor;
+
+      rerender();
 
       if (nextValue !== oldValue) {
-        lastEmittedRef.current = nextValue;
         onChange(nextValue);
       }
     },
-    { isActive: focus }
+    { isActive: focus },
   );
 
-  // Render from value prop + cursor state (clamped for safety)
-  const effectiveCursor = Math.min(cursor, value.length);
+  // --- Render from refs ---
+  const displayValue = valueRef.current;
+  const displayCursor = Math.min(cursorRef.current, displayValue.length);
 
-  if (!value && placeholder) {
+  if (!displayValue && placeholder) {
     if (showCursor && focus) {
       return (
         <Text>
@@ -163,14 +180,16 @@ export function TextInput({
   }
 
   if (!showCursor || !focus) {
-    return <Text>{value}</Text>;
+    return <Text>{displayValue}</Text>;
   }
 
-  const before = value.slice(0, effectiveCursor);
+  const before = displayValue.slice(0, displayCursor);
   const cursorChar =
-    effectiveCursor < value.length ? value[effectiveCursor] : " ";
+    displayCursor < displayValue.length ? displayValue[displayCursor] : " ";
   const after =
-    effectiveCursor < value.length ? value.slice(effectiveCursor + 1) : "";
+    displayCursor < displayValue.length
+      ? displayValue.slice(displayCursor + 1)
+      : "";
 
   return (
     <Text>
