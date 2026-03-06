@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import Anthropic from "@anthropic-ai/sdk";
 import { initDatabase } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
 import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary } from "../types/index.js";
@@ -257,24 +258,24 @@ export function buildProsePrompt(
   const elev = record.elevation_gain_m != null
     ? ` with ${Math.round(record.elevation_gain_m)}m gain` : "";
   const isHilly = record.hill_category && record.hill_category !== "flat";
-  // For hilly runs, omit overall avg HR — it's meaningless (blends climb + descent).
-  // Per-phase HR in the stream block is far more useful.
+  // For hilly runs, omit overall avg HR — it blends climb + descent.
   const hrStr = record.avg_heartrate && !isHilly
-    ? `, avg HR ${Math.round(record.avg_heartrate)} bpm` : "";
+    ? `, avg HR ${Math.round(record.avg_heartrate)}` : "";
 
   const hillNote = isHilly
-    ? ` Terrain: ${record.hill_category} (${Math.round(record.elevation_gain_m ?? 0)}m gain, ${record.distance_m > 0 ? ((record.elevation_gain_m ?? 0) / record.distance_m * 1000).toFixed(1) : "0"}m/km).` : "";
+    ? ` Terrain: ${record.hill_category}.` : "";
 
   const comparisonNote = record.avg_pace_similar_30d != null && record.pace_vs_similar_delta != null
-    ? ` Compared to avg ${formatPace(record.avg_pace_similar_30d)} for similar ${record.run_type} runs in past 30 days (${record.pace_vs_similar_delta > 0 ? "+" : ""}${record.pace_vs_similar_delta.toFixed(0)}s/km).` : "";
+    ? ` Compared to avg ${formatPace(record.avg_pace_similar_30d)} for similar ${record.run_type} runs in past 30d (${record.pace_vs_similar_delta > 0 ? "+" : ""}${record.pace_vs_similar_delta.toFixed(0)}s/km).` : "";
 
   const validPaces = record.lap_summaries.map(l => l.pace_sec_per_km).filter(p => p > 0);
   const lapInfo = validPaces.length > 1
     ? `\nLaps: ${record.lap_summaries.length} laps, range ${formatPace(Math.min(...validPaces))} to ${formatPace(Math.max(...validPaces))}`
     : "";
 
-  // Stream-derived metrics block
-  let streamBlock = "";
+  // Stream analysis — only include metrics that could be interesting.
+  // Removed: EF (too technical), TRIMP (meaningless without context), NGP (redundant with GAP).
+  let analysisBlock = "";
   if (streamAnalysis) {
     const parts: string[] = [];
 
@@ -282,60 +283,54 @@ export function buildProsePrompt(
       const z = streamAnalysis.hr_zones;
       const total = z.total_hr_s || 1;
       const zoneStrs = [
-        z.zone1_s > 0 ? `Z1 ${formatDuration(z.zone1_s)} (${Math.round(z.zone1_s / total * 100)}%)` : null,
-        z.zone2_s > 0 ? `Z2 ${formatDuration(z.zone2_s)} (${Math.round(z.zone2_s / total * 100)}%)` : null,
-        z.zone3_s > 0 ? `Z3 ${formatDuration(z.zone3_s)} (${Math.round(z.zone3_s / total * 100)}%)` : null,
-        z.zone4_s > 0 ? `Z4 ${formatDuration(z.zone4_s)} (${Math.round(z.zone4_s / total * 100)}%)` : null,
-        z.zone5_s > 0 ? `Z5 ${formatDuration(z.zone5_s)} (${Math.round(z.zone5_s / total * 100)}%)` : null,
+        z.zone1_s > 0 ? `Z1 ${Math.round(z.zone1_s / total * 100)}%` : null,
+        z.zone2_s > 0 ? `Z2 ${Math.round(z.zone2_s / total * 100)}%` : null,
+        z.zone3_s > 0 ? `Z3 ${Math.round(z.zone3_s / total * 100)}%` : null,
+        z.zone4_s > 0 ? `Z4 ${Math.round(z.zone4_s / total * 100)}%` : null,
+        z.zone5_s > 0 ? `Z5 ${Math.round(z.zone5_s / total * 100)}%` : null,
       ].filter(Boolean);
       parts.push(`HR Zones: ${zoneStrs.join(", ")}`);
     }
 
     if (streamAnalysis.cardiac_drift_pct != null) {
-      const label = streamAnalysis.cardiac_drift_pct < 5 ? "well coupled"
-        : streamAnalysis.cardiac_drift_pct < 10 ? "normal" : "high drift";
-      parts.push(`Cardiac drift: ${streamAnalysis.cardiac_drift_pct > 0 ? "+" : ""}${streamAnalysis.cardiac_drift_pct.toFixed(1)}% (${label})`);
+      parts.push(`Cardiac drift: ${streamAnalysis.cardiac_drift_pct.toFixed(1)}%`);
     }
 
-    if (streamAnalysis.ngp_sec_per_km != null) {
-      parts.push(`NGP: ${formatPace(streamAnalysis.ngp_sec_per_km)}`);
+    if (streamAnalysis.split_type === "negative") {
+      parts.push(`Split: negative`);
     }
 
-    if (streamAnalysis.split_type) {
-      parts.push(`Split: ${streamAnalysis.split_type}`);
+    if (streamAnalysis.fatigue_index_pct != null && Math.abs(streamAnalysis.fatigue_index_pct) > 3) {
+      parts.push(`Fatigue: ${streamAnalysis.fatigue_index_pct.toFixed(1)}% pace fade in final quarter`);
     }
 
-    if (streamAnalysis.trimp != null) {
-      parts.push(`TRIMP: ${Math.round(streamAnalysis.trimp)}`);
-    }
+    // Hilly runs: climb vs descent breakdown (more useful than overall averages)
+    if (isHilly && streamAnalysis.phases.length > 1) {
+      const climbs = streamAnalysis.phases.filter(p =>
+        (p.elevation_gain_m ?? 0) > (p.elevation_loss_m ?? 0) + 5);
+      const descents = streamAnalysis.phases.filter(p =>
+        (p.elevation_loss_m ?? 0) > (p.elevation_gain_m ?? 0) + 5);
 
-    if (streamAnalysis.fatigue_index_pct != null && Math.abs(streamAnalysis.fatigue_index_pct) > 2) {
-      parts.push(`Fatigue: ${streamAnalysis.fatigue_index_pct > 0 ? "+" : ""}${streamAnalysis.fatigue_index_pct.toFixed(1)}% pace fade in final quarter`);
-    }
+      const climbSummary = summarizeVerticalPhases(climbs, "gain");
+      if (climbSummary) parts.push(`Climbs: ${climbSummary}`);
 
-    if (streamAnalysis.efficiency_factor != null) {
-      parts.push(`EF: ${streamAnalysis.efficiency_factor.toFixed(2)}`);
+      const descentSummary = summarizeVerticalPhases(descents, "loss");
+      if (descentSummary) parts.push(`Descents: ${descentSummary}`);
     }
-
-    if (streamAnalysis.phases.length > 1) {
+    // Non-hilly structured workouts: show phase summary
+    else if (streamAnalysis.phases.length > 1 && streamAnalysis.phases.length <= 15) {
       const moving = streamAnalysis.phases.filter(p => p.phase !== "stopped");
-      // Summarize by phase type with avg HR and elevation
-      const byType = new Map<string, { count: number; totalDur: number; hrSum: number; hrCount: number; gain: number; loss: number }>();
+      const byType = new Map<string, { count: number; totalDur: number; hrSum: number; hrCount: number }>();
       for (const p of moving) {
-        const key = p.phase;
-        const entry = byType.get(key) ?? { count: 0, totalDur: 0, hrSum: 0, hrCount: 0, gain: 0, loss: 0 };
+        const entry = byType.get(p.phase) ?? { count: 0, totalDur: 0, hrSum: 0, hrCount: 0 };
         entry.count++;
         entry.totalDur += p.end_s - p.start_s;
         if (p.avg_hr != null && p.avg_hr > 0) { entry.hrSum += p.avg_hr; entry.hrCount++; }
-        if (p.elevation_gain_m != null) entry.gain += p.elevation_gain_m;
-        if (p.elevation_loss_m != null) entry.loss += p.elevation_loss_m;
-        byType.set(key, entry);
+        byType.set(p.phase, entry);
       }
       const typeSummaries = Array.from(byType.entries()).map(([type, e]) => {
         const hrPart = e.hrCount > 0 ? `, avg HR ${Math.round(e.hrSum / e.hrCount)}` : "";
-        const elevPart = (e.gain > 10 || e.loss > 10)
-          ? `, +${Math.round(e.gain)}m/-${Math.round(e.loss)}m` : "";
-        return `${type} ×${e.count} (${formatDuration(e.totalDur)}${hrPart}${elevPart})`;
+        return `${type} ×${e.count} (${formatDuration(e.totalDur)}${hrPart})`;
       });
       parts.push(`Phases: ${typeSummaries.join(", ")}`);
     }
@@ -345,19 +340,94 @@ export function buildProsePrompt(
     }
 
     if (parts.length > 0) {
-      streamBlock = `\n\nStream Analysis:\n${parts.join("\n")}`;
+      analysisBlock = `\n\nAnalysis:\n${parts.join("\n")}`;
     }
   }
 
-  const hillyGuidance = isHilly && streamAnalysis && streamAnalysis.phases.length > 1
-    ? " For hilly runs, use per-phase data (climb HR, descent HR, elevation) rather than overall averages — the contrast between climb and descent effort is the interesting story." : "";
+  const isEasyRun = ["easy", "recovery", "long_run"].includes(record.run_type);
+  const lengthGuide = isEasyRun ? "1-2 sentences" : "2-3 sentences";
 
-  return `Write a 3-4 sentence coaching summary for this run. Be specific with the numbers provided. Reference the stream analysis metrics (cardiac drift, HR zones, fatigue, split pattern) when they reveal something meaningful.${hillyGuidance} Do not use bullet points or titles. IMPORTANT: Only reference data explicitly provided below — do not invent or guess specific dates, paces, or details of other runs.
+  return `Write a brief coaching summary for this run (${lengthGuide}). Describe what the run was, then mention only what's genuinely noteworthy. Most metrics are expected — skip them. If a coach would glance at a number, shrug, and not mention it to the athlete, leave it out. Never list metrics — weave observations into natural prose. Use impersonal voice (not "you"). Do not use bullet points, headers, or emoji. Only reference data provided below.
+
+<examples>
+<example>
+<run>Easy, 8.5km, 5:40/km, avg HR 136. HR Zones: Z1 40%, Z2 58%, Z3 2%. Cardiac drift: 2.8%.</run>
+<summary>Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note — exactly what a recovery day should look like.</summary>
+</example>
+<example>
+<run>Tempo, 12km, 4:45/km. Laps: 2km warmup, 8km at 4:15-4:22, 2km cooldown. HR Zones: Z3 35%, Z4 55%. Cardiac drift: 6.2%. Fatigue: 7.1%.</run>
+<summary>8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing — the 7% fade suggests the effort was right at the limit. Good session to build from.</summary>
+</example>
+<example>
+<run>Hill run, 18km, 8:30/km (GAP: 5:50/km), 1200m gain. Climbs: 80min, avg HR 165, ~12:00/km. Descents: 65min, avg HR 140, ~5:30/km. Cardiac drift: 4.8%.</run>
+<summary>18km in the hills with 1200m of climbing. The climbs pushed HR to 165 at hiking pace while descents provided active recovery at 140. Good cardiac drift control over 2.5 hours of sustained vertical work.</summary>
+</example>
+</examples>
+
+<bad_example>
+<output>Solid easy run covering 8.2km at 5:32/km. Heart rate averaged 138 bpm, 45% Z1, 55% Z2. Cardiac drift 3.2% showing good coupling. Even splits throughout.</output>
+<why_bad>Lists every metric — a data readback, not a coaching insight.</why_bad>
+</bad_example>
 
 Run: "${activityName}"
 Type: ${record.run_type}${record.run_type_detail ? ` (${record.run_type_detail})` : ""}
 Distance: ${distKm}km${elev}
-Pace: ${pace}${gap}${hrStr}${hillNote}${comparisonNote}${lapInfo}${streamBlock}`;
+Pace: ${pace}${gap}${hrStr}${hillNote}${comparisonNote}${lapInfo}${analysisBlock}`;
+}
+
+/**
+ * Generate a prose summary for an activity using the Anthropic API,
+ * then save it to the analysis record in the database.
+ * Returns the generated prose text, or null if generation failed.
+ */
+export async function generateProseSummary(
+  record: ActivityAnalysisRecord,
+  activityName: string,
+  streamAnalysis: StreamAnalysisResult | null,
+  db: Database,
+  client?: Anthropic
+): Promise<string | null> {
+  const anthropic = client ?? new Anthropic();
+  const prompt = buildProsePrompt(record, activityName, streamAnalysis);
+  const message = await anthropic.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 16000,
+    temperature: 1,
+    thinking: { type: "enabled", budget_tokens: 10000 },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const prose = message.content.find(b => b.type === "text")?.text ?? null;
+  if (prose) {
+    record.prose_summary = prose;
+    record.prose_generated_at = new Date().toISOString();
+    saveActivityAnalysis(record, db);
+  }
+  return prose;
+}
+
+function summarizeVerticalPhases(
+  phases: { start_s: number; end_s: number; elevation_gain_m: number | null; elevation_loss_m: number | null; avg_hr: number | null; avg_pace_sec_per_km: number | null }[],
+  direction: "gain" | "loss"
+): string | null {
+  if (phases.length === 0) return null;
+
+  const totalTime = phases.reduce((s, p) => s + (p.end_s - p.start_s), 0);
+  const totalElev = phases.reduce((s, p) => {
+    return s + (direction === "gain" ? (p.elevation_gain_m ?? 0) : (p.elevation_loss_m ?? 0));
+  }, 0);
+
+  const hrs = phases.filter(p => p.avg_hr).map(p => p.avg_hr!);
+  const avgHr = hrs.length > 0 ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
+
+  const paces = phases
+    .filter(p => p.avg_pace_sec_per_km && p.avg_pace_sec_per_km < 2000)
+    .map(p => p.avg_pace_sec_per_km!);
+  const avgPace = paces.length > 0
+    ? formatPace(paces.reduce((a, b) => a + b, 0) / paces.length) : null;
+
+  const sign = direction === "gain" ? "+" : "-";
+  return `${formatDuration(totalTime)}, ${sign}${Math.round(totalElev)}m${avgHr ? `, avg HR ${avgHr}` : ""}${avgPace ? `, ~${avgPace}` : ""}`;
 }
 
 function formatDuration(seconds: number): string {

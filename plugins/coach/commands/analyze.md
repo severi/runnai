@@ -12,10 +12,5 @@ user-invocable: true
    FROM activities WHERE type='Run'
    ORDER BY start_date_local DESC LIMIT 1
    ```
-2. Delegate to the `activity-analyzer` subagent with instructions to:
-   - Analyze the workout (query laps, compute splits, assess effort)
-   - Ask the athlete for their notes (how it felt, conditions, anything to mention)
-   - Generate a preview of proposed Strava changes (name, description)
-   - Get explicit confirmation before writing
-   - Call `strava_update_activity` to write the analysis back to Strava
-3. After write-back, confirm what was written and link to the activity
+2. Use the `strava-writeback` skill to generate previews and write back
+3. After write-back, confirm what was written

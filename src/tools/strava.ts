@@ -1,7 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { z } from "zod";
 import {
   startAutomaticAuth,
   hasClientCredentials,
@@ -14,7 +14,9 @@ import {
   convertStravaBestEfforts,
   updateActivity,
 } from "../strava/client.js";
+import type { StravaActivity, StravaTokens, ActivityLapRecord, ActivityStream } from "../types/index.js";
 import {
+  initDatabase as initDb,
   upsertActivities,
   queryActivities,
   getLatestActivityDate,
@@ -28,25 +30,20 @@ import {
   getUnclassifiedActivities,
   saveActivityStreams,
   computeLapElevation,
+  getStreamAnalysis,
 } from "../utils/activities-db.js";
-import { generateRecentSummary } from "../utils/recent-summary.js";
-import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
-import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
-import { generateTrainingPatterns } from "../utils/training-patterns.js";
 import {
   computeActivityAnalysis,
   saveActivityAnalysis,
   getActivityAnalysis,
   getRecentUnanalyzedActivityIds,
   formatPace,
-  buildProsePrompt,
 } from "../utils/activity-analysis.js";
-import { initDatabase as initDb } from "../utils/activities-db.js";
-import Anthropic from "@anthropic-ai/sdk";
-import { getStreamAnalysis } from "../utils/activities-db.js";
-import type { StravaActivity, StravaTokens, ActivityLapRecord, ActivityStream } from "../types/index.js";
-
+import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { getDataDir } from "../utils/paths.js";
+import { generateRecentSummary } from "../utils/recent-summary.js";
+import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
+import { generateTrainingPatterns } from "../utils/training-patterns.js";
 
 function getStravaDataDir(): string {
   return path.join(getDataDir(), "strava");
@@ -284,36 +281,6 @@ export const stravaSyncTool = tool(
             }
           } finally {
             analysisDb.close();
-          }
-
-          // Generate prose summaries for new runs (LLM call)
-          try {
-            const client = new Anthropic();
-            const proseDb = initDb();
-            try {
-              for (const run of newRuns) {
-                const record = getActivityAnalysis(run.id, proseDb);
-                if (record && !record.prose_summary) {
-                  const sa = getStreamAnalysis(run.id, proseDb);
-                  const prompt = buildProsePrompt(record, run.name, sa);
-                  const message = await client.messages.create({
-                    model: "claude-haiku-4-5-20251001",
-                    max_tokens: 300,
-                    messages: [{ role: "user", content: prompt }],
-                  });
-                  const prose = message.content[0].type === "text" ? message.content[0].text : null;
-                  if (prose) {
-                    record.prose_summary = prose;
-                    record.prose_generated_at = new Date().toISOString();
-                    saveActivityAnalysis(record, proseDb);
-                  }
-                }
-              }
-            } finally {
-              proseDb.close();
-            }
-          } catch {
-            // Prose generation is best-effort
           }
 
           // Regenerate training patterns
@@ -605,7 +572,7 @@ export const stravaAuthTool = tool(
 
 export const queryActivitiesTool = tool(
   "query_activities",
-  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data), 'activity_laps' (per-lap splits with elevation), 'activity_analysis' (pre-computed per-run analysis: hill_category, grade_adjusted_pace, comparison metrics, prose_summary — JOIN on activity_id), 'activity_stream_analysis' (stream-derived metrics: hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases JSON, intervals JSON — JOIN on activity_id), 'activity_streams' (per-second data — use get_activity_streams tool instead), 'best_efforts' (PRs). Use activity_analysis for quick per-run summaries. Use get_run_analysis tool for individual run narratives.",
+  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data), 'activity_laps' (per-lap splits with elevation), 'activity_analysis' (pre-computed per-run analysis: hill_category, grade_adjusted_pace, comparison metrics — JOIN on activity_id), 'activity_stream_analysis' (stream-derived metrics: hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases JSON, intervals JSON — JOIN on activity_id), 'activity_streams' (per-second data — use get_activity_streams tool instead), 'best_efforts' (PRs). Use get_run_analysis tool for structured per-run analysis data.",
   {
     query: z.string().describe("SQL SELECT query. Can query activities, activity_laps (activity_id, lap_index, distance, elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate, elevation_gain, elevation_loss), and best_efforts tables."),
   },
@@ -622,7 +589,7 @@ export const queryActivitiesTool = tool(
   }
 );
 
-const ATTRIBUTION = "\n\nAnalysis by RunnAI · github.com/severi/runnai";
+const ATTRIBUTION = "\n\nAnalysis by RunnAI · severi.github.io/runnai";
 
 export const stravaUpdateActivityTool = tool(
   "strava_update_activity",

@@ -5,6 +5,7 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import { PROJECT_ROOT } from "../agent.js";
 import { getDataDir } from "../utils/paths.js";
+import { getLogPath, logEvent } from "../utils/logger.js";
 import App from "./App.js";
 
 const DATA_SUBDIRS = [
@@ -50,6 +51,14 @@ export async function startCLI(): Promise<void> {
   const resumeFlag = process.argv.includes("--resume");
 
   await ensureDataDirs();
+
+  // Initialize session log and print path
+  logEvent("session_start", { resume: resumeFlag });
+  const logDir = getLogPath();
+  if (logDir) {
+    const relative = path.relative(PROJECT_ROOT, logDir);
+    console.log(`Session log: ${relative}/`);
+  }
 
   const { waitUntilExit } = render(<App resume={resumeFlag} />, {
     // Ink 6.5+: only update changed lines, reduces flickering

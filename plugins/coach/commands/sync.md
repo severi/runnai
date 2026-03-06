@@ -16,8 +16,8 @@ user-invocable: true
      - Compare to their training plan if one exists (check data/plans/)
      - Note anything interesting (PR pace, unusually long/short, new classification pattern)
    - If there are new non-run activities (cross-training), mention them briefly ("Also logged: Walk on Feb 7, Ride on Feb 3")
-   - Ask: "Want me to analyze these runs and write summaries to your Strava activities?"
-   - If yes, delegate to the `activity-analyzer` subagent for EACH new run
+   - Ask: "Want me to update these on Strava with names and coaching notes? (all / pick specific ones / skip)"
+   - If yes, use the `strava-writeback` skill to handle the write-back
 5. Give a brief weekly summary:
    - Runs so far this week
    - Total km

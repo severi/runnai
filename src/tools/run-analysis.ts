@@ -1,25 +1,22 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
 import { initDatabase, getStreamAnalysis } from "../utils/activities-db.js";
 import {
   getActivityAnalysis,
   computeActivityAnalysis,
   saveActivityAnalysis,
   formatPace,
-  buildProsePrompt,
 } from "../utils/activity-analysis.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import type { StreamAnalysisResult } from "../types/index.js";
 
 export const getRunAnalysisTool = tool(
   "get_run_analysis",
-  "Get pre-computed analysis and prose summary for a specific run. Returns cached analysis if available. If not yet analyzed, computes deterministic analysis and generates prose summary. Use this for per-run narratives instead of manually querying laps.",
+  "Get pre-computed deterministic analysis for a specific run. Returns classification, metrics, stream analysis (HR zones, cardiac drift, phases, intervals), and lap summaries. If not yet analyzed, computes analysis on demand. Use this to get structured data for writing Strava descriptions or answering questions about a run.",
   {
     activity_id: z.number().describe("Strava activity ID"),
-    regenerate_prose: z.boolean().optional().describe("Force regeneration of prose summary even if cached. Default false."),
   },
-  async ({ activity_id, regenerate_prose = false }) => {
+  async ({ activity_id }) => {
     try {
       const db = initDatabase();
       try {
@@ -41,28 +38,6 @@ export const getRunAnalysisTool = tool(
           saveActivityAnalysis(result.analysis, db);
           record = result.analysis;
           if (result.streamAnalysis) sa = result.streamAnalysis;
-        }
-
-        // Generate prose if missing or forced
-        if (!record.prose_summary || regenerate_prose) {
-          const activityRow = db.prepare("SELECT name FROM activities WHERE id = ?")
-            .get(activity_id) as { name: string } | undefined;
-          const activityName = activityRow?.name ?? `Activity ${activity_id}`;
-
-          const prompt = buildProsePrompt(record, activityName, sa);
-          const client = new Anthropic();
-          const message = await client.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 300,
-            messages: [{ role: "user", content: prompt }],
-          });
-
-          const prose = message.content[0].type === "text" ? message.content[0].text : null;
-          if (prose) {
-            record.prose_summary = prose;
-            record.prose_generated_at = new Date().toISOString();
-            saveActivityAnalysis(record, db);
-          }
         }
 
         // Build stream metrics for output
@@ -116,7 +91,6 @@ export const getRunAnalysisTool = tool(
             similar_runs_30d: record.similar_runs_30d,
           } : null,
           stream_analysis: streamMetrics,
-          prose_summary: record.prose_summary,
           analyzed_at: record.analyzed_at,
         };
 
