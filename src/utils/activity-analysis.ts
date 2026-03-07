@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import Anthropic from "@anthropic-ai/sdk";
 import { initDatabase } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
-import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary } from "../types/index.js";
+import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
 import { computeStreamAnalysis } from "./stream-analysis.js";
 import { saveStreamAnalysis } from "./activities-db.js";
 
@@ -447,4 +447,141 @@ function formatDuration(seconds: number): string {
   const s = Math.round(seconds % 60);
   if (m === 0) return `${s}s`;
   return s > 0 ? `${m}m${s}s` : `${m}m`;
+}
+
+export function computeTrainingContext(activityId: number, db: Database): TrainingContext | null {
+  const activity = db.prepare(`
+    SELECT id, distance, moving_time, total_elevation_gain, start_date_local
+    FROM activities WHERE id = ?
+  `).get(activityId) as {
+    id: number; distance: number; moving_time: number;
+    total_elevation_gain: number | null; start_date_local: string;
+  } | undefined;
+  if (!activity) return null;
+
+  const runDate = activity.start_date_local;
+
+  // Days since last run
+  const prevRun = db.prepare(`
+    SELECT start_date_local FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local < ? AND id != ?
+    ORDER BY start_date_local DESC LIMIT 1
+  `).get(runDate, activityId) as { start_date_local: string } | undefined;
+
+  const days_since_last_run = prevRun
+    ? Math.round((new Date(runDate).getTime() - new Date(prevRun.start_date_local).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  // Runs & km in last 7 days
+  const window7d = db.prepare(`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(distance), 0) as total_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-7 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { cnt: number; total_dist: number };
+
+  // Runs & km in last 14 days
+  const window14d = db.prepare(`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(distance), 0) as total_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-14 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { cnt: number; total_dist: number };
+
+  // Longest run in 7d and 30d (other runs, for comparison)
+  const longest7d = db.prepare(`
+    SELECT MAX(distance) as max_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-7 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { max_dist: number | null };
+
+  const longest30d = db.prepare(`
+    SELECT MAX(distance) as max_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-30 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { max_dist: number | null };
+
+  const is_longest_run_7d = longest7d.max_dist != null
+    ? activity.distance > longest7d.max_dist
+    : true;
+
+  const is_longest_run_30d = longest30d.max_dist != null
+    ? activity.distance > longest30d.max_dist
+    : true;
+
+  const longest_run_30d_km = longest30d.max_dist != null
+    ? Math.round(longest30d.max_dist / 1000 * 100) / 100
+    : null;
+
+  // Elevation rank in 30d (1 = most elevation)
+  let elevation_rank_30d: number | null = null;
+  if (activity.total_elevation_gain != null) {
+    const higherCount = db.prepare(`
+      SELECT COUNT(*) as cnt FROM activities
+      WHERE type = 'Run' AND trainer = 0
+        AND start_date_local >= date(?, '-30 days')
+        AND start_date_local < ? AND id != ?
+        AND total_elevation_gain > ?
+    `).get(runDate, runDate, activityId, activity.total_elevation_gain) as { cnt: number };
+    elevation_rank_30d = higherCount.cnt + 1;
+  }
+
+  // Moving time in minutes
+  const moving_time_min = Math.round(activity.moving_time / 60);
+
+  // TRIMP: sum of last 7d (excluding this activity)
+  const trimp7d = db.prepare(`
+    SELECT SUM(sa.trimp) as total FROM activity_stream_analysis sa
+    JOIN activities a ON sa.activity_id = a.id
+    WHERE a.type = 'Run' AND a.trainer = 0
+      AND a.start_date_local >= date(?, '-7 days')
+      AND a.start_date_local < ? AND a.id != ?
+      AND sa.trimp IS NOT NULL
+  `).get(runDate, runDate, activityId) as { total: number | null };
+
+  const trimp_7d_total = trimp7d.total != null
+    ? Math.round(trimp7d.total * 10) / 10
+    : null;
+
+  // TRIMP percentile in 30d
+  let trimp_percentile_30d: number | null = null;
+  const thisTrimp = db.prepare(`
+    SELECT trimp FROM activity_stream_analysis WHERE activity_id = ?
+  `).get(activityId) as { trimp: number | null } | undefined;
+
+  if (thisTrimp?.trimp != null) {
+    const trimpStats = db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN sa.trimp < ? THEN 1 ELSE 0 END) as lower_count
+      FROM activity_stream_analysis sa
+      JOIN activities a ON sa.activity_id = a.id
+      WHERE a.type = 'Run' AND a.trainer = 0
+        AND a.start_date_local >= date(?, '-30 days')
+        AND a.start_date_local < ? AND a.id != ?
+        AND sa.trimp IS NOT NULL
+    `).get(thisTrimp.trimp, runDate, runDate, activityId) as { total: number; lower_count: number };
+
+    if (trimpStats.total > 0) {
+      trimp_percentile_30d = Math.round(trimpStats.lower_count / trimpStats.total * 100);
+    }
+  }
+
+  return {
+    days_since_last_run,
+    runs_last_7d: window7d.cnt,
+    km_last_7d: Math.round(window7d.total_dist / 1000 * 100) / 100,
+    runs_last_14d: window14d.cnt,
+    km_last_14d: Math.round(window14d.total_dist / 1000 * 100) / 100,
+    is_longest_run_30d,
+    is_longest_run_7d,
+    longest_run_30d_km,
+    elevation_rank_30d,
+    moving_time_min,
+    trimp_7d_total,
+    trimp_percentile_30d,
+  };
 }
