@@ -143,6 +143,10 @@ export function computeActivityAnalysis(
     pace_vs_similar_delta: sim30d.avg_pace != null ? paceSecPerKm - sim30d.avg_pace : null,
     prose_summary: null,
     prose_generated_at: null,
+    detailed_analysis: null,
+    strava_title: null,
+    strava_description: null,
+    analysis_generated_at: null,
     analyzed_at: new Date().toISOString(),
     analysis_version: CURRENT_ANALYSIS_VERSION,
   };
@@ -170,14 +174,18 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord, db: Databas
       elevation_gain_m, elevation_loss_m, grade_adjusted_pace_sec_per_km,
       avg_heartrate, max_heartrate, lap_summaries,
       similar_runs_7d, similar_runs_30d, avg_pace_similar_30d, pace_vs_similar_delta,
-      prose_summary, prose_generated_at, analyzed_at, analysis_version
+      prose_summary, prose_generated_at,
+      detailed_analysis, strava_title, strava_description, analysis_generated_at,
+      analyzed_at, analysis_version
     ) VALUES (
       $activity_id, $run_type, $run_type_detail, $classification_confidence,
       $hill_category, $distance_m, $moving_time_s, $pace_sec_per_km,
       $elevation_gain_m, $elevation_loss_m, $grade_adjusted_pace_sec_per_km,
       $avg_heartrate, $max_heartrate, $lap_summaries,
       $similar_runs_7d, $similar_runs_30d, $avg_pace_similar_30d, $pace_vs_similar_delta,
-      $prose_summary, $prose_generated_at, $analyzed_at, $analysis_version
+      $prose_summary, $prose_generated_at,
+      $detailed_analysis, $strava_title, $strava_description, $analysis_generated_at,
+      $analyzed_at, $analysis_version
     )
   `).run({
     $activity_id: record.activity_id,
@@ -200,6 +208,10 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord, db: Databas
     $pace_vs_similar_delta: record.pace_vs_similar_delta,
     $prose_summary: record.prose_summary,
     $prose_generated_at: record.prose_generated_at,
+    $detailed_analysis: record.detailed_analysis,
+    $strava_title: record.strava_title,
+    $strava_description: record.strava_description,
+    $analysis_generated_at: record.analysis_generated_at,
     $analyzed_at: record.analyzed_at,
     $analysis_version: record.analysis_version,
   });

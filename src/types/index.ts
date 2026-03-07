@@ -244,6 +244,10 @@ export interface ActivityAnalysisRecord {
   pace_vs_similar_delta: number | null;
   prose_summary: string | null;
   prose_generated_at: string | null;
+  detailed_analysis: string | null;
+  strava_title: string | null;
+  strava_description: string | null;
+  analysis_generated_at: string | null;
   analyzed_at: string;
   analysis_version: number;
 }
