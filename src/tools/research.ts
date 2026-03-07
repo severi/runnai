@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
+import { sanitizeFilename } from "../utils/format.js";
 
 function getResearchDir(): string {
   return path.join(getDataDir(), "research");
@@ -26,13 +27,6 @@ interface CacheMetadata {
 
 async function ensureDirectories(): Promise<void> {
   await fs.mkdir(getTopicsDir(), { recursive: true });
-}
-
-function sanitizeFilename(topic: string): string {
-  return topic
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 async function getCacheMetadata(topic: string): Promise<CacheMetadata | null> {

@@ -11,6 +11,7 @@ import {
   getActivityStreams,
 } from "../utils/activities-db.js";
 import type { ActivityStream, BestEffortResult, ActivityLapRecord } from "../types/index.js";
+import { formatTime, formatPace as formatPacePerKm } from "../utils/format.js";
 
 const DISTANCE_TOLERANCE = 50;
 
@@ -181,23 +182,6 @@ function findFastestSegment(
   };
 }
 
-function formatTime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.round(seconds % 60);
-
-  if (hours > 0) {
-    return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  }
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-function formatPace(seconds: number, meters: number): string {
-  const paceSecsPerKm = (seconds / meters) * 1000;
-  const mins = Math.floor(paceSecsPerKm / 60);
-  const secs = Math.round(paceSecsPerKm % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}/km`;
-}
 
 function formatDistanceName(meters: number): string {
   if (meters >= 42000) return "Marathon";
@@ -218,7 +202,7 @@ function queryStravaEfforts(dist: string, config: { dbName: string; meters: numb
       segmentTimeSeconds: row.elapsed_time,
       segmentDistanceMeters: row.distance_meters,
       formattedTime: formatTime(row.elapsed_time),
-      pacePerKm: formatPace(row.elapsed_time, config.meters),
+      pacePerKm: formatPacePerKm((row.elapsed_time / config.meters) * 1000),
       stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
       source: "strava" as const,
       activityDistance: row.activity_distance,
@@ -276,7 +260,7 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
         segmentTimeSeconds: segment.timeSeconds,
         segmentDistanceMeters: segment.distanceMeters,
         formattedTime: formatTime(segment.timeSeconds),
-        pacePerKm: formatPace(segment.timeSeconds, config.meters),
+        pacePerKm: formatPacePerKm((segment.timeSeconds / config.meters) * 1000),
         stravaUrl: `https://www.strava.com/activities/${run.id}`,
         source: "computed" as const,
         activityDistance: run.distance,
@@ -456,7 +440,7 @@ function getComputedFromDb(config: { dbName: string; meters: number }): BestEffo
         segmentTimeSeconds: row.elapsed_time,
         segmentDistanceMeters: row.distance_meters,
         formattedTime: formatTime(row.elapsed_time),
-        pacePerKm: formatPace(row.elapsed_time, config.meters),
+        pacePerKm: formatPacePerKm((row.elapsed_time / config.meters) * 1000),
         stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
         source: "computed" as const,
         activityDistance: row.activity_distance,

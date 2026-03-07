@@ -63,9 +63,3 @@ export async function loadChatHistory(): Promise<Message[]> {
     return [];
   }
 }
-
-export async function clearChatHistory(): Promise<void> {
-  try {
-    await fs.unlink(getHistoryFile());
-  } catch {}
-}

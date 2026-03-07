@@ -640,7 +640,6 @@ function splitAtLapBoundaries(
   easySpeed: number
 ): { phase: string; startIdx: number; endIdx: number }[] {
   const workThreshold = easySpeed * 1.05;
-  const boundarySet = new Set(boundaries);
   const result: typeof phases = [];
 
   for (const p of phases) {

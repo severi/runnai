@@ -4,7 +4,6 @@ import { buildSystemPrompt } from "./utils/context-builder.js";
 import { getCurrentSessionId } from "./utils/session.js";
 import { coachMcpServer } from "./mcp/server.js";
 import { PROJECT_ROOT } from "./utils/paths.js";
-export { PROJECT_ROOT };
 
 export const agents: Record<string, AgentDefinition> = {
   "plan-creator": {

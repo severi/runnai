@@ -2,9 +2,8 @@ import React from "react";
 import { render } from "ink";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { execFileSync } from "child_process";
-import { PROJECT_ROOT } from "../agent.js";
-import { getDataDir } from "../utils/paths.js";
+import { execSync } from "child_process";
+import { PROJECT_ROOT, getDataDir } from "../utils/paths.js";
 import { getLogPath, logEvent } from "../utils/logger.js";
 import App from "./App.js";
 
@@ -19,14 +18,12 @@ const DATA_SUBDIRS = [
 
 async function ensureDataDirs(): Promise<void> {
   const dataDir = getDataDir();
-  for (const dir of DATA_SUBDIRS) {
-    await fs.mkdir(path.join(dataDir, dir), { recursive: true });
-  }
+  await Promise.all(DATA_SUBDIRS.map(dir => fs.mkdir(path.join(dataDir, dir), { recursive: true })));
 }
 
 function isClaudeInstalled(): boolean {
   try {
-    execFileSync("claude", ["--version"], { timeout: 5000, stdio: "pipe" });
+    execSync("which claude", { stdio: "pipe", timeout: 1000 });
     return true;
   } catch {
     return false;

@@ -3,16 +3,10 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
+import { sanitizeFilename } from "../utils/format.js";
 import { parsePlan } from "../utils/plan-parser.js";
 import type { IntervalsEvent } from "../intervals/client.js";
 import { getIntervalsCredentials, workoutsToEvents, bulkUpsertEvents } from "../intervals/client.js";
-
-function sanitizeFilename(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 export const exportToIntervalsTool = tool(
   "export_to_intervals",

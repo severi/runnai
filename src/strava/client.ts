@@ -19,11 +19,11 @@ import type {
 
 import { getDataDir } from "../utils/paths.js";
 
-function getStravaDataDir(): string {
+export function getStravaDataDir(): string {
   return path.join(getDataDir(), "strava");
 }
 
-function getTokensFile(): string {
+export function getTokensFile(): string {
   return path.join(getDataDir(), "strava/tokens.json");
 }
 
@@ -32,7 +32,7 @@ const TOKEN_EXPIRY_BUFFER_SECONDS = 300;
 // Concurrent refresh lock
 let refreshPromise: Promise<StravaTokens> | null = null;
 
-async function loadTokens(): Promise<StravaTokens | null> {
+export async function loadTokens(): Promise<StravaTokens | null> {
   try {
     const data = await fs.readFile(getTokensFile(), "utf-8");
     return JSON.parse(data);
@@ -386,17 +386,6 @@ function generateSyncSummary(runs: StravaActivity[], days: number): string {
   }
 
   return summary;
-}
-
-export async function getCachedActivities(): Promise<StravaActivity[] | null> {
-  try {
-    const { getActivityCount } = await import("../utils/activities-db.js");
-    const count = getActivityCount();
-    if (count === 0) return null;
-    return [{ id: 0 } as StravaActivity];
-  } catch {
-    return null;
-  }
 }
 
 export async function exchangeCodeForTokens(code: string): Promise<AuthResult> {
