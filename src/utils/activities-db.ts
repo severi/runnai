@@ -506,6 +506,21 @@ export function getActivityLaps(activityId: number): ActivityLapRecord[] {
   ).all(activityId) as ActivityLapRecord[];
 }
 
+export function getActivityLapsBatch(activityIds: number[]): Map<number, ActivityLapRecord[]> {
+  if (activityIds.length === 0) return new Map();
+  const placeholders = activityIds.map(() => "?").join(",");
+  const rows = getDb().prepare(
+    `SELECT * FROM activity_laps WHERE activity_id IN (${placeholders}) ORDER BY activity_id, lap_index ASC`
+  ).all(...activityIds) as ActivityLapRecord[];
+  const map = new Map<number, ActivityLapRecord[]>();
+  for (const row of rows) {
+    let laps = map.get(row.activity_id);
+    if (!laps) { laps = []; map.set(row.activity_id, laps); }
+    laps.push(row);
+  }
+  return map;
+}
+
 // --- Run classification ---
 
 export function setRunType(activityId: number, runType: RunType, runTypeDetail: string | null): void {
