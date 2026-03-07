@@ -258,6 +258,22 @@ export function initDatabase(): Database {
     // Column already exists
   }
 
+  // Create activity_weather table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_weather (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      temp_c REAL,
+      feels_like_c REAL,
+      humidity_pct REAL,
+      wind_speed_kmh REAL,
+      wind_gust_kmh REAL,
+      precipitation_mm REAL,
+      weather_code INTEGER,
+      weather_description TEXT,
+      fetched_at TEXT NOT NULL
+    );
+  `);
+
   return db;
 }
 
@@ -780,4 +796,60 @@ export function getActivitiesWithoutStreamAnalysis(db: Database, limit: number =
       AND sa.activity_id IS NULL
     ORDER BY a.start_date_local DESC LIMIT ?
   `).all(limit) as { id: number }[]).map(r => r.id);
+}
+
+export interface ActivityWeather {
+  activity_id: number;
+  temp_c: number | null;
+  feels_like_c: number | null;
+  humidity_pct: number | null;
+  wind_speed_kmh: number | null;
+  wind_gust_kmh: number | null;
+  precipitation_mm: number | null;
+  weather_code: number | null;
+  weather_description: string | null;
+  fetched_at: string;
+}
+
+export function saveActivityWeather(weather: ActivityWeather): void {
+  const db = initDatabase();
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO activity_weather (
+        activity_id, temp_c, feels_like_c, humidity_pct,
+        wind_speed_kmh, wind_gust_kmh, precipitation_mm,
+        weather_code, weather_description, fetched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      weather.activity_id, weather.temp_c, weather.feels_like_c, weather.humidity_pct,
+      weather.wind_speed_kmh, weather.wind_gust_kmh, weather.precipitation_mm,
+      weather.weather_code, weather.weather_description, weather.fetched_at
+    );
+  } finally {
+    db.close();
+  }
+}
+
+export function getActivityWeather(activityId: number, db: Database): ActivityWeather | null {
+  const row = db.prepare(
+    "SELECT * FROM activity_weather WHERE activity_id = ?"
+  ).get(activityId) as ActivityWeather | undefined;
+  return row ?? null;
+}
+
+export function getActivitiesWithoutWeather(limit: number = 50): { id: number; start_date_local: string; start_latitude: number; start_longitude: number; moving_time: number }[] {
+  const db = initDatabase();
+  try {
+    return db.prepare(`
+      SELECT a.id, a.start_date_local, a.start_latitude, a.start_longitude, a.moving_time
+      FROM activities a
+      LEFT JOIN activity_weather w ON a.id = w.activity_id
+      WHERE a.type = 'Run' AND a.trainer = 0
+        AND a.start_latitude IS NOT NULL AND a.start_longitude IS NOT NULL
+        AND w.activity_id IS NULL
+      ORDER BY a.start_date_local DESC LIMIT ?
+    `).all(limit) as any[];
+  } finally {
+    db.close();
+  }
 }

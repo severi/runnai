@@ -37,6 +37,8 @@ import {
   saveActivityAnalysis,
   getRecentUnanalyzedActivityIds,
 } from "../utils/activity-analysis.js";
+import { fetchActivityWeather } from "../utils/activity-weather.js";
+import { saveActivityWeather, getActivitiesWithoutWeather } from "../utils/activities-db.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { getDataDir } from "../utils/paths.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
@@ -288,6 +290,40 @@ export const stravaSyncTool = tool(
         // Analysis is best-effort, don't fail the sync
       }
 
+      // Fetch weather for new runs + backfill runs without weather
+      let weatherFetched = 0;
+      try {
+        const runsNeedingWeather = [
+          ...newRuns
+            .filter(r => r.start_latlng?.[0] != null)
+            .map(r => ({
+              id: r.id,
+              start_date_local: r.start_date_local,
+              start_latitude: r.start_latlng![0],
+              start_longitude: r.start_latlng![1],
+              moving_time: r.moving_time,
+            })),
+          ...getActivitiesWithoutWeather(20),
+        ];
+        // Deduplicate by activity ID
+        const seen = new Set<number>();
+        for (const run of runsNeedingWeather) {
+          if (seen.has(run.id)) continue;
+          seen.add(run.id);
+          const weather = await fetchActivityWeather(
+            run.id, run.start_latitude, run.start_longitude,
+            run.start_date_local, run.moving_time
+          );
+          if (weather) {
+            saveActivityWeather(weather);
+            weatherFetched++;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      } catch {
+        // Weather fetch is best-effort
+      }
+
       // --- Build output text (after classification so we can include run types) ---
       let text: string;
       if (isIncremental) {
@@ -346,6 +382,9 @@ export const stravaSyncTool = tool(
       }
       if (analyzedCount > 0) {
         text += `\nAnalyzed ${analyzedCount} run${analyzedCount > 1 ? "s" : ""}.`;
+      }
+      if (weatherFetched > 0) {
+        text += `\nWeather fetched for ${weatherFetched} run${weatherFetched > 1 ? "s" : ""}.`;
       }
 
       if (zonesNeedConfirmation) {
