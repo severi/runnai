@@ -3,6 +3,7 @@ export { stravaSyncTool, stravaProfileTool, stravaAuthTool, queryActivitiesTool,
 export { bestEffortsTool } from "./best-efforts.js";
 export { getActivityStreamsTool } from "./activity-streams.js";
 export { getRunAnalysisTool } from "./run-analysis.js";
+export { saveRunAnalysisTool } from "./save-run-analysis.js";
 
 // Phase 2: Planning & utility tools
 export { planManagerTool, dateCalcTool, calculatorTool } from "./planning.js";
