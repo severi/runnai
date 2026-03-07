@@ -35,9 +35,7 @@ import {
 import {
   computeActivityAnalysis,
   saveActivityAnalysis,
-  getActivityAnalysis,
   getRecentUnanalyzedActivityIds,
-  formatPace,
 } from "../utils/activity-analysis.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { getDataDir } from "../utils/paths.js";
@@ -308,7 +306,7 @@ export const stravaSyncTool = tool(
               const paceSec = Math.round((paceMinPerKm - paceMin) * 60);
               const cls = classificationMap.get(run.id);
               const tag = cls ? (cls.run_type_detail ? ` [${cls.run_type}: ${cls.run_type_detail}]` : ` [${cls.run_type}]`) : "";
-              text += `\n- ${date}: "${run.name}" — ${distKm}km @ ${paceMin}:${paceSec.toString().padStart(2, "0")}/km${tag}`;
+              text += `\n- ${date}: "${run.name}" (id: ${run.id}) — ${distKm}km @ ${paceMin}:${paceSec.toString().padStart(2, "0")}/km${tag}`;
             }
           }
           if (newNonRuns.length > 0) {
@@ -348,46 +346,6 @@ export const stravaSyncTool = tool(
       }
       if (analyzedCount > 0) {
         text += `\nAnalyzed ${analyzedCount} run${analyzedCount > 1 ? "s" : ""}.`;
-      }
-
-      // Write pending-analyses.md for session-start consumption
-      try {
-        const analysesLines: string[] = [];
-        const readDb = initDb();
-        try {
-          for (const run of newRuns) {
-            const analysis = getActivityAnalysis(run.id, readDb);
-            if (analysis) {
-              const date = run.start_date_local.split("T")[0];
-              const distKm = (analysis.distance_m / 1000).toFixed(1);
-              const pace = formatPace(analysis.pace_sec_per_km);
-              const hillTag = analysis.hill_category && analysis.hill_category !== "flat"
-                ? ` [${analysis.hill_category}]` : "";
-              const elevStr = analysis.elevation_gain_m != null
-                ? `, +${Math.round(analysis.elevation_gain_m)}m` : "";
-              const hrStr = analysis.avg_heartrate
-                ? `, HR ${Math.round(analysis.avg_heartrate)}` : "";
-              const typeTag = analysis.run_type_detail
-                ? `${analysis.run_type}: ${analysis.run_type_detail}`
-                : analysis.run_type;
-              let entry = `### ${date}: ${run.name} [${typeTag}]${hillTag}\n`;
-              entry += `${distKm}km @ ${pace}${elevStr}${hrStr}\n`;
-              if (analysis.prose_summary) {
-                entry += `${analysis.prose_summary}\n`;
-              }
-              analysesLines.push(entry);
-            }
-          }
-        } finally {
-          readDb.close();
-        }
-        if (analysesLines.length > 0) {
-          const pendingFile = path.join(getDataDir(), "strava/pending-analyses.md");
-          const content = `# New Runs Since Last Sync\nGenerated: ${new Date().toISOString()}\n\n` + analysesLines.join("\n");
-          await fs.writeFile(pendingFile, content);
-        }
-      } catch {
-        // Best-effort
       }
 
       if (zonesNeedConfirmation) {
