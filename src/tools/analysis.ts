@@ -2,6 +2,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { savePrediction, getPredictionHistory } from "../utils/activities-db.js";
 import type { RacePrediction } from "../types/index.js";
+import { formatTime } from "../utils/format.js";
 
 export const saveRacePredictionTool = tool(
   "save_race_prediction",
@@ -24,17 +25,10 @@ export const saveRacePredictionTool = tool(
 
       savePrediction(prediction);
 
-      const hours = Math.floor(predicted_time / 3600);
-      const mins = Math.floor((predicted_time % 3600) / 60);
-      const secs = Math.round(predicted_time % 60);
-      const formatted = hours > 0
-        ? `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-        : `${mins}:${secs.toString().padStart(2, "0")}`;
-
       return {
         content: [{
           type: "text" as const,
-          text: `Saved ${race_distance} prediction: ${formatted} (${confidence} confidence)\nBasis: ${basis}`,
+          text: `Saved ${race_distance} prediction: ${formatTime(predicted_time)} (${confidence} confidence)\nBasis: ${basis}`,
         }],
       };
     } catch (error) {
@@ -84,14 +78,7 @@ export const getPredictionHistoryTool = tool(
         output += `|------|---------------|------------|-------|\n`;
 
         for (const p of preds) {
-          const hours = Math.floor(p.predicted_time / 3600);
-          const mins = Math.floor((p.predicted_time % 3600) / 60);
-          const secs = Math.round(p.predicted_time % 60);
-          const formatted = hours > 0
-            ? `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-            : `${mins}:${secs.toString().padStart(2, "0")}`;
-
-          output += `| ${p.predicted_at} | ${formatted} | ${p.confidence} | ${p.basis} |\n`;
+          output += `| ${p.predicted_at} | ${formatTime(p.predicted_time)} | ${p.confidence} | ${p.basis} |\n`;
         }
 
         // Show trend

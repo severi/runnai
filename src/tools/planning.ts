@@ -4,16 +4,10 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { evaluate } from "mathjs";
 import { getDataDir } from "../utils/paths.js";
+import { sanitizeFilename } from "../utils/format.js";
 
 function getPlansDir(): string {
   return path.join(getDataDir(), "plans");
-}
-
-function sanitizeFilename(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 export const planManagerTool = tool(

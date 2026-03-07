@@ -251,11 +251,7 @@ export function getRecentUnanalyzedActivityIds(db: Database, days: number = 7): 
   `).all(days) as { id: number }[]).map(r => r.id);
 }
 
-export function formatPace(secPerKm: number): string {
-  const min = Math.floor(secPerKm / 60);
-  const sec = Math.round(secPerKm % 60);
-  return `${min}:${sec.toString().padStart(2, "0")}/km`;
-}
+export { formatPace } from "./format.js";
 
 export function computeTrainingContext(activityId: number, db: Database): TrainingContext | null {
   const activity = db.prepare(`

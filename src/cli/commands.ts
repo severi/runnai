@@ -193,7 +193,3 @@ export const commands: Command[] = [
 export function getCommandByName(name: string): Command | undefined {
   return commands.find((cmd) => cmd.name === name);
 }
-
-export function getCommandNames(): string[] {
-  return commands.map((cmd) => cmd.name);
-}

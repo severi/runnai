@@ -1,6 +1,5 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import * as fs from "fs/promises";
-import * as path from "path";
 import { z } from "zod";
 import {
   startAutomaticAuth,
@@ -13,8 +12,10 @@ import {
   fetchActivityStream,
   convertStravaBestEfforts,
   updateActivity,
+  getStravaDataDir,
+  loadTokens,
 } from "../strava/client.js";
-import type { StravaActivity, StravaTokens, ActivityLapRecord, ActivityStream } from "../types/index.js";
+import type { StravaActivity, ActivityLapRecord, ActivityStream } from "../types/index.js";
 import {
   initDatabase as initDb,
   upsertActivities,
@@ -30,7 +31,6 @@ import {
   getUnclassifiedActivities,
   saveActivityStreams,
   computeLapElevation,
-  getStreamAnalysis,
 } from "../utils/activities-db.js";
 import {
   computeActivityAnalysis,
@@ -40,26 +40,57 @@ import {
 import { fetchActivityWeather } from "../utils/activity-weather.js";
 import { saveActivityWeather, getActivitiesWithoutWeather } from "../utils/activities-db.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
-import { getDataDir } from "../utils/paths.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
 
-function getStravaDataDir(): string {
-  return path.join(getDataDir(), "strava");
-}
-
-function getTokensFile(): string {
-  return path.join(getDataDir(), "strava/tokens.json");
-}
-
-async function loadTokens(): Promise<StravaTokens | null> {
-  try {
-    const data = await fs.readFile(getTokensFile(), "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return null;
+/**
+ * Fetch and store activity detail (best efforts, streams, laps) from Strava.
+ * Returns the fetched streams (if any) for downstream analysis.
+ */
+async function fetchAndStoreActivityDetail(
+  activityId: number
+): Promise<ActivityStream | undefined> {
+  const detail = await fetchActivityDetail(activityId);
+  if (detail.bestEfforts.length > 0) {
+    const records = convertStravaBestEfforts(activityId, detail.bestEfforts);
+    upsertStravaBestEfforts(records);
   }
+  let altitude: number[] | undefined;
+  let streams: ActivityStream | undefined;
+  try {
+    const fetched = await fetchActivityStream(activityId);
+    if (fetched) {
+      saveActivityStreams(activityId, fetched);
+      altitude = fetched.altitude;
+      streams = fetched;
+    }
+  } catch {
+    // Stream fetch is best-effort, don't fail sync
+  }
+  if (detail.laps.length > 0) {
+    const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
+      const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
+      return {
+        activity_id: activityId,
+        lap_index: lap.lap_index,
+        distance: lap.distance,
+        elapsed_time: lap.elapsed_time,
+        moving_time: lap.moving_time,
+        average_speed: lap.average_speed,
+        max_speed: lap.max_speed,
+        average_heartrate: lap.average_heartrate ?? null,
+        max_heartrate: lap.max_heartrate ?? null,
+        start_index: lap.start_index,
+        end_index: lap.end_index,
+        elevation_gain: elev?.gain ?? null,
+        elevation_loss: elev?.loss ?? null,
+      };
+    });
+    upsertActivityLaps(activityId, lapRecords);
+  }
+  markActivityDetailFetched(activityId);
+  return streams;
 }
 
 export const stravaSyncTool = tool(
@@ -124,50 +155,11 @@ export const stravaSyncTool = tool(
 
       // Fetch best efforts + laps + streams from Strava detail API for new runs
       let detailFetched = 0;
+      const cachedStreams = new Map<number, ActivityStream>();
       for (const run of newRuns) {
         try {
-          const detail = await fetchActivityDetail(run.id);
-          if (detail.bestEfforts.length > 0) {
-            const records = convertStravaBestEfforts(run.id, detail.bestEfforts);
-            upsertStravaBestEfforts(records);
-          }
-          // Fetch streams before laps so we can compute per-lap elevation
-          let altitude: number[] | undefined;
-          let runStreams: ActivityStream | undefined;
-          try {
-            const streams = await fetchActivityStream(run.id);
-            if (streams) {
-              saveActivityStreams(run.id, streams);
-              altitude = streams.altitude;
-              runStreams = streams;
-            }
-          } catch {
-            // Stream fetch is best-effort, don't fail sync
-          }
-          if (detail.laps.length > 0) {
-            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
-              const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
-              return {
-                activity_id: run.id,
-                lap_index: lap.lap_index,
-                distance: lap.distance,
-                elapsed_time: lap.elapsed_time,
-                moving_time: lap.moving_time,
-                average_speed: lap.average_speed,
-                max_speed: lap.max_speed,
-                average_heartrate: lap.average_heartrate ?? null,
-                max_heartrate: lap.max_heartrate ?? null,
-                start_index: lap.start_index,
-                end_index: lap.end_index,
-                elevation_gain: elev?.gain ?? null,
-                elevation_loss: elev?.loss ?? null,
-              };
-            });
-            upsertActivityLaps(run.id, lapRecords);
-          }
-          // Stash streams for later analysis pass
-          if (runStreams) (run as any)._streams = runStreams;
-          markActivityDetailFetched(run.id);
+          const streams = await fetchAndStoreActivityDetail(run.id);
+          if (streams) cachedStreams.set(run.id, streams);
           detailFetched++;
           await new Promise((resolve) => setTimeout(resolve, 50));
         } catch (error) {
@@ -182,44 +174,7 @@ export const stravaSyncTool = tool(
         const toBackfill = getActivitiesWithoutDetail(backfillLimit);
         for (const activity of toBackfill) {
           try {
-            const detail = await fetchActivityDetail(activity.id);
-            if (detail.bestEfforts.length > 0) {
-              const records = convertStravaBestEfforts(activity.id, detail.bestEfforts);
-              upsertStravaBestEfforts(records);
-            }
-            // Fetch streams before laps so we can compute per-lap elevation
-            let altitude: number[] | undefined;
-            try {
-              const streams = await fetchActivityStream(activity.id);
-              if (streams) {
-                saveActivityStreams(activity.id, streams);
-                altitude = streams.altitude;
-              }
-            } catch {
-              // Stream fetch is best-effort
-            }
-            if (detail.laps.length > 0) {
-              const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
-                const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
-                return {
-                  activity_id: activity.id,
-                  lap_index: lap.lap_index,
-                  distance: lap.distance,
-                  elapsed_time: lap.elapsed_time,
-                  moving_time: lap.moving_time,
-                  average_speed: lap.average_speed,
-                  max_speed: lap.max_speed,
-                  average_heartrate: lap.average_heartrate ?? null,
-                  max_heartrate: lap.max_heartrate ?? null,
-                  start_index: lap.start_index,
-                  end_index: lap.end_index,
-                  elevation_gain: elev?.gain ?? null,
-                  elevation_loss: elev?.loss ?? null,
-                };
-              });
-              upsertActivityLaps(activity.id, lapRecords);
-            }
-            markActivityDetailFetched(activity.id);
+            await fetchAndStoreActivityDetail(activity.id);
             backfillCount++;
             await new Promise((resolve) => setTimeout(resolve, 100));
           } catch (error) {
@@ -247,8 +202,7 @@ export const stravaSyncTool = tool(
           try {
             // Analyze newly fetched runs (pass cached streams for stream analysis)
             for (const run of newRuns) {
-              const cachedStreams = (run as any)._streams as ActivityStream | undefined;
-              const result = computeActivityAnalysis(run.id, analysisDb, hrZones, easyPaceRef, cachedStreams);
+              const result = computeActivityAnalysis(run.id, analysisDb, hrZones, easyPaceRef, cachedStreams.get(run.id));
               if (result) {
                 saveActivityAnalysis(result.analysis, analysisDb);
                 setRunType(run.id, result.analysis.run_type as any, result.analysis.run_type_detail);
@@ -441,44 +395,7 @@ export const stravaProfileTool = tool(
       const toBackfill = getActivitiesWithoutDetail(100);
       for (const activity of toBackfill) {
         try {
-          const detail = await fetchActivityDetail(activity.id);
-          if (detail.bestEfforts.length > 0) {
-            const records = convertStravaBestEfforts(activity.id, detail.bestEfforts);
-            upsertStravaBestEfforts(records);
-          }
-          // Fetch streams before laps so we can compute per-lap elevation
-          let altitude: number[] | undefined;
-          try {
-            const streams = await fetchActivityStream(activity.id);
-            if (streams) {
-              saveActivityStreams(activity.id, streams);
-              altitude = streams.altitude;
-            }
-          } catch {
-            // Stream fetch is best-effort
-          }
-          if (detail.laps.length > 0) {
-            const lapRecords: ActivityLapRecord[] = detail.laps.map(lap => {
-              const elev = altitude ? computeLapElevation(altitude, lap.start_index, lap.end_index) : null;
-              return {
-                activity_id: activity.id,
-                lap_index: lap.lap_index,
-                distance: lap.distance,
-                elapsed_time: lap.elapsed_time,
-                moving_time: lap.moving_time,
-                average_speed: lap.average_speed,
-                max_speed: lap.max_speed,
-                average_heartrate: lap.average_heartrate ?? null,
-                max_heartrate: lap.max_heartrate ?? null,
-                start_index: lap.start_index,
-                end_index: lap.end_index,
-                elevation_gain: elev?.gain ?? null,
-                elevation_loss: elev?.loss ?? null,
-              };
-            });
-            upsertActivityLaps(activity.id, lapRecords);
-          }
-          markActivityDetailFetched(activity.id);
+          await fetchAndStoreActivityDetail(activity.id);
           backfillCount++;
           await new Promise((resolve) => setTimeout(resolve, 50));
         } catch (error) {

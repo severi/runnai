@@ -90,7 +90,7 @@ export function classifyRun(
   } else {
     const isAutoLap = detectAutoLaps(laps);
     if (isAutoLap) {
-      result = classifyAutoLapRun(activity, hrZones, easyPaceRef);
+      result = classifyByPaceAndHr(activity, hrZones, easyPaceRef);
     } else {
       result = classifyStructuredLapRun(activity, laps, hrZones, easyPaceRef);
     }
@@ -172,14 +172,6 @@ function classifyByPaceAndHr(
   }
 
   return { run_type: "unknown", run_type_detail: null, confidence: "low" };
-}
-
-function classifyAutoLapRun(
-  activity: ActivityData,
-  hrZones: HrZones | null,
-  easyPaceRef: number
-): ClassificationResult {
-  return classifyByPaceAndHr(activity, hrZones, easyPaceRef);
 }
 
 function classifyStructuredLapRun(

@@ -7,7 +7,7 @@ import * as path from "path";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createAgentOptions } from "../agent.js";
 import { getDataDir } from "../utils/paths.js";
-import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory, clearChatHistory } from "../utils/session.js";
+import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
 import { recordExchange, resetUsage, formatExchangeLine, type ExchangeUsage } from "../utils/usage-tracker.js";
 import { log, logEvent, saveToolResult, saveSystemPrompt, updateMeta, getLogPath } from "../utils/logger.js";
