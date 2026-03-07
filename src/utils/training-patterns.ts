@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { initDatabase } from "./activities-db.js";
+import { getDb } from "./activities-db.js";
 import { getDataDir } from "./paths.js";
 
 function getPatternsFile(): string {
@@ -25,9 +25,7 @@ interface WeekRow {
 }
 
 export async function generateTrainingPatterns(): Promise<void> {
-  const db = initDatabase();
-
-  try {
+  const db = getDb();
     // Get weekly breakdown for the last 8 weeks
     const weeks = db.prepare(`
       SELECT
@@ -115,14 +113,11 @@ export async function generateTrainingPatterns(): Promise<void> {
     }
 
     // Typical week pattern detection
-    md += generateTypicalWeek(db, weeks);
+    md += generateTypicalWeek(weeks);
 
     const patternsFile = getPatternsFile();
     await fs.mkdir(path.dirname(patternsFile), { recursive: true });
     await fs.writeFile(patternsFile, md);
-  } finally {
-    db.close();
-  }
 }
 
 interface SlotRow {
@@ -142,8 +137,9 @@ interface DowRow {
 
 const DOW_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function generateTypicalWeek(db: ReturnType<typeof initDatabase>, weeks: WeekRow[]): string {
+function generateTypicalWeek(weeks: WeekRow[]): string {
   if (weeks.length < 3) return "";
+  const db = getDb();
 
   // Runs/week stats
   const runCounts = weeks.map(w => w.total_runs);

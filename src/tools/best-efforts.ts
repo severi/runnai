@@ -1,12 +1,12 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
-import { Database } from "bun:sqlite";
 import {
+  getDb,
+  getActivitiesDbPath,
   upsertBestEffort,
   getStravaBestEfforts,
   getPersonalRecords,
-  getActivitiesDbPath,
   getActivityLaps,
   getActivityStreams,
 } from "../utils/activities-db.js";
@@ -215,69 +215,64 @@ function queryStravaEfforts(dist: string, config: { dbName: string; meters: numb
 }
 
 async function computeEfforts(dist: string, config: { dbName: string; meters: number }, limit: number): Promise<BestEffortResult[]> {
-  const db = new Database(getActivitiesDbPath(), { readonly: true });
-  try {
-    const runs = db
-      .prepare(
-        `SELECT id, name, start_date_local, distance, moving_time, workout_type, run_type
-         FROM activities
-         WHERE type = 'Run' AND distance >= ? AND trainer = 0
-         ORDER BY start_date_local DESC`
-      )
-      .all(config.meters) as Activity[];
+  const runs = getDb()
+    .prepare(
+      `SELECT id, name, start_date_local, distance, moving_time, workout_type, run_type
+       FROM activities
+       WHERE type = 'Run' AND distance >= ? AND trainer = 0
+       ORDER BY start_date_local DESC`
+    )
+    .all(config.meters) as Activity[];
 
-    if (runs.length === 0) return [];
+  if (runs.length === 0) return [];
 
-    const efforts: BestEffortResult[] = [];
+  const efforts: BestEffortResult[] = [];
 
-    for (const run of runs) {
-      const stream = getActivityStreams(run.id);
-      if (!stream) continue;
+  for (const run of runs) {
+    const stream = getActivityStreams(run.id);
+    if (!stream) continue;
 
-      const segment = findFastestSegment(stream, config.meters);
-      if (!segment) continue;
+    const segment = findFastestSegment(stream, config.meters);
+    if (!segment) continue;
 
-      const pacePerKm = (segment.timeSeconds / segment.distanceMeters) * 1000;
-      const minPace = MIN_REALISTIC_PACE_PER_KM[config.meters] || 3 * 60;
-      if (pacePerKm < minPace) continue;
+    const pacePerKm = (segment.timeSeconds / segment.distanceMeters) * 1000;
+    const minPace = MIN_REALISTIC_PACE_PER_KM[config.meters] || 3 * 60;
+    if (pacePerKm < minPace) continue;
 
-      upsertBestEffort({
-        activity_id: run.id,
-        distance_name: config.dbName,
-        distance_meters: config.meters,
-        elapsed_time: segment.timeSeconds,
-        pace_per_km: pacePerKm,
-        start_index: segment.startIndex,
-        end_index: segment.endIndex,
-        computed_at: new Date().toISOString().split("T")[0],
-      });
+    upsertBestEffort({
+      activity_id: run.id,
+      distance_name: config.dbName,
+      distance_meters: config.meters,
+      elapsed_time: segment.timeSeconds,
+      pace_per_km: pacePerKm,
+      start_index: segment.startIndex,
+      end_index: segment.endIndex,
+      computed_at: new Date().toISOString().split("T")[0],
+    });
 
-      const laps = getActivityLaps(run.id);
-      efforts.push({
-        activityId: run.id,
-        activityName: run.name,
-        activityDate: run.start_date_local.split("T")[0],
-        segmentTimeSeconds: segment.timeSeconds,
-        segmentDistanceMeters: segment.distanceMeters,
-        formattedTime: formatTime(segment.timeSeconds),
-        pacePerKm: formatPacePerKm((segment.timeSeconds / config.meters) * 1000),
-        stravaUrl: `https://www.strava.com/activities/${run.id}`,
-        source: "computed" as const,
-        activityDistance: run.distance,
-        workoutType: run.workout_type,
-        runType: run.run_type,
-        prRank: null,
-        compactLaps: formatCompactLaps(laps),
-      });
+    const laps = getActivityLaps(run.id);
+    efforts.push({
+      activityId: run.id,
+      activityName: run.name,
+      activityDate: run.start_date_local.split("T")[0],
+      segmentTimeSeconds: segment.timeSeconds,
+      segmentDistanceMeters: segment.distanceMeters,
+      formattedTime: formatTime(segment.timeSeconds),
+      pacePerKm: formatPacePerKm((segment.timeSeconds / config.meters) * 1000),
+      stravaUrl: `https://www.strava.com/activities/${run.id}`,
+      source: "computed" as const,
+      activityDistance: run.distance,
+      workoutType: run.workout_type,
+      runType: run.run_type,
+      prRank: null,
+      compactLaps: formatCompactLaps(laps),
+    });
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-
-    efforts.sort((a, b) => a.segmentTimeSeconds - b.segmentTimeSeconds);
-    return efforts.slice(0, limit);
-  } finally {
-    db.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
+
+  efforts.sort((a, b) => a.segmentTimeSeconds - b.segmentTimeSeconds);
+  return efforts.slice(0, limit);
 }
 
 function mergeEfforts(strava: BestEffortResult[], computed: BestEffortResult[], limit: number): BestEffortResult[] {
@@ -418,39 +413,34 @@ export const bestEffortsTool = tool(
 
 /** Query already-computed best efforts from the DB (no API calls) */
 function getComputedFromDb(config: { dbName: string; meters: number }): BestEffortResult[] {
-  const db = new Database(getActivitiesDbPath(), { readonly: true });
-  try {
-    const rows = db
-      .prepare(
-        `SELECT be.*, a.name as activity_name, a.start_date_local,
-                a.distance as activity_distance, a.workout_type, a.run_type
-         FROM best_efforts be
-         JOIN activities a ON be.activity_id = a.id
-         WHERE be.distance_name = ?
-         ORDER BY be.elapsed_time ASC`
-      )
-      .all(config.dbName) as any[];
+  const rows = getDb()
+    .prepare(
+      `SELECT be.*, a.name as activity_name, a.start_date_local,
+              a.distance as activity_distance, a.workout_type, a.run_type
+       FROM best_efforts be
+       JOIN activities a ON be.activity_id = a.id
+       WHERE be.distance_name = ?
+       ORDER BY be.elapsed_time ASC`
+    )
+    .all(config.dbName) as any[];
 
-    return rows.map((row: any) => {
-      const laps = getActivityLaps(row.activity_id);
-      return {
-        activityId: row.activity_id,
-        activityName: row.activity_name,
-        activityDate: row.start_date_local.split("T")[0],
-        segmentTimeSeconds: row.elapsed_time,
-        segmentDistanceMeters: row.distance_meters,
-        formattedTime: formatTime(row.elapsed_time),
-        pacePerKm: formatPacePerKm((row.elapsed_time / config.meters) * 1000),
-        stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
-        source: "computed" as const,
-        activityDistance: row.activity_distance,
-        workoutType: row.workout_type ?? null,
-        runType: row.run_type ?? null,
-        prRank: null,
-        compactLaps: formatCompactLaps(laps),
-      };
-    });
-  } finally {
-    db.close();
-  }
+  return rows.map((row: any) => {
+    const laps = getActivityLaps(row.activity_id);
+    return {
+      activityId: row.activity_id,
+      activityName: row.activity_name,
+      activityDate: row.start_date_local.split("T")[0],
+      segmentTimeSeconds: row.elapsed_time,
+      segmentDistanceMeters: row.distance_meters,
+      formattedTime: formatTime(row.elapsed_time),
+      pacePerKm: formatPacePerKm((row.elapsed_time / config.meters) * 1000),
+      stravaUrl: `https://www.strava.com/activities/${row.activity_id}`,
+      source: "computed" as const,
+      activityDistance: row.activity_distance,
+      workoutType: row.workout_type ?? null,
+      runType: row.run_type ?? null,
+      prRank: null,
+      compactLaps: formatCompactLaps(laps),
+    };
+  });
 }

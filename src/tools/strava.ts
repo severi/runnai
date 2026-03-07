@@ -17,7 +17,6 @@ import {
 } from "../strava/client.js";
 import type { StravaActivity, ActivityLapRecord, ActivityStream } from "../types/index.js";
 import {
-  initDatabase as initDb,
   upsertActivities,
   queryActivities,
   getLatestActivityDate,
@@ -197,44 +196,39 @@ export const stravaSyncTool = tool(
         } else {
           const easyPaceRef = computeEasyPaceRef();
           const hrZones = zones;
-          const analysisDb = initDb();
 
-          try {
-            // Analyze newly fetched runs (pass cached streams for stream analysis)
-            for (const run of newRuns) {
-              const result = computeActivityAnalysis(run.id, analysisDb, hrZones, easyPaceRef, cachedStreams.get(run.id));
-              if (result) {
-                saveActivityAnalysis(result.analysis, analysisDb);
-                setRunType(run.id, result.analysis.run_type as any, result.analysis.run_type_detail);
-                classificationMap.set(run.id, { run_type: result.analysis.run_type, run_type_detail: result.analysis.run_type_detail });
-                analyzedCount++;
-              }
+          // Analyze newly fetched runs (pass cached streams for stream analysis)
+          for (const run of newRuns) {
+            const result = computeActivityAnalysis(run.id, hrZones, easyPaceRef, cachedStreams.get(run.id));
+            if (result) {
+              saveActivityAnalysis(result.analysis);
+              setRunType(run.id, result.analysis.run_type as any, result.analysis.run_type_detail);
+              classificationMap.set(run.id, { run_type: result.analysis.run_type, run_type_detail: result.analysis.run_type_detail });
+              analyzedCount++;
             }
+          }
 
-            // Backfill: analyze runs with detail but no analysis yet (last 7 days + unclassified)
-            const toAnalyze = getRecentUnanalyzedActivityIds(analysisDb, 7);
-            for (const actId of toAnalyze) {
-              const result = computeActivityAnalysis(actId, analysisDb, hrZones, easyPaceRef);
-              if (result) {
-                saveActivityAnalysis(result.analysis, analysisDb);
-                setRunType(actId, result.analysis.run_type as any, result.analysis.run_type_detail);
-                analyzedCount++;
-              }
+          // Backfill: analyze runs with detail but no analysis yet (last 7 days + unclassified)
+          const toAnalyze = getRecentUnanalyzedActivityIds(7);
+          for (const actId of toAnalyze) {
+            const result = computeActivityAnalysis(actId, hrZones, easyPaceRef);
+            if (result) {
+              saveActivityAnalysis(result.analysis);
+              setRunType(actId, result.analysis.run_type as any, result.analysis.run_type_detail);
+              analyzedCount++;
             }
+          }
 
-            // Also classify any remaining unclassified runs (older than 7 days, no analysis needed)
-            const unclassified = getUnclassifiedActivities(50);
-            for (const a of unclassified) {
-              const laps = getActivityLaps(a.id);
-              const hillProfile = detectHillProfile(laps, a.distance);
-              const result = classifyRun(
-                { id: a.id, distance: a.distance, moving_time: a.moving_time, average_speed: a.average_speed, average_heartrate: a.average_heartrate, workout_type: a.workout_type },
-                laps, hrZones, easyPaceRef, hillProfile
-              );
-              setRunType(a.id, result.run_type, result.run_type_detail);
-            }
-          } finally {
-            analysisDb.close();
+          // Also classify any remaining unclassified runs (older than 7 days, no analysis needed)
+          const unclassified = getUnclassifiedActivities(50);
+          for (const a of unclassified) {
+            const laps = getActivityLaps(a.id);
+            const hillProfile = detectHillProfile(laps, a.distance);
+            const result = classifyRun(
+              { id: a.id, distance: a.distance, moving_time: a.moving_time, average_speed: a.average_speed, average_heartrate: a.average_heartrate, workout_type: a.workout_type },
+              laps, hrZones, easyPaceRef, hillProfile
+            );
+            setRunType(a.id, result.run_type, result.run_type_detail);
           }
 
           // Regenerate training patterns
