@@ -1,19 +1,17 @@
-import { Database } from "bun:sqlite";
-import { initDatabase } from "./activities-db.js";
+import { getDb, saveStreamAnalysis } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
 import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
 import { computeStreamAnalysis } from "./stream-analysis.js";
-import { saveStreamAnalysis } from "./activities-db.js";
 
 const CURRENT_ANALYSIS_VERSION = 2;
 
 export function computeActivityAnalysis(
   activityId: number,
-  db: Database,
   hrZones: HrZones | null,
   easyPaceRef: number,
   streams?: ActivityStream | null
 ): { analysis: ActivityAnalysisRecord; streamAnalysis: StreamAnalysisResult | null } | null {
+  const db = getDb();
   const activity = db.prepare(`
     SELECT id, name, distance, moving_time, average_speed, average_heartrate,
            max_heartrate, workout_type, total_elevation_gain, start_date_local
@@ -112,7 +110,7 @@ export function computeActivityAnalysis(
         distance: l.distance,
       }));
       streamAnalysis = computeStreamAnalysis(streams, hrZones, activity.moving_time, easyPaceRef, lapHints);
-      saveStreamAnalysis(activityId, streamAnalysis, db);
+      saveStreamAnalysis(activityId, streamAnalysis);
     } catch {
       // Stream analysis is best-effort
     }
@@ -165,8 +163,8 @@ function computeGradeAdjustedPace(
   return Math.round((rawPaceSecPerKm / adjustmentFactor) * 10) / 10;
 }
 
-export function saveActivityAnalysis(record: ActivityAnalysisRecord, db: Database): void {
-  db.prepare(`
+export function saveActivityAnalysis(record: ActivityAnalysisRecord): void {
+  getDb().prepare(`
     INSERT OR REPLACE INTO activity_analysis (
       activity_id, run_type, run_type_detail, classification_confidence,
       hill_category, distance_m, moving_time_s, pace_sec_per_km,
@@ -216,22 +214,16 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord, db: Databas
   });
 }
 
-export function getActivityAnalysis(activityId: number, db?: Database): ActivityAnalysisRecord | null {
-  const ownDb = !db;
-  const d = db ?? initDatabase();
-  try {
-    const row = d.prepare(
-      "SELECT * FROM activity_analysis WHERE activity_id = ?"
-    ).get(activityId) as any;
-    if (!row) return null;
-    return { ...row, lap_summaries: JSON.parse(row.lap_summaries || "[]") };
-  } finally {
-    if (ownDb) d.close();
-  }
+export function getActivityAnalysis(activityId: number): ActivityAnalysisRecord | null {
+  const row = getDb().prepare(
+    "SELECT * FROM activity_analysis WHERE activity_id = ?"
+  ).get(activityId) as any;
+  if (!row) return null;
+  return { ...row, lap_summaries: JSON.parse(row.lap_summaries || "[]") };
 }
 
-export function getUnanalyzedActivityIds(db: Database, limit: number = 50): number[] {
-  return (db.prepare(`
+export function getUnanalyzedActivityIds(limit: number = 50): number[] {
+  return (getDb().prepare(`
     SELECT a.id FROM activities a
     LEFT JOIN activity_analysis aa ON a.id = aa.activity_id
     WHERE a.type = 'Run' AND a.trainer = 0 AND a.detail_fetched = 1
@@ -240,8 +232,8 @@ export function getUnanalyzedActivityIds(db: Database, limit: number = 50): numb
   `).all(limit) as { id: number }[]).map(r => r.id);
 }
 
-export function getRecentUnanalyzedActivityIds(db: Database, days: number = 7): number[] {
-  return (db.prepare(`
+export function getRecentUnanalyzedActivityIds(days: number = 7): number[] {
+  return (getDb().prepare(`
     SELECT a.id FROM activities a
     LEFT JOIN activity_analysis aa ON a.id = aa.activity_id
     WHERE a.type = 'Run' AND a.trainer = 0 AND a.detail_fetched = 1
@@ -253,7 +245,8 @@ export function getRecentUnanalyzedActivityIds(db: Database, days: number = 7): 
 
 export { formatPace } from "./format.js";
 
-export function computeTrainingContext(activityId: number, db: Database): TrainingContext | null {
+export function computeTrainingContext(activityId: number): TrainingContext | null {
+  const db = getDb();
   const activity = db.prepare(`
     SELECT id, distance, moving_time, total_elevation_gain, start_date_local
     FROM activities WHERE id = ?
