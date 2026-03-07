@@ -1,5 +1,6 @@
 import { type Options, type AgentDefinition, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import path from "path";
+import { toDateString } from "./utils/format.js";
 import { buildSystemPrompt } from "./utils/context-builder.js";
 import { getCurrentSessionId } from "./utils/session.js";
 import { coachMcpServer } from "./mcp/server.js";
@@ -28,7 +29,7 @@ Always consider:
 Format plans in markdown with clear week-by-week structure.
 Save plans to data/plans/ using manage_plan.
 
-Today: ${new Date().toISOString().split("T")[0]}`,
+Today: ${toDateString()}`,
     tools: [
       "Read",
       "Write",
@@ -93,7 +94,7 @@ Useful patterns:
 - Lap splits: SELECT lap_index, distance/1000 as km, moving_time, average_heartrate FROM activity_laps WHERE activity_id=? ORDER BY lap_index
 - Detect structured workouts: SELECT activity_id, COUNT(*) as laps, MIN(distance) as min_lap, MAX(distance) as max_lap FROM activity_laps GROUP BY activity_id HAVING max_lap/min_lap > 1.5
 
-Today: ${new Date().toISOString().split("T")[0]}`,
+Today: ${toDateString()}`,
     tools: ["Read", "query_activities", "get_run_analysis", "calculator", "get_weather"],
     model: "opus",
   },
@@ -152,7 +153,7 @@ Race time estimation (from race-quality data only):
 - 10K to Marathon: multiply by ~4.7
 - Half to Marathon: multiply by ~2.1 + 5-10 minutes
 
-Today: ${new Date().toISOString().split("T")[0]}`,
+Today: ${toDateString()}`,
     tools: [
       "Read",
       "Write",
@@ -187,7 +188,7 @@ Your review should include:
 
 Be constructive and specific. Use actual numbers.
 
-Today: ${new Date().toISOString().split("T")[0]}`,
+Today: ${toDateString()}`,
     tools: ["Read", "query_activities", "read_memory", "calculator"],
     model: "opus",
   },
@@ -209,7 +210,7 @@ Focus on:
 - Professional running organizations
 - Always cite sources
 
-Today: ${new Date().toISOString().split("T")[0]}`,
+Today: ${toDateString()}`,
     tools: ["Read", "Write", "WebSearch", "WebFetch", "research", "save_research"],
     model: "opus",
   },

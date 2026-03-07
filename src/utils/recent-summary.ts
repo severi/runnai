@@ -2,6 +2,7 @@ import { getDb } from "./activities-db.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
+import { toDateString } from "./format.js";
 
 function getSummaryFile(): string {
   return path.join(getDataDir(), "strava/recent-summary.md");
@@ -201,7 +202,7 @@ export async function generateRecentSummary(): Promise<string> {
   }
 
   let md = `# Training Summary (Last 4 Weeks)\n\n`;
-  md += `Generated: ${today.toISOString().split("T")[0]}\n\n`;
+  md += `Generated: ${toDateString(today)}\n\n`;
 
   const sortedWeeks = Array.from(weekMap.entries())
     .sort(([a], [b]) => b.localeCompare(a))

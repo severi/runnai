@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
+import { toDateString, toolResult, toolError } from "../utils/format.js";
 
 function getMemoryDir(): string {
   return path.join(getDataDir(), "memory");
@@ -26,14 +27,14 @@ export const readMemoryTool = tool(
   async ({ file }) => {
     try {
       if (!isPathSafe(file)) {
-        return { content: [{ type: "text" as const, text: "Error: Path traversal not allowed." }], isError: true };
+        return toolResult("Error: Path traversal not allowed.", true);
       }
 
       const filePath = path.join(getMemoryDir(), file);
       const content = await fs.readFile(filePath, "utf-8");
-      return { content: [{ type: "text" as const, text: content }] };
+      return toolResult(content);
     } catch {
-      return { content: [{ type: "text" as const, text: `Memory file '${file}' not found or empty.` }] };
+      return toolResult(`Memory file '${file}' not found or empty.`);
     }
   }
 );
@@ -49,7 +50,7 @@ export const writeMemoryTool = tool(
   async ({ file, content, append = false }) => {
     try {
       if (!isPathSafe(file)) {
-        return { content: [{ type: "text" as const, text: "Error: Path traversal not allowed." }], isError: true };
+        return toolResult("Error: Path traversal not allowed.", true);
       }
 
       const filePath = path.join(getMemoryDir(), file);
@@ -67,12 +68,9 @@ export const writeMemoryTool = tool(
         await fs.writeFile(filePath, content);
       }
 
-      return { content: [{ type: "text" as const, text: `Updated memory file: ${file}` }] };
+      return toolResult(`Updated memory file: ${file}`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -87,22 +85,13 @@ export const updateContextTool = tool(
     try {
       const lines = content.split("\n").length;
       if (lines > 100) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Error: CONTEXT.md must be under 100 lines (got ${lines}). Move details to deep memory files.`,
-          }],
-          isError: true,
-        };
+        return toolResult(`Error: CONTEXT.md must be under 100 lines (got ${lines}). Move details to deep memory files.`, true);
       }
 
       await fs.writeFile(getContextFile(), content);
-      return { content: [{ type: "text" as const, text: `Updated CONTEXT.md (${lines} lines). Changes will be reflected in the next message.` }] };
+      return toolResult(`Updated CONTEXT.md (${lines} lines). Changes will be reflected in the next message.`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -119,17 +108,17 @@ export const searchMemoryTool = tool(
 
       async function searchDir(dir: string, prefix: string): Promise<void> {
         const entries = await fs.readdir(dir, { withFileTypes: true });
-        for (const entry of entries) {
+        const lowerQuery = query.toLowerCase();
+
+        const tasks = entries.map(async (entry) => {
           const fullPath = path.join(dir, entry.name);
           if (entry.isDirectory()) {
             await searchDir(fullPath, `${prefix}${entry.name}/`);
           } else if (entry.name.endsWith(".md")) {
             const content = await fs.readFile(fullPath, "utf-8");
             const lowerContent = content.toLowerCase();
-            const lowerQuery = query.toLowerCase();
 
             if (lowerContent.includes(lowerQuery)) {
-              // Extract matching lines with context
               const lines = content.split("\n");
               const matches: string[] = [];
               for (let i = 0; i < lines.length; i++) {
@@ -142,13 +131,14 @@ export const searchMemoryTool = tool(
               results.push({ file: `${prefix}${entry.name}`, matches });
             }
           }
-        }
+        });
+        await Promise.all(tasks);
       }
 
       await searchDir(getMemoryDir(), "");
 
       if (results.length === 0) {
-        return { content: [{ type: "text" as const, text: `No matches found for "${query}" in memory files.` }] };
+        return toolResult(`No matches found for "${query}" in memory files.`);
       }
 
       let output = `**Search results for "${query}":**\n\n`;
@@ -160,12 +150,9 @@ export const searchMemoryTool = tool(
         output += "\n";
       }
 
-      return { content: [{ type: "text" as const, text: output }] };
+      return toolResult(output);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -178,7 +165,7 @@ export const saveSessionSummaryTool = tool(
   },
   async ({ summary }) => {
     try {
-      const date = new Date().toISOString().split("T")[0];
+      const date = toDateString();
       const dir = path.join(getMemoryDir(), "session-summaries");
       await fs.mkdir(dir, { recursive: true });
 
@@ -196,12 +183,9 @@ export const saveSessionSummaryTool = tool(
       const content = `${existing}# Session Summary - ${date}\n\n${summary}\n`;
       await fs.writeFile(filePath, content);
 
-      return { content: [{ type: "text" as const, text: `Session summary saved to session-summaries/${date}.md` }] };
+      return toolResult(`Session summary saved to session-summaries/${date}.md`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

@@ -5,7 +5,7 @@ import {
   getPersonalRecords,
   deletePersonalRecord,
 } from "../utils/activities-db.js";
-import { formatTime } from "../utils/format.js";
+import { formatTime, toolResult, toolError } from "../utils/format.js";
 
 export const managePersonalRecordsTool = tool(
   "manage_personal_records",
@@ -25,13 +25,7 @@ export const managePersonalRecordsTool = tool(
     try {
       if (action === "set") {
         if (!distance || !time_seconds || !race_name || !race_date) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: "Missing required fields for set: distance, time_seconds, race_name, race_date",
-            }],
-            isError: true,
-          };
+          return toolResult("Missing required fields for set: distance, time_seconds, race_name, race_date", true);
         }
         upsertPersonalRecord({
           distance_name: distance.toUpperCase(),
@@ -40,43 +34,25 @@ export const managePersonalRecordsTool = tool(
           race_date,
           notes: notes ?? null,
         });
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Saved official PR: ${distance.toUpperCase()} — ${formatTime(time_seconds)} at "${race_name}" (${race_date})`,
-          }],
-        };
+        return toolResult(`Saved official PR: ${distance.toUpperCase()} — ${formatTime(time_seconds)} at "${race_name}" (${race_date})`);
       }
 
       if (action === "delete") {
         if (!distance) {
-          return {
-            content: [{ type: "text" as const, text: "Missing required field: distance" }],
-            isError: true,
-          };
+          return toolResult("Missing required field: distance", true);
         }
         const deleted = deletePersonalRecord(distance.toUpperCase());
-        return {
-          content: [{
-            type: "text" as const,
-            text: deleted
-              ? `Deleted PR for ${distance.toUpperCase()}`
-              : `No PR found for ${distance.toUpperCase()}`,
-          }],
-        };
+        return toolResult(deleted
+          ? `Deleted PR for ${distance.toUpperCase()}`
+          : `No PR found for ${distance.toUpperCase()}`);
       }
 
       // action === "get"
       const records = getPersonalRecords(distance?.toUpperCase());
       if (records.length === 0) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: distance
-              ? `No official PR recorded for ${distance.toUpperCase()}.`
-              : "No official PRs recorded yet.",
-          }],
-        };
+        return toolResult(distance
+          ? `No official PR recorded for ${distance.toUpperCase()}.`
+          : "No official PRs recorded yet.");
       }
 
       let output = "# Official Personal Records\n\n";
@@ -88,12 +64,9 @@ export const managePersonalRecordsTool = tool(
         const pSec = Math.round(pacePerKm % 60);
         output += `| ${r.distance_name} | **${formatTime(r.time_seconds)}** | ${pMin}:${pSec.toString().padStart(2, "0")}/km | ${r.race_name} | ${r.race_date} |\n`;
       }
-      return { content: [{ type: "text" as const, text: output }] };
+      return toolResult(output);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

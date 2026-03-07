@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
-import { sanitizeFilename } from "../utils/format.js";
+import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
 
 function getResearchDir(): string {
   return path.join(getDataDir(), "research");
@@ -80,7 +80,7 @@ async function saveResearch(topic: string, content: string, sources: string[]): 
 
   const filename = `${sanitizeFilename(topic)}.md`;
   const filePath = path.join(getTopicsDir(), filename);
-  const now = new Date().toISOString().split("T")[0];
+  const now = toDateString();
 
   const markdown = `# ${topic}
 
@@ -150,7 +150,7 @@ export const researchTool = tool(
       if (shouldListTopics) {
         const topics = await listTopics();
         if (topics.length === 0) {
-          return { content: [{ type: "text" as const, text: "No research topics cached yet." }] };
+          return toolResult("No research topics cached yet.");
         }
 
         let result = "**Cached Research Topics:**\n\n";
@@ -161,13 +161,13 @@ export const researchTool = tool(
           result += "\n";
         }
 
-        return { content: [{ type: "text" as const, text: result }] };
+        return toolResult(result);
       }
 
       if (!forceRefresh && (await isCacheValid(topic))) {
         const cached = await readCachedResearch(topic);
         if (cached) {
-          return { content: [{ type: "text" as const, text: `**Using cached research:**\n\n${cached}` }] };
+          return toolResult(`**Using cached research:**\n\n${cached}`);
         }
       }
 
@@ -186,12 +186,9 @@ export const researchTool = tool(
         instructions += `\n**Previous research:**\n\n${existingContent}`;
       }
 
-      return { content: [{ type: "text" as const, text: instructions }] };
+      return toolResult(instructions);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -207,12 +204,9 @@ export const saveResearchTool = tool(
   async ({ topic, content, sources }) => {
     try {
       await saveResearch(topic, content, sources);
-      return { content: [{ type: "text" as const, text: `Saved research on "${topic}" with ${sources.length} sources.` }] };
+      return toolResult(`Saved research on "${topic}" with ${sources.length} sources.`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

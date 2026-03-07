@@ -11,7 +11,7 @@ import {
   getActivityStreams,
 } from "../utils/activities-db.js";
 import type { ActivityStream, BestEffortResult, ActivityLapRecord } from "../types/index.js";
-import { formatTime, formatPace as formatPacePerKm } from "../utils/format.js";
+import { formatTime, formatPace as formatPacePerKm, toDateString, toolResult, toolError } from "../utils/format.js";
 
 const DISTANCE_TOLERANCE = 50;
 
@@ -198,7 +198,7 @@ function queryStravaEfforts(dist: string, config: { dbName: string; meters: numb
     return {
       activityId: row.activity_id,
       activityName: row.activity_name,
-      activityDate: row.start_date_local.split("T")[0],
+      activityDate: toDateString(new Date(row.start_date_local)),
       segmentTimeSeconds: row.elapsed_time,
       segmentDistanceMeters: row.distance_meters,
       formattedTime: formatTime(row.elapsed_time),
@@ -247,14 +247,14 @@ async function computeEfforts(dist: string, config: { dbName: string; meters: nu
       pace_per_km: pacePerKm,
       start_index: segment.startIndex,
       end_index: segment.endIndex,
-      computed_at: new Date().toISOString().split("T")[0],
+      computed_at: toDateString(),
     });
 
     const laps = getActivityLaps(run.id);
     efforts.push({
       activityId: run.id,
       activityName: run.name,
-      activityDate: run.start_date_local.split("T")[0],
+      activityDate: toDateString(new Date(run.start_date_local)),
       segmentTimeSeconds: segment.timeSeconds,
       segmentDistanceMeters: segment.distanceMeters,
       formattedTime: formatTime(segment.timeSeconds),
@@ -316,10 +316,7 @@ export const bestEffortsTool = tool(
       try {
         await fs.access(getActivitiesDbPath());
       } catch {
-        return {
-          content: [{ type: "text" as const, text: "No activity data found. Please sync Strava first." }],
-          isError: true,
-        };
+        return toolResult("No activity data found. Please sync Strava first.", true);
       }
 
       const results: Record<string, BestEffortResult[]> = {};
@@ -401,12 +398,9 @@ export const bestEffortsTool = tool(
         output += `\n`;
       }
 
-      return { content: [{ type: "text" as const, text: output }] };
+      return toolResult(output);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -429,7 +423,7 @@ function getComputedFromDb(config: { dbName: string; meters: number }): BestEffo
     return {
       activityId: row.activity_id,
       activityName: row.activity_name,
-      activityDate: row.start_date_local.split("T")[0],
+      activityDate: toDateString(new Date(row.start_date_local)),
       segmentTimeSeconds: row.elapsed_time,
       segmentDistanceMeters: row.distance_meters,
       formattedTime: formatTime(row.elapsed_time),

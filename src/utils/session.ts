@@ -8,7 +8,7 @@ function getSessionFile(): string {
 }
 
 function getHistoryFile(): string {
-  return path.join(getDataDir(), ".chat-history.json");
+  return path.join(getDataDir(), ".chat-history.jsonl");
 }
 
 let currentSessionId: string | null = null;
@@ -41,24 +41,23 @@ export async function saveSession(id: string): Promise<void> {
 
 export async function clearPersistedSession(): Promise<void> {
   currentSessionId = null;
-  try {
-    await fs.unlink(getSessionFile());
-  } catch {}
-  try {
-    await fs.unlink(getHistoryFile());
-  } catch {}
+  try { await fs.unlink(getSessionFile()); } catch {}
+  try { await fs.unlink(getHistoryFile()); } catch {}
+  // Clean up old JSON format file from before JSONL migration
+  try { await fs.unlink(path.join(getDataDir(), ".chat-history.json")); } catch {}
 }
 
 export async function appendChatMessage(message: Message): Promise<void> {
-  const history = await loadChatHistory();
-  history.push(message);
-  await fs.writeFile(getHistoryFile(), JSON.stringify(history), "utf-8");
+  await fs.appendFile(getHistoryFile(), JSON.stringify(message) + "\n", "utf-8");
 }
 
 export async function loadChatHistory(): Promise<Message[]> {
   try {
     const data = await fs.readFile(getHistoryFile(), "utf-8");
-    return JSON.parse(data);
+    return data
+      .split("\n")
+      .filter(line => line.length > 0)
+      .map(line => JSON.parse(line));
   } catch {
     return [];
   }

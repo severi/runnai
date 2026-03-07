@@ -1,6 +1,7 @@
 import "dotenv/config";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { toDateString } from "../utils/format.js";
 import { captureOAuthCallback } from "./oauth-server.js";
 import { upsertActivities } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
@@ -249,7 +250,7 @@ export function convertStravaBestEfforts(
   activityId: number,
   efforts: StravaBestEffort[]
 ): StravaBestEffortRecord[] {
-  const now = new Date().toISOString().split("T")[0];
+  const now = toDateString();
   const records: StravaBestEffortRecord[] = [];
 
   for (const effort of efforts) {

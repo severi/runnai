@@ -2,6 +2,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { loadHrZones, saveHrZones } from "../utils/hr-zones.js";
 import type { HrZones } from "../types/index.js";
+import { toolResult, toolError } from "../utils/format.js";
 
 export const setHrZonesTool = tool(
   "set_hr_zones",
@@ -16,17 +17,9 @@ export const setHrZonesTool = tool(
     try {
       const zones: HrZones = { source, lt1, lt2, max_hr, confirmed: true };
       await saveHrZones(zones);
-      return {
-        content: [{
-          type: "text" as const,
-          text: `HR zones saved and confirmed:\n- LT1 (aerobic): ${lt1} bpm\n- LT2 (anaerobic): ${lt2} bpm\n- Max HR: ${max_hr} bpm\n- Source: ${source}\n\nRun strava_sync to classify activities with these zones.`,
-        }],
-      };
+      return toolResult(`HR zones saved and confirmed:\n- LT1 (aerobic): ${lt1} bpm\n- LT2 (anaerobic): ${lt2} bpm\n- Max HR: ${max_hr} bpm\n- Source: ${source}\n\nRun strava_sync to classify activities with these zones.`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error saving HR zones: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -41,17 +34,9 @@ export const getHrZonesTool = tool(
       const status = zones.confirmed
         ? "✓ Confirmed"
         : "⚠️ Unconfirmed (estimated) — ask the athlete to verify before classifying runs";
-      return {
-        content: [{
-          type: "text" as const,
-          text: `HR Zones (source: ${zones.source}) — ${status}\n- LT1 (aerobic): ${zones.lt1} bpm\n- LT2 (anaerobic): ${zones.lt2} bpm\n- Max HR: ${zones.max_hr} bpm\n\nZone breakdown:\n- Z1 (recovery): < ${Math.round(zones.lt1 * 0.88)} bpm\n- Z2 (easy): ${Math.round(zones.lt1 * 0.88)}-${zones.lt1} bpm\n- Z3 (tempo): ${zones.lt1}-${zones.lt2} bpm\n- Z4 (threshold): ${zones.lt2}-${Math.round(zones.max_hr * 0.97)} bpm\n- Z5 (VO2max): > ${Math.round(zones.max_hr * 0.97)} bpm`,
-        }],
-      };
+      return toolResult(`HR Zones (source: ${zones.source}) — ${status}\n- LT1 (aerobic): ${zones.lt1} bpm\n- LT2 (anaerobic): ${zones.lt2} bpm\n- Max HR: ${zones.max_hr} bpm\n\nZone breakdown:\n- Z1 (recovery): < ${Math.round(zones.lt1 * 0.88)} bpm\n- Z2 (easy): ${Math.round(zones.lt1 * 0.88)}-${zones.lt1} bpm\n- Z3 (tempo): ${zones.lt1}-${zones.lt2} bpm\n- Z4 (threshold): ${zones.lt2}-${Math.round(zones.max_hr * 0.97)} bpm\n- Z5 (VO2max): > ${Math.round(zones.max_hr * 0.97)} bpm`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error loading HR zones: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

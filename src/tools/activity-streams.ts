@@ -2,6 +2,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { fetchActivityStream } from "../strava/client.js";
 import { getActivityStreams, saveActivityStreams } from "../utils/activities-db.js";
+import { toolResult, toolError } from "../utils/format.js";
 
 const ALL_KEYS = ["time", "distance", "heartrate", "altitude", "grade_smooth", "cadence"] as const;
 
@@ -24,13 +25,7 @@ export const getActivityStreamsTool = tool(
       if (!streams) {
         const fetched = await fetchActivityStream(activity_id);
         if (!fetched) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: `No stream data available for activity ${activity_id}. The activity may not exist or may lack GPS/sensor data.`,
-            }],
-            isError: true,
-          };
+          return toolResult(`No stream data available for activity ${activity_id}. The activity may not exist or may lack GPS/sensor data.`, true);
         }
         saveActivityStreams(activity_id, fetched);
         streams = fetched;
@@ -65,15 +60,9 @@ export const getActivityStreamsTool = tool(
         streams: outputStreams,
       };
 
-      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      return toolResult(JSON.stringify(result));
     } catch (error) {
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Error fetching streams for activity ${activity_id}: ${error instanceof Error ? error.message : String(error)}`,
-        }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

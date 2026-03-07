@@ -1,6 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { getDb } from "../utils/activities-db.js";
+import { toolResult, toolError } from "../utils/format.js";
 
 export const saveRunAnalysisTool = tool(
   "save_run_analysis",
@@ -21,10 +22,7 @@ export const saveRunAnalysisTool = tool(
       ).get(activity_id);
 
       if (!existing) {
-        return {
-          content: [{ type: "text" as const, text: `No analysis record for activity ${activity_id}. Run get_run_analysis first.` }],
-          isError: true,
-        };
+        return toolResult(`No analysis record for activity ${activity_id}. Run get_run_analysis first.`, true);
       }
 
       db.prepare(`
@@ -33,21 +31,16 @@ export const saveRunAnalysisTool = tool(
         WHERE activity_id = ?
       `).run(detailed_analysis, strava_title ?? null, strava_description ?? null, now, activity_id);
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({
-          activity_id,
-          saved: true,
-          has_detailed_analysis: true,
-          has_strava_title: !!strava_title,
-          has_strava_description: !!strava_description,
-          saved_at: now,
-        }, null, 2) }],
-      };
+      return toolResult(JSON.stringify({
+        activity_id,
+        saved: true,
+        has_detailed_analysis: true,
+        has_strava_title: !!strava_title,
+        has_strava_description: !!strava_description,
+        saved_at: now,
+      }, null, 2));
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

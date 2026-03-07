@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
-import { sanitizeFilename } from "../utils/format.js";
+import { sanitizeFilename, toolResult, toolError } from "../utils/format.js";
 import { parsePlan } from "../utils/plan-parser.js";
 import type { IntervalsEvent } from "../intervals/client.js";
 import { getIntervalsCredentials, workoutsToEvents, bulkUpsertEvents } from "../intervals/client.js";
@@ -25,22 +25,13 @@ export const exportToIntervalsTool = tool(
       try {
         content = await fs.readFile(filePath, "utf-8");
       } catch {
-        return {
-          content: [{ type: "text" as const, text: `Plan '${planName}' not found at ${filePath}.` }],
-          isError: true,
-        };
+        return toolResult(`Plan '${planName}' not found at ${filePath}.`, true);
       }
 
       const workouts = parsePlan(content, planSlug, weekFilter);
 
       if (workouts.length === 0) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `No workouts parsed from plan '${planName}'. Ensure the plan has ## Week N: headers with markdown tables containing Session and Details columns.`,
-          }],
-          isError: true,
-        };
+        return toolResult(`No workouts parsed from plan '${planName}'. Ensure the plan has ## Week N: headers with markdown tables containing Session and Details columns.`, true);
       }
 
       const events = workoutsToEvents(workouts);
@@ -54,17 +45,12 @@ export const exportToIntervalsTool = tool(
           details: w.details,
           externalId: w.externalId,
         }));
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              planName,
-              totalWorkouts: workouts.length,
-              weeks: `${weekNums[0]}–${weekNums[weekNums.length - 1]}`,
-              workouts: workoutData,
-            }, null, 2),
-          }],
-        };
+        return toolResult(JSON.stringify({
+          planName,
+          totalWorkouts: workouts.length,
+          weeks: `${weekNums[0]}–${weekNums[weekNums.length - 1]}`,
+          workouts: workoutData,
+        }, null, 2));
       }
 
       // Live export
@@ -72,36 +58,19 @@ export const exportToIntervalsTool = tool(
       try {
         creds = getIntervalsCredentials();
       } catch (e) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}. Find your API key at https://intervals.icu/settings (Developer Settings).`,
-          }],
-          isError: true,
-        };
+        return toolResult(`intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}. Find your API key at https://intervals.icu/settings (Developer Settings).`, true);
       }
 
       const result = await bulkUpsertEvents(creds.athleteId, creds.apiKey, events);
 
       if (!result.success) {
-        return {
-          content: [{ type: "text" as const, text: `Export failed: ${result.error}` }],
-          isError: true,
-        };
+        return toolResult(`Export failed: ${result.error}`, true);
       }
 
       const weekNums = [...new Set(workouts.map((w) => w.weekNumber))].sort((a, b) => a - b);
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Exported "${planName}" to intervals.icu — ${result.eventCount} workout events (weeks ${weekNums[0]}–${weekNums[weekNums.length - 1]}). Re-exporting will safely update existing events.`,
-        }],
-      };
+      return toolResult(`Exported "${planName}" to intervals.icu — ${result.eventCount} workout events (weeks ${weekNums[0]}–${weekNums[weekNums.length - 1]}). Re-exporting will safely update existing events.`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   },
 );
@@ -176,13 +145,7 @@ export const pushToIntervalsTool = tool(
       try {
         creds = getIntervalsCredentials();
       } catch (e) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}`,
-          }],
-          isError: true,
-        };
+        return toolResult(`intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}`, true);
       }
 
       const intervalsEvents: IntervalsEvent[] = events.map((e) => ({
@@ -199,23 +162,12 @@ export const pushToIntervalsTool = tool(
       const result = await bulkUpsertEvents(creds.athleteId, creds.apiKey, intervalsEvents);
 
       if (!result.success) {
-        return {
-          content: [{ type: "text" as const, text: `Push failed: ${result.error}` }],
-          isError: true,
-        };
+        return toolResult(`Push failed: ${result.error}`, true);
       }
 
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Pushed ${result.eventCount} enriched workouts to intervals.icu with structured descriptions, tags, and colors.`,
-        }],
-      };
+      return toolResult(`Pushed ${result.eventCount} enriched workouts to intervals.icu with structured descriptions, tags, and colors.`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   },
 );

@@ -42,6 +42,7 @@ import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
+import { toDateString, toolResult, toolError } from "../utils/format.js";
 
 /**
  * Fetch and store activity detail (best efforts, streams, laps) from Strava.
@@ -283,7 +284,7 @@ export const stravaSyncTool = tool(
           if (newRuns.length > 0) {
             text += `\n\nNew runs since last sync:`;
             for (const run of newRuns) {
-              const date = run.start_date_local.split("T")[0];
+              const date = toDateString(new Date(run.start_date_local));
               const distKm = Math.round(run.distance / 100) / 10;
               const paceMinPerKm = run.moving_time / 60 / (run.distance / 1000);
               const paceMin = Math.floor(paceMinPerKm);
@@ -296,7 +297,7 @@ export const stravaSyncTool = tool(
           if (newNonRuns.length > 0) {
             text += `\n\nOther new activities:`;
             for (const act of newNonRuns) {
-              const date = act.start_date_local.split("T")[0];
+              const date = toDateString(new Date(act.start_date_local));
               const distKm = act.distance > 0 ? `${Math.round(act.distance / 100) / 10}km` : "";
               const durationMin = Math.round(act.moving_time / 60);
               const type = act.sport_type || act.type;
@@ -313,7 +314,7 @@ export const stravaSyncTool = tool(
         (a, b) => new Date(b.start_date_local).getTime() - new Date(a.start_date_local).getTime()
       )[0];
       if (mostRecentRun) {
-        const date = mostRecentRun.start_date_local.split("T")[0];
+        const date = toDateString(new Date(mostRecentRun.start_date_local));
         const distKm = Math.round(mostRecentRun.distance / 100) / 10;
         const paceMinPerKm = mostRecentRun.moving_time / 60 / (mostRecentRun.distance / 1000);
         const paceMin = Math.floor(paceMinPerKm);
@@ -349,14 +350,11 @@ export const stravaSyncTool = tool(
         text += `\nUse set_hr_zones to save, then sync again to classify all runs.`;
       }
 
-      text += `\n\nRecent summary updated. Today: ${new Date().toISOString().split("T")[0]}`;
+      text += `\n\nRecent summary updated. Today: ${toDateString()}`;
 
-      return { content: [{ type: "text" as const, text }] };
+      return toolResult(text);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error syncing Strava: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -371,10 +369,7 @@ export const stravaProfileTool = tool(
     try {
       const profileResult = await getAthleteProfile();
       if (!profileResult.success || !profileResult.athlete) {
-        return {
-          content: [{ type: "text" as const, text: profileResult.error || "Failed to fetch profile" }],
-          isError: true,
-        };
+        return toolResult(profileResult.error || "Failed to fetch profile", true);
       }
       const athlete = profileResult.athlete;
 
@@ -423,14 +418,11 @@ export const stravaProfileTool = tool(
         }
       }
 
-      text += `\nToday: ${new Date().toISOString().split("T")[0]}`;
+      text += `\nToday: ${toDateString()}`;
 
-      return { content: [{ type: "text" as const, text }] };
+      return toolResult(text);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -442,38 +434,22 @@ export const stravaAuthTool = tool(
   async () => {
     try {
       if (!hasClientCredentials()) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: `**Strava Setup Required**\n\n1. Go to https://www.strava.com/settings/api\n2. Create an application\n3. Set Authorization Callback Domain to: localhost\n4. Add to .env:\n   STRAVA_CLIENT_ID=<client_id>\n   STRAVA_CLIENT_SECRET=<client_secret>\n\nRestart the app after adding credentials.`,
-          }],
-          isError: true,
-        };
+        return toolResult(`**Strava Setup Required**\n\n1. Go to https://www.strava.com/settings/api\n2. Create an application\n3. Set Authorization Callback Domain to: localhost\n4. Add to .env:\n   STRAVA_CLIENT_ID=<client_id>\n   STRAVA_CLIENT_SECRET=<client_secret>\n\nRestart the app after adding credentials.`, true);
       }
 
       const tokens = await loadTokens();
       if (tokens?.access_token) {
-        return {
-          content: [{ type: "text" as const, text: "Strava is already connected! Use strava_sync to sync activities." }],
-        };
+        return toolResult("Strava is already connected! Use strava_sync to sync activities.");
       }
 
       const result = await startAutomaticAuth();
       if (!result.success) {
-        return {
-          content: [{ type: "text" as const, text: `Strava authorization failed: ${result.error || "Unknown error"}` }],
-          isError: true,
-        };
+        return toolResult(`Strava authorization failed: ${result.error || "Unknown error"}`, true);
       }
 
-      return {
-        content: [{ type: "text" as const, text: "**Strava Connected Successfully!** Use strava_profile to fetch running data." }],
-      };
+      return toolResult("**Strava Connected Successfully!** Use strava_profile to fetch running data.");
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -487,12 +463,9 @@ export const queryActivitiesTool = tool(
   async ({ query }) => {
     try {
       const results = queryActivities(query);
-      return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
+      return toolResult(JSON.stringify(results, null, 2));
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Query error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolResult(`Query error: ${error instanceof Error ? error.message : String(error)}`, true);
     }
   }
 );
@@ -510,10 +483,7 @@ export const stravaUpdateActivityTool = tool(
   async ({ activity_id, name, description }) => {
     try {
       if (!name && !description) {
-        return {
-          content: [{ type: "text" as const, text: "Nothing to update — provide at least a name or description." }],
-          isError: true,
-        };
+        return toolResult("Nothing to update — provide at least a name or description.", true);
       }
 
       const update: { name?: string; description?: string } = {};
@@ -524,28 +494,17 @@ export const stravaUpdateActivityTool = tool(
 
       if (!result.success) {
         if (result.needsReauth) {
-          return {
-            content: [{ type: "text" as const, text: `${result.error}\n\nThe athlete needs to re-authorize Strava with write permissions. Use strava_auth to start the OAuth flow.` }],
-            isError: true,
-          };
+          return toolResult(`${result.error}\n\nThe athlete needs to re-authorize Strava with write permissions. Use strava_auth to start the OAuth flow.`, true);
         }
-        return {
-          content: [{ type: "text" as const, text: `Failed to update activity: ${result.error}` }],
-          isError: true,
-        };
+        return toolResult(`Failed to update activity: ${result.error}`, true);
       }
 
       const parts: string[] = [];
       if (name) parts.push(`name → "${name}"`);
       if (description) parts.push("description updated");
-      return {
-        content: [{ type: "text" as const, text: `Activity ${activity_id} updated: ${parts.join(", ")}` }],
-      };
+      return toolResult(`Activity ${activity_id} updated: ${parts.join(", ")}`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

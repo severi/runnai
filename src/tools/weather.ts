@@ -1,5 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { toDateString, toolResult, toolError } from "../utils/format.js";
 
 export const WEATHER_CODES: Record<number, string> = {
   0: "Clear sky",
@@ -95,20 +96,20 @@ export const getWeatherTool = tool(
     if ((lat === undefined || lng === undefined) && city) {
       const geo = await geocodeCity(city);
       if (!geo) {
-        return { content: [{ type: "text" as const, text: `Could not geocode city: ${city}` }], isError: true };
+        return toolResult(`Could not geocode city: ${city}`, true);
       }
       lat = geo.lat;
       lng = geo.lng;
     }
 
     if (lat === undefined || lng === undefined) {
-      return { content: [{ type: "text" as const, text: "Provide latitude/longitude or a city name" }], isError: true };
+      return toolResult("Provide latitude/longitude or a city name", true);
     }
 
     const endDate = end_date || start_date;
 
     // Decide: forecast or historical
-    const today = new Date().toISOString().split("T")[0];
+    const today = toDateString();
     const isFuture = start_date >= today;
 
     let url: string;
@@ -122,14 +123,14 @@ export const getWeatherTool = tool(
       const response = await fetch(url);
       if (!response.ok) {
         const text = await response.text();
-        return { content: [{ type: "text" as const, text: `Weather API error: ${text}` }], isError: true };
+        return toolResult(`Weather API error: ${text}`, true);
       }
 
       const data = (await response.json()) as WeatherResponse;
       const { daily } = data;
 
       if (!daily || !daily.time || daily.time.length === 0) {
-        return { content: [{ type: "text" as const, text: "No weather data available for this date range" }], isError: true };
+        return toolResult("No weather data available for this date range", true);
       }
 
       const lines = daily.time.map((date, i) =>
@@ -145,14 +146,9 @@ export const getWeatherTool = tool(
 
       const header = isFuture ? "Weather Forecast" : "Historical Weather";
       const locationLabel = city || `${lat.toFixed(2)}°N, ${lng.toFixed(2)}°E`;
-      const text = `${header} — ${locationLabel}\n${lines.join("\n")}`;
-
-      return { content: [{ type: "text" as const, text }] };
+      return toolResult(`${header} — ${locationLabel}\n${lines.join("\n")}`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Failed to fetch weather: ${error instanceof Error ? error.message : error}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

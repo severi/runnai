@@ -2,6 +2,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { getDb } from "./activities-db.js";
 import { getDataDir } from "./paths.js";
+import { toDateString } from "./format.js";
 
 function getPatternsFile(): string {
   return path.join(getDataDir(), "memory/training-patterns.md");
@@ -79,7 +80,7 @@ export async function generateTrainingPatterns(): Promise<void> {
       races: number;
     };
 
-    let md = `# Training Patterns\nLast updated: ${new Date().toISOString().split("T")[0]}\n\n`;
+    let md = `# Training Patterns\nLast updated: ${toDateString()}\n\n`;
 
     // Weekly structure table
     md += `## Weekly Structure (Last 8 Weeks)\n`;
