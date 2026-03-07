@@ -1,6 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { initDatabase, getStreamAnalysis } from "../utils/activities-db.js";
+import { initDatabase, getStreamAnalysis, getActivityWeather } from "../utils/activities-db.js";
 import {
   getActivityAnalysis,
   computeActivityAnalysis,
@@ -42,6 +42,7 @@ export const getRunAnalysisTool = tool(
         }
 
         const trainingContext = computeTrainingContext(activity_id, db);
+        const activityWeather = getActivityWeather(activity_id, db);
 
         // Build stream metrics for output
         const streamMetrics = sa ? {
@@ -96,6 +97,15 @@ export const getRunAnalysisTool = tool(
             similar_runs_30d: record.similar_runs_30d,
           } : null,
           training_context: trainingContext,
+          weather: activityWeather ? {
+            temp_c: activityWeather.temp_c,
+            feels_like_c: activityWeather.feels_like_c,
+            humidity_pct: activityWeather.humidity_pct,
+            wind_speed_kmh: activityWeather.wind_speed_kmh,
+            wind_gust_kmh: activityWeather.wind_gust_kmh,
+            precipitation_mm: activityWeather.precipitation_mm,
+            description: activityWeather.weather_description,
+          } : null,
           stream_analysis: streamMetrics,
           detailed_analysis: record.detailed_analysis,
           strava_title: record.strava_title,

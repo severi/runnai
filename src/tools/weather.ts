@@ -1,7 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
-const WEATHER_CODES: Record<number, string> = {
+export const WEATHER_CODES: Record<number, string> = {
   0: "Clear sky",
   1: "Mainly clear",
   2: "Partly cloudy",
