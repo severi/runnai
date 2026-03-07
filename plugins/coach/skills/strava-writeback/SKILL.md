@@ -1,68 +1,63 @@
 ---
 name: strava-writeback
-description: Write run analysis back to Strava with coaching-style names and descriptions
+description: Analyze runs and write coaching insights back to Strava
 ---
 
 # Strava Write-Back
 
 ## Flow
 
-1. For each activity, call `get_run_analysis(activity_id)` to get the full analysis data
-2. Distill the data into a short name and plain prose description (see examples below)
-3. Show preview to the athlete for approval
-4. On approval, call `strava_update_activity` — attribution is appended automatically
+1. Call `get_run_analysis(activity_id)` to get all structured data and training context
+2. Write a detailed coaching analysis (Stage 1)
+3. Condense into a Strava title and description (Stage 2)
+4. Show both the detailed analysis and Strava preview to the athlete
+5. On approval, call `save_run_analysis` to persist, then `strava_update_activity` to write to Strava
 
-## How to Write the Name
+## Stage 1: Detailed Coaching Analysis
 
-Short and descriptive. No emoji, no stats, no race countdowns. Use regular hyphens (-), never em dashes (—).
+Write 1-2 paragraphs analyzing the run like a coach reviewing the session file. Consider:
 
-| Good | Bad |
-|------|-----|
-| Easy Long Run - Rolling Hills | 16km Easy Long \| Transition Week \| 6 weeks to Vienna |
-| Tempo 8K | 40min tempo — Z3/Z4 threshold session |
-| Recovery 6K | Easy Recovery Run (HR 132, Z1-Z2) |
-| Hill Repeats - 1500m Vert | Mountain session — 20km vertical work |
+- **What the run actually was.** Don't just echo the classification. A 26km Z2 run is a significant aerobic session, not an "easy run." Consider the distance, duration, and terrain together.
+- **Training load significance.** Use TRIMP and the training context (weekly volume, percentile vs 30 days, days since last run). Is this the biggest effort this week? A recovery day after a hard block?
+- **Zone honesty.** Describe what happened on the course. If uphills pushed HR into Z3 for 15% of the run, that's terrain-driven intensity variation - don't flatten it to "comfortably in Z2." Break down climbs vs flats vs descents if the terrain shaped the effort.
+- **Notable signals.** Cardiac drift, fatigue fade, pacing patterns, negative/positive splits, cadence changes. Only mention if they tell a coaching story.
+- **Historical comparison.** Faster or slower than similar runs? Improving trend? Unusual?
+- **Training plan context.** If the athlete has a plan, how does this session fit? Was it the intended workout?
 
-## How to Write the Description
+Save the detailed analysis with `save_run_analysis`.
 
-The description is the COMPLETE text - plain prose, no headers, no emoji, no stats lines, no bullet points. Use regular hyphens (-), never em dashes (—). It distills the analysis data into what a coach would actually say. These examples show the ENTIRE description, not excerpts:
+## Stage 2: Strava Title + Description
 
-### Example 1: Easy run
+From the detailed analysis, distill:
 
-**Data:** 8.5km, 5:40/km, HR 136, Z1 40%, Z2 58%, Z3 2%, cardiac drift 2.8%, fatigue 0.3%
+### Title
 
-**Complete description:**
-Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note - exactly what a recovery day should look like.
+Short and descriptive. No emoji, no stats, no plan references. Use regular hyphens (-), never em dashes.
 
-### Example 2: Tempo
+Principles, not templates - develop your own natural titling voice. The title should capture the essence of what the session was. Some directions to consider:
+- The primary training stimulus (distance, intensity, terrain)
+- What made this session distinctive
 
-**Data:** 12km, 4:45/km avg, laps: 2km warmup then 8km at 4:15-4:22, 2km cooldown. Z3 35%, Z4 55%, cardiac drift 6.2%, fatigue 7.1%
+### Description
 
-**Complete description:**
-8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing - the 7% fade suggests the effort was right at the limit. Good session to build from.
+Plain prose, 2-4 sentences. No headers, bullets, emoji, or stat lines. Use regular hyphens (-), never em dashes. This is what a coach would actually say about the session - coaching insight, not a data readback.
 
-### Example 3: Hilly long run
-
-**Data:** 18km, 8:30/km, GAP 5:50/km, +1200m gain, climbs avg HR 165 ~12:00/km, descents avg HR 140 ~5:30/km, cardiac drift 4.8%
-
-**Complete description:**
-18km in the hills with 1200m of climbing. The climbs pushed HR to 165 at hiking pace while descents provided active recovery at 140. Good cardiac drift control over 2.5 hours of sustained vertical work.
+The description should surface the 1-3 most important observations from the detailed analysis. Not everything noteworthy goes into the Strava description - just the things a coach would want the athlete (and their friends who see it on Strava) to take away.
 
 ### What NOT to write
 
 Never write descriptions like this:
 
 ```
-8.5km @ 5:40/km | HR 136 avg | +45m elevation
+26.2km @ 6:04/km | HR 148 avg | +305m elevation
 
-Easy midweek run. 40% Z1, 58% Z2, 2% Z3. Cardiac drift 2.8% showing good coupling. TRIMP: 42. Even splits throughout. EF: 0.021.
-
-Build week 3 continues tomorrow with tempo intervals.
+Solid long run. 85% Z2, 15% Z3. Cardiac drift 3.2%. Even splits. TRIMP 180.
 ```
 
-This is a data readback, not a coaching insight. A coach would never talk like this.
+This is a data readback, not coaching insight.
 
 ## Safety
 
-- NEVER delete or remove activities — only update name and description
+- NEVER delete or remove activities - only update name and description
 - ALWAYS preview and get explicit confirmation before writing
+- Attribution is appended automatically by the tool
