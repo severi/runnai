@@ -42,7 +42,7 @@ import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
-import { toDateString, toolResult, toolError } from "../utils/format.js";
+import { toDateString, toolResult, toolError, formatPace } from "../utils/format.js";
 
 /**
  * Fetch and store activity detail (best efforts, streams, laps) from Strava.
@@ -203,7 +203,7 @@ export const stravaSyncTool = tool(
             const result = computeActivityAnalysis(run.id, hrZones, easyPaceRef, cachedStreams.get(run.id));
             if (result) {
               saveActivityAnalysis(result.analysis);
-              setRunType(run.id, result.analysis.run_type as any, result.analysis.run_type_detail);
+              setRunType(run.id, result.analysis.run_type, result.analysis.run_type_detail);
               classificationMap.set(run.id, { run_type: result.analysis.run_type, run_type_detail: result.analysis.run_type_detail });
               analyzedCount++;
             }
@@ -215,7 +215,7 @@ export const stravaSyncTool = tool(
             const result = computeActivityAnalysis(actId, hrZones, easyPaceRef);
             if (result) {
               saveActivityAnalysis(result.analysis);
-              setRunType(actId, result.analysis.run_type as any, result.analysis.run_type_detail);
+              setRunType(actId, result.analysis.run_type, result.analysis.run_type_detail);
               analyzedCount++;
             }
           }
@@ -286,12 +286,10 @@ export const stravaSyncTool = tool(
             for (const run of newRuns) {
               const date = toDateString(new Date(run.start_date_local));
               const distKm = Math.round(run.distance / 100) / 10;
-              const paceMinPerKm = run.moving_time / 60 / (run.distance / 1000);
-              const paceMin = Math.floor(paceMinPerKm);
-              const paceSec = Math.round((paceMinPerKm - paceMin) * 60);
+              const paceSecPerKm = run.distance > 0 ? (run.moving_time / run.distance) * 1000 : 0;
               const cls = classificationMap.get(run.id);
               const tag = cls ? (cls.run_type_detail ? ` [${cls.run_type}: ${cls.run_type_detail}]` : ` [${cls.run_type}]`) : "";
-              text += `\n- ${date}: "${run.name}" (id: ${run.id}) — ${distKm}km @ ${paceMin}:${paceSec.toString().padStart(2, "0")}/km${tag}`;
+              text += `\n- ${date}: "${run.name}" (id: ${run.id}) — ${distKm}km @ ${formatPace(paceSecPerKm)}${tag}`;
             }
           }
           if (newNonRuns.length > 0) {
@@ -316,10 +314,8 @@ export const stravaSyncTool = tool(
       if (mostRecentRun) {
         const date = toDateString(new Date(mostRecentRun.start_date_local));
         const distKm = Math.round(mostRecentRun.distance / 100) / 10;
-        const paceMinPerKm = mostRecentRun.moving_time / 60 / (mostRecentRun.distance / 1000);
-        const paceMin = Math.floor(paceMinPerKm);
-        const paceSec = Math.round((paceMinPerKm - paceMin) * 60);
-        text += `\n\nMost recent run: ${date} "${mostRecentRun.name}" - ${distKm}km @ ${paceMin}:${paceSec.toString().padStart(2, "0")}/km`;
+        const paceSecPerKm = mostRecentRun.distance > 0 ? (mostRecentRun.moving_time / mostRecentRun.distance) * 1000 : 0;
+        text += `\n\nMost recent run: ${date} "${mostRecentRun.name}" - ${distKm}km @ ${formatPace(paceSecPerKm)}`;
       }
 
       if (detailFetched > 0) {
@@ -465,7 +461,7 @@ export const queryActivitiesTool = tool(
       const results = queryActivities(query);
       return toolResult(JSON.stringify(results, null, 2));
     } catch (error) {
-      return toolResult(`Query error: ${error instanceof Error ? error.message : String(error)}`, true);
+      return toolError(error);
     }
   }
 );

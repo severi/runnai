@@ -5,7 +5,7 @@ import {
   getPersonalRecords,
   deletePersonalRecord,
 } from "../utils/activities-db.js";
-import { formatTime, toolResult, toolError } from "../utils/format.js";
+import { formatTime, formatPace, toolResult, toolError } from "../utils/format.js";
 
 export const managePersonalRecordsTool = tool(
   "manage_personal_records",
@@ -60,9 +60,7 @@ export const managePersonalRecordsTool = tool(
       output += "|----------|------|------|------|------|\n";
       for (const r of records) {
         const pacePerKm = r.time_seconds / (distanceToMeters(r.distance_name) / 1000);
-        const pMin = Math.floor(pacePerKm / 60);
-        const pSec = Math.round(pacePerKm % 60);
-        output += `| ${r.distance_name} | **${formatTime(r.time_seconds)}** | ${pMin}:${pSec.toString().padStart(2, "0")}/km | ${r.race_name} | ${r.race_date} |\n`;
+        output += `| ${r.distance_name} | **${formatTime(r.time_seconds)}** | ${formatPace(pacePerKm)} | ${r.race_name} | ${r.race_date} |\n`;
       }
       return toolResult(output);
     } catch (error) {

@@ -225,10 +225,10 @@ export interface LapSummary {
 
 export interface ActivityAnalysisRecord {
   activity_id: number;
-  run_type: string;
+  run_type: RunType;
   run_type_detail: string | null;
-  classification_confidence: string;
-  hill_category: string | null;
+  classification_confidence: "high" | "medium" | "low";
+  hill_category: "flat" | "rolling" | "hilly" | "hill_repeat" | null;
   distance_m: number;
   moving_time_s: number;
   pace_sec_per_km: number;

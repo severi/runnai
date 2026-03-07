@@ -1,4 +1,4 @@
-import { getDb, saveStreamAnalysis } from "./activities-db.js";
+import { getDb, saveStreamAnalysis, getActivityStreams, getActivityLaps } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
 import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
 import { computeStreamAnalysis } from "./stream-analysis.js";
@@ -24,23 +24,11 @@ export function computeActivityAnalysis(
   } | undefined;
   if (!activity) return null;
 
-  const laps = db.prepare(
-    "SELECT * FROM activity_laps WHERE activity_id = ? ORDER BY lap_index ASC"
-  ).all(activityId) as ActivityLapRecord[];
+  const laps = getActivityLaps(activityId);
 
   // Load streams from DB if not provided
   if (streams === undefined) {
-    const row = db.prepare("SELECT * FROM activity_streams WHERE activity_id = ?").get(activityId) as any;
-    if (row) {
-      streams = {
-        time: JSON.parse(row.time_data),
-        distance: JSON.parse(row.distance_data),
-        heartrate: row.heartrate_data ? JSON.parse(row.heartrate_data) : undefined,
-        altitude: row.altitude_data ? JSON.parse(row.altitude_data) : undefined,
-        grade_smooth: row.grade_smooth_data ? JSON.parse(row.grade_smooth_data) : undefined,
-        cadence: row.cadence_data ? JSON.parse(row.cadence_data) : undefined,
-      };
-    }
+    streams = getActivityStreams(activityId);
   }
 
   const grades = streams?.grade_smooth ?? null;
@@ -242,8 +230,6 @@ export function getRecentUnanalyzedActivityIds(days: number = 7): number[] {
     ORDER BY a.start_date_local DESC
   `).all(days) as { id: number }[]).map(r => r.id);
 }
-
-export { formatPace } from "./format.js";
 
 export function computeTrainingContext(activityId: number): TrainingContext | null {
   const db = getDb();

@@ -2,25 +2,22 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
 
-export async function buildSystemPrompt(projectRoot: string): Promise<string> {
+export async function buildSystemPrompt(): Promise<string> {
   const dataDir = getDataDir();
   const contextPath = path.join(dataDir, "athlete/CONTEXT.md");
   const summaryPath = path.join(dataDir, "strava/recent-summary.md");
 
-  let hotCache = "";
-  let recentSummary = "";
+  const [hotCacheResult, summaryResult] = await Promise.allSettled([
+    fs.readFile(contextPath, "utf-8"),
+    fs.readFile(summaryPath, "utf-8"),
+  ]);
 
-  try {
-    hotCache = await fs.readFile(contextPath, "utf-8");
-  } catch {
-    hotCache = "[No athlete context yet - first-time user. Trigger /setup for onboarding.]";
-  }
-
-  try {
-    recentSummary = await fs.readFile(summaryPath, "utf-8");
-  } catch {
-    // No recent summary available
-  }
+  const hotCache = hotCacheResult.status === "fulfilled"
+    ? hotCacheResult.value
+    : "[No athlete context yet - first-time user. Trigger /setup for onboarding.]";
+  const recentSummary = summaryResult.status === "fulfilled"
+    ? summaryResult.value
+    : "";
 
   const prompt = `You are RunnAI, a knowledgeable and adaptive running coach. You learn about your athlete over time and use accumulated knowledge to provide personalized, evidence-based coaching.
 

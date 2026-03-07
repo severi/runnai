@@ -1,7 +1,7 @@
 import "dotenv/config";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { toDateString } from "../utils/format.js";
+import { toDateString, formatPace } from "../utils/format.js";
 import { captureOAuthCallback } from "./oauth-server.js";
 import { upsertActivities } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
@@ -365,21 +365,17 @@ function generateSyncSummary(runs: StravaActivity[], days: number): string {
 
   const totalDistance = runs.reduce((sum, a) => sum + a.distance, 0) / 1000;
   const totalTime = runs.reduce((sum, a) => sum + a.moving_time, 0);
-  const avgPace = totalTime / 60 / totalDistance;
-  const avgPaceMin = Math.floor(avgPace);
-  const avgPaceSec = Math.round((avgPace - avgPaceMin) * 60);
+  const avgPaceSecPerKm = totalDistance > 0 ? totalTime / totalDistance * 1000 : 0;
 
   let summary = `Last ${days} Days: ${runs.length} runs, ${totalDistance.toFixed(1)}km, `;
-  summary += `avg ${avgPaceMin}:${String(avgPaceSec).padStart(2, "0")}/km\n\n`;
+  summary += `avg ${formatPace(avgPaceSecPerKm)}\n\n`;
   summary += `Recent Runs:\n`;
 
   runs.slice(0, 5).forEach((run) => {
     const distKm = (run.distance / 1000).toFixed(1);
-    const paceVal = run.moving_time / 60 / (run.distance / 1000);
-    const paceMin = Math.floor(paceVal);
-    const paceSec = Math.round((paceVal - paceMin) * 60);
+    const paceSecPerKm = run.distance > 0 ? (run.moving_time / run.distance) * 1000 : 0;
     const date = new Date(run.start_date_local).toLocaleDateString();
-    summary += `  - ${run.name} - ${distKm}km @ ${paceMin}:${String(paceSec).padStart(2, "0")}/km (${date})\n`;
+    summary += `  - ${run.name} - ${distKm}km @ ${formatPace(paceSecPerKm)} (${date})\n`;
   });
 
   if (runs.length > 5) {

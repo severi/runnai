@@ -2,7 +2,7 @@ import { getDb } from "./activities-db.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
-import { toDateString } from "./format.js";
+import { toDateString, formatPace } from "./format.js";
 
 function getSummaryFile(): string {
   return path.join(getDataDir(), "strava/recent-summary.md");
@@ -221,9 +221,8 @@ export async function generateRecentSummary(): Promise<string> {
     }
     for (const entry of week.runEntries) {
       const distKm = (entry.distance / 1000).toFixed(1);
-      const paceMin = Math.floor(entry.paceMinKm);
-      const paceSec = Math.round((entry.paceMinKm - paceMin) * 60);
-      const paceStr = `${paceMin}:${paceSec.toString().padStart(2, "0")}/km`;
+      const paceSecPerKm = entry.paceMinKm * 60;
+      const paceStr = formatPace(paceSecPerKm);
       const hrStr = entry.heartrate ? ` | HR ${Math.round(entry.heartrate)}` : "";
       let typeTag = "";
       if (entry.runType) {
@@ -305,9 +304,7 @@ export async function generateRecentSummary(): Promise<string> {
     for (const month of allMonths) {
       const data = volumeByMonth.get(month);
       if (data) {
-        const paceMin = Math.floor(data.avg_pace);
-        const paceSec = Math.round((data.avg_pace - paceMin) * 60);
-        const paceStr = `${paceMin}:${paceSec.toString().padStart(2, "0")}/km`;
+        const paceStr = formatPace(data.avg_pace * 60);
         md += `- ${month}: ${data.total_km}km (${data.runs} runs, avg ${paceStr})\n`;
       } else {
         md += `- ${month}: — no runs —\n`;

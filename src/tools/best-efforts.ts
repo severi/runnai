@@ -1,9 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import * as fs from "fs/promises";
 import {
   getDb,
-  getActivitiesDbPath,
   upsertBestEffort,
   getStravaBestEfforts,
   getPersonalRecords,
@@ -11,7 +9,7 @@ import {
   getActivityStreams,
 } from "../utils/activities-db.js";
 import type { ActivityStream, BestEffortResult, ActivityLapRecord } from "../types/index.js";
-import { formatTime, formatPace as formatPacePerKm, toDateString, toolResult, toolError } from "../utils/format.js";
+import { formatTime, formatPace as formatPacePerKm, formatPaceRaw, toDateString, toolResult, toolError } from "../utils/format.js";
 
 const DISTANCE_TOLERANCE = 50;
 
@@ -50,11 +48,7 @@ function lapPaceSecPerKm(lap: ActivityLapRecord): number {
   return (lap.moving_time / lap.distance) * 1000;
 }
 
-function fmtPace(secPerKm: number): string {
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
+const fmtPace = formatPaceRaw;
 
 function groupLapPhases(laps: ActivityLapRecord[]): string {
   if (laps.length === 0) return "";
@@ -313,12 +307,6 @@ export const bestEffortsTool = tool(
     try {
       const distances = distance === "all" ? Object.keys(DISTANCE_CONFIG) : [distance];
 
-      try {
-        await fs.access(getActivitiesDbPath());
-      } catch {
-        return toolResult("No activity data found. Please sync Strava first.", true);
-      }
-
       const results: Record<string, BestEffortResult[]> = {};
 
       for (const dist of distances) {
@@ -359,9 +347,7 @@ export const bestEffortsTool = tool(
         // Show declared PR first if it exists
         if (declaredPR) {
           const pacePerKm = declaredPR.time_seconds / (config.meters / 1000);
-          const pMin = Math.floor(pacePerKm / 60);
-          const pSec = Math.round(pacePerKm % 60);
-          output += `**Official PR: ${formatTime(declaredPR.time_seconds)}** (${pMin}:${pSec.toString().padStart(2, "0")}/km) — ${declaredPR.race_name}, ${declaredPR.race_date}\n\n`;
+          output += `**Official PR: ${formatTime(declaredPR.time_seconds)}** (${formatPacePerKm(pacePerKm)}) — ${declaredPR.race_name}, ${declaredPR.race_date}\n\n`;
         }
 
         if (efforts.length === 0 && !declaredPR) {

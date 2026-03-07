@@ -10,11 +10,16 @@ export function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-/** Format pace as M:SS/km from sec/km */
-export function formatPace(secPerKm: number): string {
+/** Format pace as M:SS from sec/km (no suffix) */
+export function formatPaceRaw(secPerKm: number): string {
   const min = Math.floor(secPerKm / 60);
   const sec = Math.round(secPerKm % 60);
-  return `${min}:${sec.toString().padStart(2, "0")}/km`;
+  return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
+/** Format pace as M:SS/km from sec/km */
+export function formatPace(secPerKm: number): string {
+  return `${formatPaceRaw(secPerKm)}/km`;
 }
 
 /** Extract YYYY-MM-DD date string from a Date (defaults to now) */

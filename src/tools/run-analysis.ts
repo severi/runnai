@@ -5,10 +5,9 @@ import {
   getActivityAnalysis,
   computeActivityAnalysis,
   saveActivityAnalysis,
-  formatPace,
   computeTrainingContext,
 } from "../utils/activity-analysis.js";
-import { toolResult, toolError } from "../utils/format.js";
+import { toolResult, toolError, formatPace } from "../utils/format.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import type { StreamAnalysisResult } from "../types/index.js";
 
