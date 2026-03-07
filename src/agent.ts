@@ -217,7 +217,7 @@ Today: ${toDateString()}`,
 };
 
 export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Options> {
-  const systemPrompt = await buildSystemPrompt(PROJECT_ROOT);
+  const systemPrompt = await buildSystemPrompt();
 
   return {
     cwd: PROJECT_ROOT,

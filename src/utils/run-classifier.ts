@@ -1,4 +1,5 @@
 import type { ActivityLapRecord, HrZones, ClassificationResult, RunType, HillProfile } from "../types/index.js";
+import { formatPace } from "./format.js";
 
 interface ActivityData {
   id: number;
@@ -288,10 +289,7 @@ function detectTempoBlock(
   const avgPace = laps
     .slice(fastStart, fastEnd + 1)
     .reduce((sum, l) => sum + l.moving_time, 0) / tempoDistance * 1000;
-  const paceMin = Math.floor(avgPace / 60);
-  const paceSec = Math.round(avgPace % 60);
-
-  const detail = `${distKm.toFixed(1)}km @ ${paceMin}:${paceSec.toString().padStart(2, "0")}/km`;
+  const detail = `${distKm.toFixed(1)}km @ ${formatPace(avgPace)}`;
   return { run_type: "tempo", run_type_detail: detail, confidence: "high" };
 }
 
