@@ -6,6 +6,7 @@ import {
   computeActivityAnalysis,
   saveActivityAnalysis,
   formatPace,
+  computeTrainingContext,
 } from "../utils/activity-analysis.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import type { StreamAnalysisResult } from "../types/index.js";
@@ -39,6 +40,8 @@ export const getRunAnalysisTool = tool(
           record = result.analysis;
           if (result.streamAnalysis) sa = result.streamAnalysis;
         }
+
+        const trainingContext = computeTrainingContext(activity_id, db);
 
         // Build stream metrics for output
         const streamMetrics = sa ? {
@@ -75,6 +78,7 @@ export const getRunAnalysisTool = tool(
           run_type: record.run_type,
           run_type_detail: record.run_type_detail,
           hill_category: record.hill_category,
+          moving_time_min: Math.round(record.moving_time_s / 60),
           distance_km: (record.distance_m / 1000).toFixed(1),
           pace: formatPace(record.pace_sec_per_km),
           grade_adjusted_pace: record.grade_adjusted_pace_sec_per_km
@@ -85,12 +89,17 @@ export const getRunAnalysisTool = tool(
           } : null,
           avg_heartrate: record.avg_heartrate ? Math.round(record.avg_heartrate) : null,
           lap_count: record.lap_summaries.length,
+          lap_summaries: record.lap_summaries,
           comparison: record.avg_pace_similar_30d != null ? {
             avg_pace_similar_30d: formatPace(record.avg_pace_similar_30d),
             delta_sec_per_km: record.pace_vs_similar_delta,
             similar_runs_30d: record.similar_runs_30d,
           } : null,
+          training_context: trainingContext,
           stream_analysis: streamMetrics,
+          detailed_analysis: record.detailed_analysis,
+          strava_title: record.strava_title,
+          strava_description: record.strava_description,
           analyzed_at: record.analyzed_at,
         };
 

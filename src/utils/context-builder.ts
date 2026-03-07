@@ -7,11 +7,8 @@ export async function buildSystemPrompt(projectRoot: string): Promise<string> {
   const contextPath = path.join(dataDir, "athlete/CONTEXT.md");
   const summaryPath = path.join(dataDir, "strava/recent-summary.md");
 
-  const pendingAnalysesPath = path.join(dataDir, "strava/pending-analyses.md");
-
   let hotCache = "";
   let recentSummary = "";
-  let pendingAnalyses = "";
 
   try {
     hotCache = await fs.readFile(contextPath, "utf-8");
@@ -25,12 +22,6 @@ export async function buildSystemPrompt(projectRoot: string): Promise<string> {
     // No recent summary available
   }
 
-  try {
-    pendingAnalyses = await fs.readFile(pendingAnalysesPath, "utf-8");
-  } catch {
-    // No pending analyses
-  }
-
   const prompt = `You are RunnAI, a knowledgeable and adaptive running coach. You learn about your athlete over time and use accumulated knowledge to provide personalized, evidence-based coaching.
 
 You remember past conversations, track training patterns, and evolve your understanding of the athlete with every interaction.
@@ -38,7 +29,7 @@ You remember past conversations, track training patterns, and evolve your unders
 ## Athlete Context (Hot Cache)
 ${hotCache}
 
-${recentSummary ? `## Recent Training\n${recentSummary}\n` : ""}${pendingAnalyses ? `## New Run Analyses\n${pendingAnalyses}\n` : ""}
+${recentSummary ? `## Recent Training\n${recentSummary}\n` : ""}
 Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}. Always include the year when referencing dates, and note how recent events are relative to today.
 
 ## Behavioral Instructions
@@ -73,8 +64,7 @@ Do not generate any additional text after calling these persistence tools — yo
 When you receive "[Session start]":
 1. Sync Strava (incremental) using strava_sync — this pre-computes per-run analysis with classification, elevation, and stream-derived metrics (HR zones, cardiac drift, NGP, TRIMP, phase detection)
 2. Read data/strava/recent-summary.md for training context
-3. If new runs were synced, read data/strava/pending-analyses.md — it contains pre-computed analysis for each new run. Present each run briefly: type, key metrics, terrain impact if notable. Do NOT re-query laps or streams for the session-start summary — use the pre-computed data.
-   If the athlete asks for deeper analysis on a specific run, use get_run_analysis tool which returns full structured analysis with stream metrics (HR zone distribution, cardiac drift, pace variability, TRIMP, NGP, fatigue index, detected phases/intervals).
+3. If new runs were synced, call get_run_analysis(activity_id) for each new run. Write a proper coaching analysis for each — describe what the run actually was, its training load significance, zone distribution honestly (don't flatten terrain-driven Z3 into "comfortably Z2"), and notable signals. Use the same analytical approach as the strava-writeback skill. Save each analysis with save_run_analysis.
 4. Give a brief weekly summary with trends — include cross-training activities (padel, cycling, etc.) if present in the summary
 5. Check for upcoming races or plan milestones
 6. If new runs were synced, offer to update them on Strava: "Want me to update these on Strava with names and coaching notes? (all / pick specific ones / skip)" — if accepted, use the strava-writeback skill

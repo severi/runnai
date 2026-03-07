@@ -1,8 +1,7 @@
 import { Database } from "bun:sqlite";
-import Anthropic from "@anthropic-ai/sdk";
 import { initDatabase } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
-import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary } from "../types/index.js";
+import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
 import { computeStreamAnalysis } from "./stream-analysis.js";
 import { saveStreamAnalysis } from "./activities-db.js";
 
@@ -143,6 +142,10 @@ export function computeActivityAnalysis(
     pace_vs_similar_delta: sim30d.avg_pace != null ? paceSecPerKm - sim30d.avg_pace : null,
     prose_summary: null,
     prose_generated_at: null,
+    detailed_analysis: null,
+    strava_title: null,
+    strava_description: null,
+    analysis_generated_at: null,
     analyzed_at: new Date().toISOString(),
     analysis_version: CURRENT_ANALYSIS_VERSION,
   };
@@ -170,14 +173,18 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord, db: Databas
       elevation_gain_m, elevation_loss_m, grade_adjusted_pace_sec_per_km,
       avg_heartrate, max_heartrate, lap_summaries,
       similar_runs_7d, similar_runs_30d, avg_pace_similar_30d, pace_vs_similar_delta,
-      prose_summary, prose_generated_at, analyzed_at, analysis_version
+      prose_summary, prose_generated_at,
+      detailed_analysis, strava_title, strava_description, analysis_generated_at,
+      analyzed_at, analysis_version
     ) VALUES (
       $activity_id, $run_type, $run_type_detail, $classification_confidence,
       $hill_category, $distance_m, $moving_time_s, $pace_sec_per_km,
       $elevation_gain_m, $elevation_loss_m, $grade_adjusted_pace_sec_per_km,
       $avg_heartrate, $max_heartrate, $lap_summaries,
       $similar_runs_7d, $similar_runs_30d, $avg_pace_similar_30d, $pace_vs_similar_delta,
-      $prose_summary, $prose_generated_at, $analyzed_at, $analysis_version
+      $prose_summary, $prose_generated_at,
+      $detailed_analysis, $strava_title, $strava_description, $analysis_generated_at,
+      $analyzed_at, $analysis_version
     )
   `).run({
     $activity_id: record.activity_id,
@@ -200,6 +207,10 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord, db: Databas
     $pace_vs_similar_delta: record.pace_vs_similar_delta,
     $prose_summary: record.prose_summary,
     $prose_generated_at: record.prose_generated_at,
+    $detailed_analysis: record.detailed_analysis,
+    $strava_title: record.strava_title,
+    $strava_description: record.strava_description,
+    $analysis_generated_at: record.analysis_generated_at,
     $analyzed_at: record.analyzed_at,
     $analysis_version: record.analysis_version,
   });
@@ -246,193 +257,139 @@ export function formatPace(secPerKm: number): string {
   return `${min}:${sec.toString().padStart(2, "0")}/km`;
 }
 
-export function buildProsePrompt(
-  record: ActivityAnalysisRecord,
-  activityName: string,
-  streamAnalysis?: StreamAnalysisResult | null
-): string {
-  const pace = formatPace(record.pace_sec_per_km);
-  const gap = record.grade_adjusted_pace_sec_per_km
-    ? ` (GAP: ${formatPace(record.grade_adjusted_pace_sec_per_km)})` : "";
-  const distKm = (record.distance_m / 1000).toFixed(1);
-  const elev = record.elevation_gain_m != null
-    ? ` with ${Math.round(record.elevation_gain_m)}m gain` : "";
-  const isHilly = record.hill_category && record.hill_category !== "flat";
-  // For hilly runs, omit overall avg HR — it blends climb + descent.
-  const hrStr = record.avg_heartrate && !isHilly
-    ? `, avg HR ${Math.round(record.avg_heartrate)}` : "";
+export function computeTrainingContext(activityId: number, db: Database): TrainingContext | null {
+  const activity = db.prepare(`
+    SELECT id, distance, moving_time, total_elevation_gain, start_date_local
+    FROM activities WHERE id = ?
+  `).get(activityId) as {
+    id: number; distance: number; moving_time: number;
+    total_elevation_gain: number | null; start_date_local: string;
+  } | undefined;
+  if (!activity) return null;
 
-  const hillNote = isHilly
-    ? ` Terrain: ${record.hill_category}.` : "";
+  const runDate = activity.start_date_local;
 
-  const comparisonNote = record.avg_pace_similar_30d != null && record.pace_vs_similar_delta != null
-    ? ` Compared to avg ${formatPace(record.avg_pace_similar_30d)} for similar ${record.run_type} runs in past 30d (${record.pace_vs_similar_delta > 0 ? "+" : ""}${record.pace_vs_similar_delta.toFixed(0)}s/km).` : "";
+  // Days since last run
+  const prevRun = db.prepare(`
+    SELECT start_date_local FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local < ? AND id != ?
+    ORDER BY start_date_local DESC LIMIT 1
+  `).get(runDate, activityId) as { start_date_local: string } | undefined;
 
-  const validPaces = record.lap_summaries.map(l => l.pace_sec_per_km).filter(p => p > 0);
-  const lapInfo = validPaces.length > 1
-    ? `\nLaps: ${record.lap_summaries.length} laps, range ${formatPace(Math.min(...validPaces))} to ${formatPace(Math.max(...validPaces))}`
-    : "";
+  const days_since_last_run = prevRun
+    ? Math.round((new Date(runDate).getTime() - new Date(prevRun.start_date_local).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
 
-  // Stream analysis — only include metrics that could be interesting.
-  // Removed: EF (too technical), TRIMP (meaningless without context), NGP (redundant with GAP).
-  let analysisBlock = "";
-  if (streamAnalysis) {
-    const parts: string[] = [];
+  // Runs & km in last 7 days
+  const window7d = db.prepare(`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(distance), 0) as total_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-7 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { cnt: number; total_dist: number };
 
-    if (streamAnalysis.hr_zones) {
-      const z = streamAnalysis.hr_zones;
-      const total = z.total_hr_s || 1;
-      const zoneStrs = [
-        z.zone1_s > 0 ? `Z1 ${Math.round(z.zone1_s / total * 100)}%` : null,
-        z.zone2_s > 0 ? `Z2 ${Math.round(z.zone2_s / total * 100)}%` : null,
-        z.zone3_s > 0 ? `Z3 ${Math.round(z.zone3_s / total * 100)}%` : null,
-        z.zone4_s > 0 ? `Z4 ${Math.round(z.zone4_s / total * 100)}%` : null,
-        z.zone5_s > 0 ? `Z5 ${Math.round(z.zone5_s / total * 100)}%` : null,
-      ].filter(Boolean);
-      parts.push(`HR Zones: ${zoneStrs.join(", ")}`);
-    }
+  // Runs & km in last 14 days
+  const window14d = db.prepare(`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(distance), 0) as total_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-14 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { cnt: number; total_dist: number };
 
-    if (streamAnalysis.cardiac_drift_pct != null) {
-      parts.push(`Cardiac drift: ${streamAnalysis.cardiac_drift_pct.toFixed(1)}%`);
-    }
+  // Longest run in 7d and 30d (other runs, for comparison)
+  const longest7d = db.prepare(`
+    SELECT MAX(distance) as max_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-7 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { max_dist: number | null };
 
-    if (streamAnalysis.split_type === "negative") {
-      parts.push(`Split: negative`);
-    }
+  const longest30d = db.prepare(`
+    SELECT MAX(distance) as max_dist FROM activities
+    WHERE type = 'Run' AND trainer = 0
+      AND start_date_local >= date(?, '-30 days')
+      AND start_date_local < ? AND id != ?
+  `).get(runDate, runDate, activityId) as { max_dist: number | null };
 
-    if (streamAnalysis.fatigue_index_pct != null && Math.abs(streamAnalysis.fatigue_index_pct) > 3) {
-      parts.push(`Fatigue: ${streamAnalysis.fatigue_index_pct.toFixed(1)}% pace fade in final quarter`);
-    }
+  const is_longest_run_7d = longest7d.max_dist != null
+    ? activity.distance > longest7d.max_dist
+    : true;
 
-    // Hilly runs: climb vs descent breakdown (more useful than overall averages)
-    if (isHilly && streamAnalysis.phases.length > 1) {
-      const climbs = streamAnalysis.phases.filter(p =>
-        (p.elevation_gain_m ?? 0) > (p.elevation_loss_m ?? 0) + 5);
-      const descents = streamAnalysis.phases.filter(p =>
-        (p.elevation_loss_m ?? 0) > (p.elevation_gain_m ?? 0) + 5);
+  const is_longest_run_30d = longest30d.max_dist != null
+    ? activity.distance > longest30d.max_dist
+    : true;
 
-      const climbSummary = summarizeVerticalPhases(climbs, "gain");
-      if (climbSummary) parts.push(`Climbs: ${climbSummary}`);
+  const longest_run_30d_km = longest30d.max_dist != null
+    ? Math.round(longest30d.max_dist / 1000 * 100) / 100
+    : null;
 
-      const descentSummary = summarizeVerticalPhases(descents, "loss");
-      if (descentSummary) parts.push(`Descents: ${descentSummary}`);
-    }
-    // Non-hilly structured workouts: show phase summary
-    else if (streamAnalysis.phases.length > 1 && streamAnalysis.phases.length <= 15) {
-      const moving = streamAnalysis.phases.filter(p => p.phase !== "stopped");
-      const byType = new Map<string, { count: number; totalDur: number; hrSum: number; hrCount: number }>();
-      for (const p of moving) {
-        const entry = byType.get(p.phase) ?? { count: 0, totalDur: 0, hrSum: 0, hrCount: 0 };
-        entry.count++;
-        entry.totalDur += p.end_s - p.start_s;
-        if (p.avg_hr != null && p.avg_hr > 0) { entry.hrSum += p.avg_hr; entry.hrCount++; }
-        byType.set(p.phase, entry);
-      }
-      const typeSummaries = Array.from(byType.entries()).map(([type, e]) => {
-        const hrPart = e.hrCount > 0 ? `, avg HR ${Math.round(e.hrSum / e.hrCount)}` : "";
-        return `${type} ×${e.count} (${formatDuration(e.totalDur)}${hrPart})`;
-      });
-      parts.push(`Phases: ${typeSummaries.join(", ")}`);
-    }
+  // Elevation rank in 30d (1 = most elevation)
+  let elevation_rank_30d: number | null = null;
+  if (activity.total_elevation_gain != null) {
+    const higherCount = db.prepare(`
+      SELECT COUNT(*) as cnt FROM activities
+      WHERE type = 'Run' AND trainer = 0
+        AND start_date_local >= date(?, '-30 days')
+        AND start_date_local < ? AND id != ?
+        AND total_elevation_gain > ?
+    `).get(runDate, runDate, activityId, activity.total_elevation_gain) as { cnt: number };
+    elevation_rank_30d = higherCount.cnt + 1;
+  }
 
-    if (streamAnalysis.intervals.length >= 2) {
-      parts.push(`Intervals: ${streamAnalysis.intervals.length} reps detected`);
-    }
+  // Moving time in minutes
+  const moving_time_min = Math.round(activity.moving_time / 60);
 
-    if (parts.length > 0) {
-      analysisBlock = `\n\nAnalysis:\n${parts.join("\n")}`;
+  // TRIMP: sum of last 7d (excluding this activity)
+  const trimp7d = db.prepare(`
+    SELECT SUM(sa.trimp) as total FROM activity_stream_analysis sa
+    JOIN activities a ON sa.activity_id = a.id
+    WHERE a.type = 'Run' AND a.trainer = 0
+      AND a.start_date_local >= date(?, '-7 days')
+      AND a.start_date_local < ? AND a.id != ?
+      AND sa.trimp IS NOT NULL
+  `).get(runDate, runDate, activityId) as { total: number | null };
+
+  const trimp_7d_total = trimp7d.total != null
+    ? Math.round(trimp7d.total * 10) / 10
+    : null;
+
+  // TRIMP percentile in 30d
+  let trimp_percentile_30d: number | null = null;
+  const thisTrimp = db.prepare(`
+    SELECT trimp FROM activity_stream_analysis WHERE activity_id = ?
+  `).get(activityId) as { trimp: number | null } | undefined;
+
+  if (thisTrimp?.trimp != null) {
+    const trimpStats = db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN sa.trimp < ? THEN 1 ELSE 0 END) as lower_count
+      FROM activity_stream_analysis sa
+      JOIN activities a ON sa.activity_id = a.id
+      WHERE a.type = 'Run' AND a.trainer = 0
+        AND a.start_date_local >= date(?, '-30 days')
+        AND a.start_date_local < ? AND a.id != ?
+        AND sa.trimp IS NOT NULL
+    `).get(thisTrimp.trimp, runDate, runDate, activityId) as { total: number; lower_count: number };
+
+    if (trimpStats.total > 0) {
+      trimp_percentile_30d = Math.round(trimpStats.lower_count / trimpStats.total * 100);
     }
   }
 
-  const isEasyRun = ["easy", "recovery", "long_run"].includes(record.run_type);
-  const lengthGuide = isEasyRun ? "1-2 sentences" : "2-3 sentences";
-
-  return `Write a brief coaching summary for this run (${lengthGuide}). Describe what the run was, then mention only what's genuinely noteworthy. Most metrics are expected — skip them. If a coach would glance at a number, shrug, and not mention it to the athlete, leave it out. Never list metrics — weave observations into natural prose. Use impersonal voice (not "you"). Do not use bullet points, headers, or emoji. Use regular hyphens (-), never em dashes (—). Only reference data provided below.
-
-<examples>
-<example>
-<run>Easy, 8.5km, 5:40/km, avg HR 136. HR Zones: Z1 40%, Z2 58%, Z3 2%. Cardiac drift: 2.8%.</run>
-<summary>Easy midweek mileage with HR comfortably in Z1-Z2 throughout. Nothing to note - exactly what a recovery day should look like.</summary>
-</example>
-<example>
-<run>Tempo, 12km, 4:45/km. Laps: 2km warmup, 8km at 4:15-4:22, 2km cooldown. HR Zones: Z3 35%, Z4 55%. Cardiac drift: 6.2%. Fatigue: 7.1%.</run>
-<summary>8km of threshold work at 4:18/km after a warm-up. Pacing was disciplined through 6km but the last two K drifted to 4:22 with HR climbing - the 7% fade suggests the effort was right at the limit. Good session to build from.</summary>
-</example>
-<example>
-<run>Hill run, 18km, 8:30/km (GAP: 5:50/km), 1200m gain. Climbs: 80min, avg HR 165, ~12:00/km. Descents: 65min, avg HR 140, ~5:30/km. Cardiac drift: 4.8%.</run>
-<summary>18km in the hills with 1200m of climbing. The climbs pushed HR to 165 at hiking pace while descents provided active recovery at 140. Good cardiac drift control over 2.5 hours of sustained vertical work.</summary>
-</example>
-</examples>
-
-<bad_example>
-<output>Solid easy run covering 8.2km at 5:32/km. Heart rate averaged 138 bpm, 45% Z1, 55% Z2. Cardiac drift 3.2% showing good coupling. Even splits throughout.</output>
-<why_bad>Lists every metric — a data readback, not a coaching insight.</why_bad>
-</bad_example>
-
-Run: "${activityName}"
-Type: ${record.run_type}${record.run_type_detail ? ` (${record.run_type_detail})` : ""}
-Distance: ${distKm}km${elev}
-Pace: ${pace}${gap}${hrStr}${hillNote}${comparisonNote}${lapInfo}${analysisBlock}`;
-}
-
-/**
- * Generate a prose summary for an activity using the Anthropic API,
- * then save it to the analysis record in the database.
- * Returns the generated prose text, or null if generation failed.
- */
-export async function generateProseSummary(
-  record: ActivityAnalysisRecord,
-  activityName: string,
-  streamAnalysis: StreamAnalysisResult | null,
-  db: Database,
-  client?: Anthropic
-): Promise<string | null> {
-  const anthropic = client ?? new Anthropic();
-  const prompt = buildProsePrompt(record, activityName, streamAnalysis);
-  const message = await anthropic.messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 16000,
-    temperature: 1,
-    thinking: { type: "enabled", budget_tokens: 10000 },
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const prose = message.content.find(b => b.type === "text")?.text ?? null;
-  if (prose) {
-    record.prose_summary = prose;
-    record.prose_generated_at = new Date().toISOString();
-    saveActivityAnalysis(record, db);
-  }
-  return prose;
-}
-
-function summarizeVerticalPhases(
-  phases: { start_s: number; end_s: number; elevation_gain_m: number | null; elevation_loss_m: number | null; avg_hr: number | null; avg_pace_sec_per_km: number | null }[],
-  direction: "gain" | "loss"
-): string | null {
-  if (phases.length === 0) return null;
-
-  const totalTime = phases.reduce((s, p) => s + (p.end_s - p.start_s), 0);
-  const totalElev = phases.reduce((s, p) => {
-    return s + (direction === "gain" ? (p.elevation_gain_m ?? 0) : (p.elevation_loss_m ?? 0));
-  }, 0);
-
-  const hrs = phases.filter(p => p.avg_hr).map(p => p.avg_hr!);
-  const avgHr = hrs.length > 0 ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
-
-  const paces = phases
-    .filter(p => p.avg_pace_sec_per_km && p.avg_pace_sec_per_km < 2000)
-    .map(p => p.avg_pace_sec_per_km!);
-  const avgPace = paces.length > 0
-    ? formatPace(paces.reduce((a, b) => a + b, 0) / paces.length) : null;
-
-  const sign = direction === "gain" ? "+" : "-";
-  return `${formatDuration(totalTime)}, ${sign}${Math.round(totalElev)}m${avgHr ? `, avg HR ${avgHr}` : ""}${avgPace ? `, ~${avgPace}` : ""}`;
-}
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  if (m === 0) return `${s}s`;
-  return s > 0 ? `${m}m${s}s` : `${m}m`;
+  return {
+    days_since_last_run,
+    runs_last_7d: window7d.cnt,
+    km_last_7d: Math.round(window7d.total_dist / 1000 * 100) / 100,
+    runs_last_14d: window14d.cnt,
+    km_last_14d: Math.round(window14d.total_dist / 1000 * 100) / 100,
+    is_longest_run_30d,
+    is_longest_run_7d,
+    longest_run_30d_km,
+    elevation_rank_30d,
+    moving_time_min,
+    trimp_7d_total,
+    trimp_percentile_30d,
+  };
 }

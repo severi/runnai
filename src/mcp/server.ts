@@ -8,6 +8,7 @@ import {
   bestEffortsTool,
   getActivityStreamsTool,
   getRunAnalysisTool,
+  saveRunAnalysisTool,
   planManagerTool,
   dateCalcTool,
   calculatorTool,
@@ -43,6 +44,7 @@ export const coachMcpServer = createSdkMcpServer({
     getActivityStreamsTool,
     // Run analysis
     getRunAnalysisTool,
+    saveRunAnalysisTool,
     // Planning & utility
     planManagerTool,
     dateCalcTool,
