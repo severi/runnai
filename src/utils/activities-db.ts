@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
 import { toDateString } from "./format.js";
-import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult } from "../types/index.js";
+import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult, SplitType } from "../types/index.js";
 
 // --- Singleton connection ---
 
@@ -426,7 +426,9 @@ export function getActivitiesWithoutDetail(limit: number = 50): { id: number; na
   ).all(limit) as { id: number; name: string; distance: number }[];
 }
 
-export function getStravaBestEfforts(distanceName?: string): (StravaBestEffortRecord & { activity_name: string; start_date_local: string; activity_distance: number; workout_type: number | null; run_type: string | null })[] {
+type BestEffortRow = StravaBestEffortRecord & { activity_name: string; start_date_local: string; activity_distance: number; workout_type: number | null; run_type: string | null };
+
+export function getStravaBestEfforts(distanceName?: string): BestEffortRow[] {
   const db = getDb();
   const baseQuery = `
     SELECT sbe.*, a.name as activity_name, a.start_date_local,
@@ -437,11 +439,11 @@ export function getStravaBestEfforts(distanceName?: string): (StravaBestEffortRe
   if (distanceName) {
     return db.prepare(
       `${baseQuery} WHERE sbe.distance_name = ? ORDER BY sbe.elapsed_time ASC`
-    ).all(distanceName) as any[];
+    ).all(distanceName) as BestEffortRow[];
   }
   return db.prepare(
     `${baseQuery} ORDER BY sbe.distance_name, sbe.elapsed_time ASC`
-  ).all() as any[];
+  ).all() as BestEffortRow[];
 }
 
 // --- Lap elevation ---
@@ -518,7 +520,7 @@ export function getUnclassifiedActivities(limit: number = 50): { id: number; nam
      FROM activities
      WHERE type = 'Run' AND trainer = 0 AND detail_fetched = 1 AND run_type IS NULL
      ORDER BY start_date_local DESC LIMIT ?`
-  ).all(limit) as any[];
+  ).all(limit) as { id: number; name: string; distance: number; moving_time: number; workout_type: number | null; average_speed: number; average_heartrate: number | null; start_date_local: string }[];
 }
 
 // --- Personal records ---
@@ -645,7 +647,15 @@ export function saveStreamAnalysis(activityId: number, result: StreamAnalysisRes
 export function getStreamAnalysis(activityId: number): StreamAnalysisResult | null {
   const row = getDb().prepare(
     "SELECT * FROM activity_stream_analysis WHERE activity_id = ?"
-  ).get(activityId) as any;
+  ).get(activityId) as {
+    hr_zone1_s: number | null; hr_zone2_s: number | null; hr_zone3_s: number | null;
+    hr_zone4_s: number | null; hr_zone5_s: number | null; hr_total_s: number | null;
+    cardiac_drift_pct: number | null; pace_variability_cv: number | null;
+    split_type: SplitType | null; trimp: number | null; ngp_sec_per_km: number | null;
+    fatigue_index_pct: number | null; cadence_drift_spm: number | null;
+    efficiency_factor: number | null; phases: string; intervals: string;
+    computed_at: string; stream_analysis_version: number;
+  } | undefined;
   if (!row) return null;
   return {
     hr_zones: row.hr_total_s != null ? {
@@ -727,5 +737,5 @@ export function getActivitiesWithoutWeather(limit: number = 50): { id: number; s
       AND a.start_latitude IS NOT NULL AND a.start_longitude IS NOT NULL
       AND w.activity_id IS NULL
     ORDER BY a.start_date_local DESC LIMIT ?
-  `).all(limit) as any[];
+  `).all(limit) as { id: number; start_date_local: string; start_latitude: number; start_longitude: number; moving_time: number }[];
 }
