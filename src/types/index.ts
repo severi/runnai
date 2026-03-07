@@ -252,6 +252,21 @@ export interface ActivityAnalysisRecord {
   analysis_version: number;
 }
 
+export interface TrainingContext {
+  days_since_last_run: number | null;
+  runs_last_7d: number;
+  km_last_7d: number;
+  runs_last_14d: number;
+  km_last_14d: number;
+  is_longest_run_30d: boolean;
+  is_longest_run_7d: boolean;
+  longest_run_30d_km: number | null;
+  elevation_rank_30d: number | null;
+  moving_time_min: number;
+  trimp_7d_total: number | null;
+  trimp_percentile_30d: number | null;
+}
+
 // --- Stream Analysis Types ---
 
 export interface HrZoneDistribution {
