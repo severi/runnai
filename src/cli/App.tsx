@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, Static, useInput, useApp } from "ink";
 import { TextInput } from "./components/TextInput.js";
-import Fuse from "fuse.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createAgentOptions } from "../agent.js";
 import { getDataDir } from "../utils/paths.js";
-import { setSessionId, resetSession, getCurrentSessionId, loadPersistedSession, saveSession, clearPersistedSession, appendChatMessage, loadChatHistory } from "../utils/session.js";
+import { setSessionId, clearPersistedSession, getCurrentSessionId, loadPersistedSession, appendChatMessage, loadChatHistory } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
-import { recordExchange, resetUsage, formatExchangeLine, type ExchangeUsage } from "../utils/usage-tracker.js";
-import { log, logEvent, saveToolResult, saveSystemPrompt, updateMeta, getLogPath } from "../utils/logger.js";
-import { commands, getCommandByName, type Command, type CommandContext, type Message } from "./commands.js";
+import { resetUsage } from "../utils/usage-tracker.js";
+import { logEvent, saveSystemPrompt } from "../utils/logger.js";
+import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
+import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
+import { useCommandSuggestions, isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
+import { handleSdkMessage, type MessageHandlerState } from "./handleSdkMessage.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
 
@@ -38,60 +41,6 @@ async function* abortable<T>(iterable: AsyncIterable<T>, signal: AbortSignal): A
   }
 }
 
-// Distinguish "/help" (command) from "/Users/foo/bar.pdf" (file path).
-function isSlashCommand(text: string): boolean {
-  if (!text.startsWith("/")) return false;
-  if (text === "/") return true;
-  const firstToken = text.slice(1).split(/\s/)[0] || "";
-  return !firstToken.includes("/");
-}
-
-const fuse = new Fuse(commands, {
-  keys: ["name", "description"],
-  threshold: 0.4,
-  minMatchCharLength: 1,
-});
-
-interface MessageItem {
-  id: number;
-  message: Message;
-}
-
-// nextId is a useRef inside the component — see nextIdRef
-
-function extractKeyArg(input: Record<string, unknown>): string {
-  const filePath = input.file_path || input.path;
-  if (typeof filePath === "string") {
-    return filePath.split("/").slice(-2).join("/");
-  }
-  const q = input.query || input.sql;
-  if (typeof q === "string") {
-    return q.length > 50 ? q.slice(0, 50) + "..." : q;
-  }
-  const key = input.key || input.name || input.topic;
-  if (typeof key === "string") {
-    return key.length > 50 ? key.slice(0, 50) + "..." : key;
-  }
-  for (const v of Object.values(input)) {
-    if (typeof v === "string" && v.length > 0) {
-      return v.length > 50 ? v.slice(0, 50) + "..." : v;
-    }
-  }
-  return "";
-}
-
-function extractToolUseId(message: SDKMessage): string | null {
-  const content = (message as any).message?.content;
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (typeof block === "object" && block !== null && block.type === "tool_result" && block.tool_use_id) {
-        return block.tool_use_id;
-      }
-    }
-  }
-  return null;
-}
-
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const min = Math.floor(seconds / 60);
@@ -99,12 +48,9 @@ function formatElapsed(seconds: number): string {
   return `${min}m ${sec.toString().padStart(2, "0")}s`;
 }
 
-interface ActiveTool {
-  id: string;
-  index: number;
-  name: string;
-  keyArg: string;
-  startTime: number;
+interface MessageItem {
+  id: number;
+  message: Message;
 }
 
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -170,20 +116,15 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const [input, setInput] = useState("");
 
   // Two-tier rendering: committed (Static, scrollback) + dynamic (live, below Static)
-  // Items stay in dynamic until the NEXT user interaction commits them to Static.
-  // This avoids the race condition where items exist in both areas simultaneously.
   const [committed, setCommitted] = useState<MessageItem[]>([]);
   const [dynamic, setDynamic] = useState<MessageItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [debugMessages, setDebugMessages] = useState<Message[]>([]);
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [suggestions, setSuggestions] = useState<Command[]>([]);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const [showWelcome, setShowWelcome] = useState(true);
   const [verbose, setVerbose] = useState(false);
   const [hasCheckedFirstTime, setHasCheckedFirstTime] = useState(false);
-  const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
 
   // AskUserQuestion support — deferred promise pattern
   const [pendingQuestion, setPendingQuestion] = useState<AskQuestion[] | null>(null);
@@ -191,44 +132,13 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const questionInputRef = useRef<Record<string, unknown> | null>(null);
 
   const nextIdRef = useRef(0);
-  const prevSuggestionsLen = useRef(0);
-  const toolCountRef = useRef(0);
-  const activeToolsMapRef = useRef(new Map<string, ActiveTool>());
   const abortControllerRef = useRef<AbortController | null>(null);
-  const processingStartRef = useRef(0);
-  const [elapsed, setElapsed] = useState(0);
 
-  useEffect(() => {
-    if (!isProcessing) {
-      setElapsed(0);
-      return;
-    }
-    processingStartRef.current = Date.now();
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - processingStartRef.current) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isProcessing]);
-
-  useEffect(() => {
-    if (isSlashCommand(input)) {
-      const partial = input.slice(1).split(/\s+/)[0];
-      if (!partial) {
-        setSuggestions(commands);
-        setSelectedSuggestion(0);
-      } else {
-        const matches = fuse.search(partial).map((r) => r.item).slice(0, 6);
-        setSuggestions(matches);
-        setSelectedSuggestion(0);
-      }
-      prevSuggestionsLen.current = -1;
-    } else {
-      if (prevSuggestionsLen.current !== 0) {
-        setSuggestions([]);
-        prevSuggestionsLen.current = 0;
-      }
-    }
-  }, [input]);
+  // Extracted hooks
+  const elapsed = useElapsedTimer(isProcessing);
+  const toolTracker = useToolTracker();
+  const { suggestions, selectedSuggestion, setSuggestions, setSelectedSuggestion } =
+    useCommandSuggestions(input, isProcessing, pendingQuestion, setInput);
 
   useEffect(() => {
     if (hasCheckedFirstTime || isProcessing) return;
@@ -292,30 +202,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
     { isActive: isProcessing && !pendingQuestion }
   );
 
-  useInput(
-    (_char, key) => {
-      if (isProcessing || pendingQuestion) return;
-
-      if (key.upArrow && suggestions.length > 0) {
-        setSelectedSuggestion((prev) => Math.max(0, prev - 1));
-      } else if (key.downArrow && suggestions.length > 0) {
-        setSelectedSuggestion((prev) => Math.min(suggestions.length - 1, prev + 1));
-      } else if (key.tab && suggestions.length > 0) {
-        const selected = suggestions[selectedSuggestion];
-        if (selected) {
-          setInput(`/${selected.name} `);
-          setSuggestions([]);
-        }
-      } else if (key.escape) {
-        setSuggestions([]);
-        setInput("");
-      }
-    },
-    { isActive: suggestions.length > 0 || isSlashCommand(input) }
-  );
-
-  // Add a message. direct=true goes straight to Static (startup/non-streaming).
-  // direct=false goes to the dynamic area (during streaming or user interaction).
   const addMessage = (role: Message["role"], content: string, direct = false) => {
     if (role === "tool" || role === "debug" || role === "error") {
       setDebugMessages((prev) => [...prev.slice(-100), { role, content }]);
@@ -332,9 +218,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
     }
   };
 
-  // Move all dynamic items to Static in one batch. Called at the START of
-  // the next user interaction, not at the end of a response. This ensures
-  // items never exist in both Static and dynamic simultaneously.
   const commitDynamic = () => {
     setDynamic((prev) => {
       if (prev.length > 0) {
@@ -346,20 +229,16 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
   const streamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
     setIsProcessing(true);
-    toolCountRef.current = 0;
-    activeToolsMapRef.current.clear();
-    setActiveTools([]);
+    toolTracker.reset();
     setStreamingText(null);
-    let currentResponse = "";
-    let hadToolCall = false;
+    const state: MessageHandlerState = { currentResponse: "", hadToolCall: false };
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
+    const callbacks = { addMessage, setStreamingText, toolTracker };
+
     try {
-      // canUseTool callback — auto-approves everything except AskUserQuestion,
-      // which gets rendered as an interactive prompt. The SDK blocks the query()
-      // generator while this Promise is pending.
       const canUseTool = async (
         toolName: string,
         input: Record<string, unknown>,
@@ -385,7 +264,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
       const options = await createAgentOptions(canUseTool);
 
-      // Log system prompt on first exchange
       if (options.systemPrompt) {
         saveSystemPrompt(typeof options.systemPrompt === "string" ? options.systemPrompt : JSON.stringify(options.systemPrompt));
       }
@@ -402,11 +280,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
           };
         }
         for await (const message of abortable(query({ prompt: messageStream(), options }), abortController.signal)) {
-          handleMessage(message);
+          handleSdkMessage(message, callbacks, state);
         }
       } else {
         for await (const message of abortable(query({ prompt, options }), abortController.signal)) {
-          handleMessage(message);
+          handleSdkMessage(message, callbacks, state);
         }
       }
     } catch (error) {
@@ -419,15 +297,13 @@ export default function App({ resume = false }: { resume?: boolean }) {
       }
     }
 
-    // Add final streaming text as a message
-    if (currentResponse.trim()) {
-      addMessage("assistant", currentResponse);
+    if (state.currentResponse.trim()) {
+      addMessage("assistant", state.currentResponse);
     }
     if (abortController.signal.aborted) {
       addMessage("status", "Cancelled");
     }
 
-    // Clean up pending question if stream ended while prompt was active
     if (questionResolverRef.current) {
       questionResolverRef.current({ behavior: "deny", message: "Session ended" });
       questionResolverRef.current = null;
@@ -435,185 +311,9 @@ export default function App({ resume = false }: { resume?: boolean }) {
       setPendingQuestion(null);
     }
 
-    // Clean up — items stay in dynamic until next user interaction commits them
     setStreamingText(null);
-    setActiveTools([]);
     setIsProcessing(false);
     abortControllerRef.current = null;
-    activeToolsMapRef.current.clear();
-
-    function handleMessage(message: SDKMessage) {
-      logEvent("sdk_message", {
-        sdk_type: message.type,
-        ...("subtype" in message ? { subtype: (message as any).subtype } : {}),
-      });
-
-      switch (message.type) {
-        case "system":
-          if ("subtype" in message && message.subtype === "init") {
-            const initMsg = message as SDKMessage & { model: string; session_id?: string };
-            logEvent("system_init", {
-              model: initMsg.model,
-              session_id: initMsg.session_id,
-            });
-            updateMeta({ model: initMsg.model, session_id: initMsg.session_id });
-            addMessage("debug", `Model: ${initMsg.model}`);
-            if (initMsg.session_id) {
-              saveSession(initMsg.session_id);
-            }
-          }
-          break;
-
-        case "assistant":
-          for (const block of message.message.content) {
-            if (block.type === "text") {
-              if (hadToolCall) {
-                hadToolCall = false;
-              }
-
-              currentResponse += block.text;
-              setStreamingText(currentResponse);
-              logEvent("assistant_text", { text: block.text });
-            } else if (block.type === "tool_use") {
-              const toolUseId = (block as any).id as string || `fallback-${toolCountRef.current + 1}`;
-              logEvent("tool_use", {
-                tool: block.name,
-                tool_use_id: toolUseId,
-                input: block.input,
-              });
-              // Flush accumulated text as a proper message
-              if (currentResponse.trim()) {
-                addMessage("assistant", currentResponse);
-                currentResponse = "";
-                setStreamingText(null);
-              }
-              hadToolCall = true;
-              toolCountRef.current++;
-
-              const toolName = block.name.replace("mcp__runnai__", "");
-              const keyArg = extractKeyArg(block.input as Record<string, unknown>);
-              const count = toolCountRef.current;
-
-              const activeTool: ActiveTool = { id: toolUseId, index: count, name: toolName, keyArg, startTime: Date.now() };
-              activeToolsMapRef.current.set(toolUseId, activeTool);
-              setActiveTools([...activeToolsMapRef.current.values()]);
-
-              const inputStr = formatToolInput(block.input as Record<string, unknown>);
-              addMessage("tool", `→ ${toolName}(${inputStr})`);
-            }
-          }
-          break;
-
-        case "user":
-          if (message.tool_use_result !== undefined) {
-            const result = message.tool_use_result as unknown;
-            const resultStr = typeof result === "string" ? result : JSON.stringify(result);
-            const isError = typeof result === "object" && result !== null &&
-              "isError" in result && (result as Record<string, unknown>).isError === true;
-
-            const toolUseId = extractToolUseId(message);
-            const matchedTool = toolUseId ? activeToolsMapRef.current.get(toolUseId) : null;
-            const tool = matchedTool || activeToolsMapRef.current.values().next().value || null;
-
-            const preview = resultStr.slice(0, 500);
-            const fullResultFile = toolUseId ? saveToolResult(toolUseId, result) : null;
-            logEvent("tool_result", {
-              tool_use_id: toolUseId,
-              tool_name: tool?.name ?? null,
-              is_error: isError,
-              duration_ms: tool ? Date.now() - tool.startTime : null,
-              preview,
-              ...(fullResultFile ? { full_result_file: fullResultFile } : {}),
-              ...(resultStr.length <= 1024 ? { result: resultStr } : {}),
-            });
-
-            if (tool) {
-              const elapsed = ((Date.now() - tool.startTime) / 1000).toFixed(1);
-              const prefix = isError ? "✗" : "✓";
-              const label = `${prefix} [${tool.index}] ${tool.name}${tool.keyArg ? `: ${tool.keyArg}` : ""}`;
-              addMessage("tool_activity", `${label}|||${elapsed}s`);
-              activeToolsMapRef.current.delete(tool.id);
-              setActiveTools([...activeToolsMapRef.current.values()]);
-            }
-
-            if (isError) {
-              const errorStr = typeof result === "string"
-                ? result
-                : JSON.stringify(result, null, 2);
-              addMessage("error", `Tool error: ${errorStr.slice(0, 500)}`);
-            } else {
-              const resultStr2 = typeof result === "string"
-                ? result.slice(0, 200) + (result.length > 200 ? "..." : "")
-                : JSON.stringify(result).slice(0, 200);
-              addMessage("tool", `← ${resultStr2}`);
-            }
-          }
-          break;
-
-        case "tool_progress":
-          break;
-
-        case "result": {
-          if (message.session_id) {
-            saveSession(message.session_id);
-          }
-
-          const subtype = (message as any).subtype as string | undefined;
-          if (subtype && subtype !== "success") {
-            const errorMessages: Record<string, string> = {
-              error_max_turns: "Reached maximum turns limit. Try breaking the task into smaller steps.",
-              error_during_execution: "An error occurred during execution.",
-              error_tool_use: "A tool use error occurred.",
-            };
-            addMessage("system", errorMessages[subtype] || `Session ended with: ${subtype}`);
-          }
-
-          let inputTokens = 0;
-          let outputTokens = 0;
-          let cacheReadTokens = 0;
-          let cacheCreationTokens = 0;
-          const modelUsage = (message as any).modelUsage as Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }> | undefined;
-          if (modelUsage) {
-            for (const usage of Object.values(modelUsage)) {
-              inputTokens += usage.inputTokens;
-              outputTokens += usage.outputTokens;
-              cacheReadTokens += usage.cacheReadInputTokens;
-              cacheCreationTokens += usage.cacheCreationInputTokens;
-            }
-          }
-
-          const exchange: ExchangeUsage = {
-            inputTokens,
-            outputTokens,
-            cacheReadTokens,
-            cacheCreationTokens,
-            costUsd: message.total_cost_usd,
-            durationMs: message.duration_ms,
-            numTurns: message.num_turns,
-          };
-          logEvent("result", {
-            subtype,
-            ...exchange,
-          });
-          recordExchange(exchange);
-          addMessage("status", formatExchangeLine(exchange));
-          break;
-        }
-      }
-    }
-  };
-
-  const formatToolInput = (input: Record<string, unknown>): string => {
-    const parts: string[] = [];
-    for (const [key, value] of Object.entries(input)) {
-      if (typeof value === "string") {
-        const short = value.length > 50 ? value.slice(0, 50) + "..." : value;
-        parts.push(`${key}="${short}"`);
-      } else {
-        parts.push(`${key}=${JSON.stringify(value)}`);
-      }
-    }
-    return parts.join(", ");
   };
 
   const handleSubmit = async (value: string) => {
@@ -632,10 +332,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
     if (!value.trim()) return;
 
-    // Commit previous dynamic items (previous response) to Static
     commitDynamic();
     setInput("");
-
     setShowWelcome(false);
     setSuggestions([]);
 
@@ -736,7 +434,6 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
       await streamResponse(cleanText, attachments.length > 0 ? attachments : undefined);
     }
-
   };
 
   return (
@@ -809,7 +506,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
       {/* Active tools progress — hidden during question prompt */}
       {isProcessing && !pendingQuestion && (
-        <ActiveToolsBar tools={activeTools} elapsed={elapsed} />
+        <ActiveToolsBar tools={toolTracker.activeTools} elapsed={elapsed} />
       )}
 
       {/* Debug panel */}
