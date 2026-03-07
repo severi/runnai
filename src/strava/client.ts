@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { toDateString, formatPace } from "../utils/format.js";
 import { captureOAuthCallback } from "./oauth-server.js";
-import { upsertActivities } from "../utils/activities-db.js";
+import { upsertActivities, getLatestActivityDate } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import type {
   StravaTokens,
@@ -277,7 +277,7 @@ export function convertStravaBestEfforts(
   return records;
 }
 
-export async function syncActivities(days: number = 30, afterDate?: string): Promise<SyncResult> {
+export async function syncActivities(days: number = 30, afterDate?: string, incremental?: boolean): Promise<SyncResult> {
   try {
     const clientId = process.env.STRAVA_CLIENT_ID;
     const clientSecret = process.env.STRAVA_CLIENT_SECRET;
@@ -318,9 +318,21 @@ export async function syncActivities(days: number = 30, afterDate?: string): Pro
       throw error;
     }
 
-    const after = afterDate
-      ? Math.floor(new Date(afterDate).getTime() / 1000) - 1
-      : Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+    let after: number;
+    if (afterDate) {
+      after = Math.floor(new Date(afterDate).getTime() / 1000) - 1;
+    } else if (incremental) {
+      const latestDate = getLatestActivityDate();
+      if (latestDate) {
+        after = Math.floor(new Date(latestDate).getTime() / 1000) - 1;
+      } else {
+        // First sync ever — fetch 180 days of history
+        after = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60;
+      }
+    } else {
+      after = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+    }
+
     const activities: StravaActivity[] = [];
     let page = 1;
 
@@ -352,7 +364,7 @@ export async function syncActivities(days: number = 30, afterDate?: string): Pro
     const runs = activities.filter((a) => a.type === "Run" || a.sport_type === "Run");
     const summary = generateSyncSummary(runs, days);
 
-    return { success: true, activities: runs, summary };
+    return { success: true, activities: runs, allActivities: activities, summary };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

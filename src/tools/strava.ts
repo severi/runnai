@@ -1,10 +1,8 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import * as fs from "fs/promises";
 import { z } from "zod";
 import {
   startAutomaticAuth,
   hasClientCredentials,
-  getAccessToken,
   getAuthUrl,
   syncActivities,
   getAthleteProfile,
@@ -12,12 +10,10 @@ import {
   fetchActivityStream,
   convertStravaBestEfforts,
   updateActivity,
-  getStravaDataDir,
   loadTokens,
 } from "../strava/client.js";
 import type { StravaActivity, ActivityLapRecord, ActivityStream } from "../types/index.js";
 import {
-  upsertActivities,
   queryActivities,
   getLatestActivityDate,
   getExistingActivityIds,
@@ -39,7 +35,6 @@ import {
 import { fetchActivityWeather } from "../utils/activity-weather.js";
 import { saveActivityWeather, getActivitiesWithoutWeather } from "../utils/activities-db.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
-import { generateRecentSummary } from "../utils/recent-summary.js";
 import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
 import { toDateString, toolResult, toolError, formatPace } from "../utils/format.js";
@@ -103,51 +98,18 @@ export const stravaSyncTool = tool(
   },
   async ({ days = 30, incremental = true, backfill_best_efforts }) => {
     try {
-      let existingIds: Set<number> = new Set();
-      let isIncremental = false;
+      const existingIds = incremental ? getExistingActivityIds() : new Set<number>();
+      const isIncremental = incremental && existingIds.size > 0;
 
-      // Determine the `after` epoch for the Strava API
-      let after: number;
-      if (incremental) {
-        const latestDate = getLatestActivityDate();
-        if (latestDate) {
-          // Use the last activity's timestamp directly — more precise than day math
-          after = Math.floor(new Date(latestDate).getTime() / 1000) - 1;
-          existingIds = getExistingActivityIds();
-          isIncremental = true;
-        } else {
-          // First sync ever — fetch 180 days of history
-          after = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60;
+      const syncResult = await syncActivities(days, undefined, incremental);
+      if (!syncResult.success) {
+        if (syncResult.needsAuth) {
+          return toolError(syncResult.error || "Strava not authorized");
         }
-      } else {
-        after = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+        return toolError(syncResult.error || "Sync failed");
       }
 
-      const accessToken = await getAccessToken();
-      const activities: StravaActivity[] = [];
-      let page = 1;
-
-      while (true) {
-        const response = await fetch(
-          `https://www.strava.com/api/v3/athlete/activities?after=${after}&per_page=200&page=${page}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Strava API error: ${await response.text()}`);
-        }
-
-        const batch = (await response.json()) as StravaActivity[];
-        activities.push(...batch);
-
-        if (batch.length < 200) break;
-        page++;
-      }
-
-      await fs.mkdir(getStravaDataDir(), { recursive: true });
-      upsertActivities(activities);
-      await generateRecentSummary();
-
+      const activities = syncResult.allActivities ?? [];
       const newActivities = activities.filter((a) => !existingIds.has(a.id));
       const newRuns = newActivities.filter((a) => (a.type === "Run" || a.sport_type === "Run") && !a.trainer);
       const newNonRuns = newActivities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));

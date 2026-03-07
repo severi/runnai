@@ -48,6 +48,7 @@ export interface StravaActivity {
 export interface SyncResult {
   success: boolean;
   activities?: StravaActivity[];
+  allActivities?: StravaActivity[];
   summary?: string;
   error?: string;
   needsAuth?: boolean;
