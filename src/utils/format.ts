@@ -17,6 +17,25 @@ export function formatPace(secPerKm: number): string {
   return `${min}:${sec.toString().padStart(2, "0")}/km`;
 }
 
+/** Extract YYYY-MM-DD date string from a Date (defaults to now) */
+export function toDateString(date?: Date): string {
+  return (date ?? new Date()).toISOString().split("T")[0];
+}
+
+/** Build a tool result response */
+export function toolResult(text: string, isError?: boolean) {
+  return {
+    content: [{ type: "text" as const, text }],
+    ...(isError ? { isError: true as const } : {}),
+  };
+}
+
+/** Build a tool error response from a caught exception */
+export function toolError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return toolResult(`Error: ${msg}`, true);
+}
+
 /** Sanitize a string for use as a filename */
 export function sanitizeFilename(name: string): string {
   return name

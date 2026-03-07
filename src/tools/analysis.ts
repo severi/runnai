@@ -2,7 +2,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { savePrediction, getPredictionHistory } from "../utils/activities-db.js";
 import type { RacePrediction } from "../types/index.js";
-import { formatTime } from "../utils/format.js";
+import { formatTime, toDateString, toolResult, toolError } from "../utils/format.js";
 
 export const saveRacePredictionTool = tool(
   "save_race_prediction",
@@ -20,22 +20,14 @@ export const saveRacePredictionTool = tool(
         predicted_time,
         confidence,
         basis,
-        predicted_at: new Date().toISOString().split("T")[0],
+        predicted_at: toDateString(),
       };
 
       savePrediction(prediction);
 
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Saved ${race_distance} prediction: ${formatTime(predicted_time)} (${confidence} confidence)\nBasis: ${basis}`,
-        }],
-      };
+      return toolResult(`Saved ${race_distance} prediction: ${formatTime(predicted_time)} (${confidence} confidence)\nBasis: ${basis}`);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -51,14 +43,9 @@ export const getPredictionHistoryTool = tool(
       const predictions = getPredictionHistory(race_distance);
 
       if (predictions.length === 0) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: race_distance
-              ? `No predictions found for ${race_distance}.`
-              : "No predictions saved yet.",
-          }],
-        };
+        return toolResult(race_distance
+          ? `No predictions found for ${race_distance}.`
+          : "No predictions saved yet.");
       }
 
       let output = "# Race Prediction History\n\n";
@@ -96,12 +83,9 @@ export const getPredictionHistoryTool = tool(
         output += "\n";
       }
 
-      return { content: [{ type: "text" as const, text: output }] };
+      return toolResult(output);
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

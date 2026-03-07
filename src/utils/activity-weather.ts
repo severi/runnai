@@ -1,4 +1,5 @@
 import { WEATHER_CODES } from "../tools/weather.js";
+import { toDateString } from "./format.js";
 import type { ActivityWeather } from "./activities-db.js";
 
 interface HourlyWeatherResponse {
@@ -26,7 +27,7 @@ export async function fetchActivityWeather(
   movingTimeS: number
 ): Promise<ActivityWeather | null> {
   const startDate = new Date(startDateLocal);
-  const date = startDateLocal.split("T")[0];
+  const date = toDateString(startDate);
   const startHour = startDate.getHours();
   const durationHours = Math.ceil(movingTimeS / 3600);
   const endHour = Math.min(startHour + durationHours, 23);

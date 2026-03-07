@@ -8,6 +8,7 @@ import {
   formatPace,
   computeTrainingContext,
 } from "../utils/activity-analysis.js";
+import { toolResult, toolError } from "../utils/format.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import type { StreamAnalysisResult } from "../types/index.js";
 
@@ -29,10 +30,7 @@ export const getRunAnalysisTool = tool(
         const easyPaceRef = computeEasyPaceRef();
         const result = computeActivityAnalysis(activity_id, hrZones, easyPaceRef);
         if (!result) {
-          return {
-            content: [{ type: "text" as const, text: `No data found for activity ${activity_id}. Run strava_sync first.` }],
-            isError: true,
-          };
+          return toolResult(`No data found for activity ${activity_id}. Run strava_sync first.`, true);
         }
         saveActivityAnalysis(result.analysis);
         record = result.analysis;
@@ -111,12 +109,9 @@ export const getRunAnalysisTool = tool(
         analyzed_at: record.analyzed_at,
       };
 
-      return { content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }] };
+      return toolResult(JSON.stringify(output, null, 2));
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );

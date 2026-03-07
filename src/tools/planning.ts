@@ -4,7 +4,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { evaluate } from "mathjs";
 import { getDataDir } from "../utils/paths.js";
-import { sanitizeFilename } from "../utils/format.js";
+import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
 
 function getPlansDir(): string {
   return path.join(getDataDir(), "plans");
@@ -28,7 +28,7 @@ export const planManagerTool = tool(
           const plans = files.filter((f) => f.endsWith(".md"));
 
           if (plans.length === 0) {
-            return { content: [{ type: "text" as const, text: "No training plans found." }] };
+            return toolResult("No training plans found.");
           }
 
           let result = "**Available Training Plans:**\n\n";
@@ -41,45 +41,45 @@ export const planManagerTool = tool(
             result += `  Last modified: ${stat.mtime.toLocaleDateString()}\n`;
           }
 
-          return { content: [{ type: "text" as const, text: result }] };
+          return toolResult(result);
         }
 
         case "create": {
           if (!planName || !content) {
-            return { content: [{ type: "text" as const, text: "Error: planName and content are required." }], isError: true };
+            return toolResult("Error: planName and content are required.", true);
           }
           const filename = `${sanitizeFilename(planName)}.md`;
           const filePath = path.join(getPlansDir(), filename);
 
           try {
             await fs.access(filePath);
-            return { content: [{ type: "text" as const, text: `Plan '${planName}' already exists. Use 'update' to modify.` }], isError: true };
+            return toolResult(`Plan '${planName}' already exists. Use 'update' to modify.`, true);
           } catch {
             // Doesn't exist, proceed
           }
 
           await fs.writeFile(filePath, content);
-          return { content: [{ type: "text" as const, text: `Created training plan '${planName}'. Saved to: ${filename}` }] };
+          return toolResult(`Created training plan '${planName}'. Saved to: ${filename}`);
         }
 
         case "read": {
           if (!planName) {
-            return { content: [{ type: "text" as const, text: "Error: planName is required." }], isError: true };
+            return toolResult("Error: planName is required.", true);
           }
           const filename = `${sanitizeFilename(planName)}.md`;
           const filePath = path.join(getPlansDir(), filename);
 
           try {
             const planContent = await fs.readFile(filePath, "utf-8");
-            return { content: [{ type: "text" as const, text: `**Training Plan: ${planName}**\n\n${planContent}` }] };
+            return toolResult(`**Training Plan: ${planName}**\n\n${planContent}`);
           } catch {
-            return { content: [{ type: "text" as const, text: `Plan '${planName}' not found.` }], isError: true };
+            return toolResult(`Plan '${planName}' not found.`, true);
           }
         }
 
         case "update": {
           if (!planName || !content) {
-            return { content: [{ type: "text" as const, text: "Error: planName and content are required." }], isError: true };
+            return toolResult("Error: planName and content are required.", true);
           }
           const filename = `${sanitizeFilename(planName)}.md`;
           const filePath = path.join(getPlansDir(), filename);
@@ -87,36 +87,33 @@ export const planManagerTool = tool(
           try {
             await fs.access(filePath);
           } catch {
-            return { content: [{ type: "text" as const, text: `Plan '${planName}' not found. Use 'create'.` }], isError: true };
+            return toolResult(`Plan '${planName}' not found. Use 'create'.`, true);
           }
 
           await fs.writeFile(filePath, content);
-          return { content: [{ type: "text" as const, text: `Updated training plan '${planName}'.` }] };
+          return toolResult(`Updated training plan '${planName}'.`);
         }
 
         case "delete": {
           if (!planName) {
-            return { content: [{ type: "text" as const, text: "Error: planName is required." }], isError: true };
+            return toolResult("Error: planName is required.", true);
           }
           const filename = `${sanitizeFilename(planName)}.md`;
           const filePath = path.join(getPlansDir(), filename);
 
           try {
             await fs.unlink(filePath);
-            return { content: [{ type: "text" as const, text: `Deleted training plan '${planName}'.` }] };
+            return toolResult(`Deleted training plan '${planName}'.`);
           } catch {
-            return { content: [{ type: "text" as const, text: `Plan '${planName}' not found.` }], isError: true };
+            return toolResult(`Plan '${planName}' not found.`, true);
           }
         }
 
         default:
-          return { content: [{ type: "text" as const, text: `Unknown action: ${action}` }], isError: true };
+          return toolResult(`Unknown action: ${action}`, true);
       }
     } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
+      return toolError(error);
     }
   }
 );
@@ -135,7 +132,7 @@ export const dateCalcTool = tool(
     target.setHours(0, 0, 0, 0);
 
     if (isNaN(target.getTime())) {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Invalid date format: ${target_date}. Use YYYY-MM-DD.` }) }] };
+      return toolResult(JSON.stringify({ error: `Invalid date format: ${target_date}. Use YYYY-MM-DD.` }));
     }
 
     const diffMs = target.getTime() - today.getTime();
@@ -143,7 +140,7 @@ export const dateCalcTool = tool(
     const diffWeeks = Math.round(diffDays / 7);
 
     const result = {
-      today: today.toISOString().split("T")[0],
+      today: toDateString(today),
       target_date,
       days_difference: diffDays,
       weeks_difference: diffWeeks,
@@ -157,7 +154,7 @@ export const dateCalcTool = tool(
           : `${diffDays} days from now (${diffWeeks} weeks away)`,
     };
 
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    return toolResult(JSON.stringify(result, null, 2));
   }
 );
 
@@ -170,7 +167,7 @@ export const calculatorTool = tool(
   async ({ expression }) => {
     const trimmed = expression.trim();
     if (!trimmed) {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ error: "Expression cannot be empty" }) }] };
+      return toolResult(JSON.stringify({ error: "Expression cannot be empty" }));
     }
 
     try {
@@ -188,14 +185,9 @@ export const calculatorTool = tool(
         throw new Error("Invalid calculation result type");
       }
 
-      return { content: [{ type: "text" as const, text: JSON.stringify({ expression: trimmed, result: resultValue }, null, 2) }] };
+      return toolResult(JSON.stringify({ expression: trimmed, result: resultValue }, null, 2));
     } catch (evalError) {
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({ error: `Invalid expression: ${evalError instanceof Error ? evalError.message : "Unknown error"}` }),
-        }],
-      };
+      return toolResult(JSON.stringify({ error: `Invalid expression: ${evalError instanceof Error ? evalError.message : "Unknown error"}` }));
     }
   }
 );

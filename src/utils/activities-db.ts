@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
+import { toDateString } from "./format.js";
 import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult } from "../types/index.js";
 
 // --- Singleton connection ---
@@ -64,6 +65,7 @@ function runMigrations(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_start_date ON activities(start_date_local);
     CREATE INDEX IF NOT EXISTS idx_type ON activities(type);
     CREATE INDEX IF NOT EXISTS idx_distance ON activities(distance);
+    CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);
 
     CREATE TABLE IF NOT EXISTS best_efforts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -541,7 +543,7 @@ export function upsertPersonalRecord(record: Omit<PersonalRecord, "id" | "record
     $race_name: record.race_name,
     $race_date: record.race_date,
     $notes: record.notes ?? null,
-    $recorded_at: new Date().toISOString().split("T")[0],
+    $recorded_at: toDateString(),
   });
 }
 
