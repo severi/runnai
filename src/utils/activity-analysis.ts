@@ -205,7 +205,7 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord): void {
 export function getActivityAnalysis(activityId: number): ActivityAnalysisRecord | null {
   const row = getDb().prepare(
     "SELECT * FROM activity_analysis WHERE activity_id = ?"
-  ).get(activityId) as any;
+  ).get(activityId) as (Omit<ActivityAnalysisRecord, 'lap_summaries'> & { lap_summaries: string }) | undefined;
   if (!row) return null;
   return { ...row, lap_summaries: JSON.parse(row.lap_summaries || "[]") };
 }

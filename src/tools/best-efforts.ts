@@ -402,9 +402,9 @@ function getComputedFromDb(config: { dbName: string; meters: number }): BestEffo
        WHERE be.distance_name = ?
        ORDER BY be.elapsed_time ASC`
     )
-    .all(config.dbName) as any[];
+    .all(config.dbName) as { activity_id: number; activity_name: string; start_date_local: string; distance_meters: number; elapsed_time: number; activity_distance: number; workout_type: number | null; run_type: string | null }[];
 
-  return rows.map((row: any) => {
+  return rows.map((row) => {
     const laps = getActivityLaps(row.activity_id);
     return {
       activityId: row.activity_id,
