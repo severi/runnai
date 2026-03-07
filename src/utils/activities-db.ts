@@ -230,6 +230,34 @@ export function initDatabase(): Database {
     );
   `);
 
+  // Migration: add detailed_analysis column to activity_analysis
+  try {
+    db.exec("ALTER TABLE activity_analysis ADD COLUMN detailed_analysis TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add strava_title column to activity_analysis
+  try {
+    db.exec("ALTER TABLE activity_analysis ADD COLUMN strava_title TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add strava_description column to activity_analysis
+  try {
+    db.exec("ALTER TABLE activity_analysis ADD COLUMN strava_description TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add analysis_generated_at column to activity_analysis
+  try {
+    db.exec("ALTER TABLE activity_analysis ADD COLUMN analysis_generated_at TEXT");
+  } catch {
+    // Column already exists
+  }
+
   return db;
 }
 
