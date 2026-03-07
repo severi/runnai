@@ -1,5 +1,6 @@
 import type { ActivityLapRecord, HrZones, ClassificationResult, RunType, HillProfile } from "../types/index.js";
 import { formatPace } from "./format.js";
+import { isAutoLap } from "./stream-analysis.js";
 
 interface ActivityData {
   id: number;
@@ -89,8 +90,8 @@ export function classifyRun(
   if (laps.length === 0) {
     result = classifyByPaceAndHr(activity, hrZones, easyPaceRef);
   } else {
-    const isAutoLap = detectAutoLaps(laps);
-    if (isAutoLap) {
+    const autoLap = isAutoLap(laps);
+    if (autoLap) {
       result = classifyByPaceAndHr(activity, hrZones, easyPaceRef);
     } else {
       result = classifyStructuredLapRun(activity, laps, hrZones, easyPaceRef);
@@ -106,26 +107,6 @@ export function classifyRun(
   }
 
   return result;
-}
-
-function detectAutoLaps(laps: ActivityLapRecord[]): boolean {
-  if (laps.length <= 2) return true;
-
-  // Check inner laps (exclude first and last which may be partial)
-  const innerLaps = laps.slice(1, -1);
-  if (innerLaps.length === 0) return true;
-
-  const distances = innerLaps.map(l => l.distance);
-
-  // Check if all inner laps are ~1000m (± 120m)
-  const allKm = distances.every(d => Math.abs(d - 1000) < 120);
-  if (allKm) return true;
-
-  // Check if all inner laps are ~1609m (± 150m)
-  const allMile = distances.every(d => Math.abs(d - 1609) < 150);
-  if (allMile) return true;
-
-  return false;
 }
 
 function classifyByPaceAndHr(

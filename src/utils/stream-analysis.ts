@@ -25,25 +25,31 @@ export interface LapHint {
  * remaining laps have low distance variance (CV < 15% and clustered near a
  * round number like 1km/0.5km). If so → auto-lap → return null.
  */
-export function detectManualLaps(laps: LapHint[]): number[] | null {
-  if (laps.length < 3) return null;
-
-  // Exclude first and last (often partial)
+/**
+ * Check if laps are auto-generated (e.g. 1km or 1mi auto-lap).
+ *
+ * Excludes first and last laps (often partial), then checks if inner laps
+ * have low distance variance (CV < 15%) near a round distance.
+ */
+export function isAutoLap(laps: { distance: number }[]): boolean {
+  if (laps.length < 3) return true;
   const inner = laps.slice(1, -1);
-  if (inner.length < 2) return null;
-
+  if (inner.length < 2) return true;
   const dists = inner.map(l => l.distance);
   const mean = dists.reduce((a, b) => a + b, 0) / dists.length;
-  if (mean === 0) return null;
-
+  if (mean === 0) return true;
   const variance = dists.reduce((s, d) => s + (d - mean) ** 2, 0) / dists.length;
   const cv = Math.sqrt(variance) / mean;
-
-  // Auto-lap: low CV and mean near a round distance (500m, 1000m, 1600m/mile)
   const nearRound = [500, 1000, 1609].some(r => Math.abs(mean - r) < r * 0.1);
-  if (cv < 0.15 && nearRound) return null;
+  return cv < 0.15 && nearRound;
+}
 
-  // Manual laps — return boundary indices (start_index of each lap = split point)
+/**
+ * Detect whether laps are manual (athlete-pressed) or auto-generated.
+ * Returns lap boundary indices only if laps appear manual.
+ */
+export function detectManualLaps(laps: LapHint[]): number[] | null {
+  if (isAutoLap(laps)) return null;
   return laps.slice(1).map(l => l.start_index);
 }
 
