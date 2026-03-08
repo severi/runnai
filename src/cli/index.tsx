@@ -45,19 +45,17 @@ export async function startCLI(): Promise<void> {
     process.exit(1);
   }
 
-  const resumeFlag = process.argv.includes("--resume");
-
   await ensureDataDirs();
 
   // Initialize session log and print path
-  logEvent("session_start", { resume: resumeFlag });
+  logEvent("session_start", {});
   const logDir = getLogPath();
   if (logDir) {
     const relative = path.relative(PROJECT_ROOT, logDir);
     console.log(`Session log: ${relative}/`);
   }
 
-  const { waitUntilExit } = render(<App resume={resumeFlag} />, {
+  const { waitUntilExit } = render(<App />, {
     // Ink 6.5+: only update changed lines, reduces flickering
     patchConsole: false,
   });
