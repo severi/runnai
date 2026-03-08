@@ -39,14 +39,6 @@ export const commands: Command[] = [
     },
   },
   {
-    name: "clear",
-    description: "Clear messages and reset session",
-    usage: "/clear",
-    handler: async (_args, ctx) => {
-      ctx.print(chalk.dim("Cleared.\n"));
-    },
-  },
-  {
     name: "verbose",
     description: "Toggle debug panel",
     usage: "/verbose",

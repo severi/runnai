@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Text, Static, useInput, useApp } from "ink";
 import { TextInput } from "./components/TextInput.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { createAgentOptions } from "../agent.js";
-import { getDataDir } from "../utils/paths.js";
-import { setSessionId, clearPersistedSession, getCurrentSessionId, loadPersistedSession, appendChatMessage, loadChatHistory } from "../utils/session.js";
+import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
+import { getCurrentSessionId } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
-import { resetUsage } from "../utils/usage-tracker.js";
 import { logEvent, saveSystemPrompt } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
@@ -18,28 +17,9 @@ import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
 import { useCommandSuggestions, isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
 import { handleSdkMessage, type MessageHandlerState } from "./handleSdkMessage.js";
+import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
-
-/** Iterate an async iterable but break immediately when an AbortSignal fires. */
-async function* abortable<T>(iterable: AsyncIterable<T>, signal: AbortSignal): AsyncGenerator<T> {
-  const iterator = iterable[Symbol.asyncIterator]();
-  const abortPromise = new Promise<never>((_, reject) => {
-    signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-  });
-  try {
-    while (true) {
-      const result = await Promise.race([iterator.next(), abortPromise]);
-      if (result.done) break;
-      yield result.value;
-    }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") return;
-    throw err;
-  } finally {
-    iterator.return?.();
-  }
-}
 
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -111,7 +91,7 @@ function renderMessage(item: MessageItem) {
   }
 }
 
-export default function App({ resume = false }: { resume?: boolean }) {
+export default function App() {
   const { exit } = useApp();
   const [input, setInput] = useState("");
 
@@ -124,7 +104,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
   const [verbose, setVerbose] = useState(false);
-  const [hasCheckedFirstTime, setHasCheckedFirstTime] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
 
   // AskUserQuestion support — deferred promise pattern
   const [pendingQuestion, setPendingQuestion] = useState<AskQuestion[] | null>(null);
@@ -132,7 +113,14 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const questionInputRef = useRef<Record<string, unknown> | null>(null);
 
   const nextIdRef = useRef(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Persistent subprocess refs
+  const queryRef = useRef<Query | null>(null);
+  const channelRef = useRef<MessageChannel<SDKUserMessage> | null>(null);
+  const turnResolveRef = useRef<(() => void) | null>(null);
+  const turnStateRef = useRef<MessageHandlerState | null>(null);
+  // Serialization queue — prevents concurrent streamResponse calls from corrupting turn refs
+  const turnQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Extracted hooks
   const elapsed = useElapsedTimer(isProcessing);
@@ -140,69 +128,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
   const { suggestions, selectedSuggestion, setSuggestions, setSelectedSuggestion } =
     useCommandSuggestions(input, isProcessing, pendingQuestion, setInput);
 
-  useEffect(() => {
-    if (hasCheckedFirstTime || isProcessing) return;
-
-    const checkFirstTimeUser = async () => {
-      if (resume) {
-        const lastSession = await loadPersistedSession();
-        if (lastSession) {
-          setSessionId(lastSession);
-          setHasCheckedFirstTime(true);
-          setShowWelcome(false);
-
-          const history = await loadChatHistory();
-          if (history.length > 0) {
-            setCommitted(history.map((message) => ({ id: nextIdRef.current++, message })));
-          }
-          addMessage("status", "Resumed previous session", true);
-          return;
-        }
-        addMessage("status", "No previous session found, starting fresh", true);
-      }
-
-      let needsOnboarding = false;
-      try {
-        const contextContent = await fs.readFile(CONTEXT_FILE, "utf-8");
-        needsOnboarding = contextContent.includes("[not set]") || contextContent.includes("[No goals set yet]");
-      } catch {
-        needsOnboarding = true;
-      }
-
-      if (needsOnboarding) {
-        setHasCheckedFirstTime(true);
-        setShowWelcome(false);
-        addMessage("system", "Welcome! Let me help you get started...\n", true);
-
-        const setupCommand = getCommandByName("setup");
-        if (setupCommand) {
-          const context: CommandContext = {
-            print: (text) => addMessage("system", text),
-            streamResponse,
-            getMessages: () => [...committed, ...dynamic].map((i) => i.message),
-          };
-          await setupCommand.handler([], context);
-        }
-      } else {
-        setHasCheckedFirstTime(true);
-        setShowWelcome(false);
-        await streamResponse("[Session start]");
-      }
-    };
-
-    checkFirstTimeUser();
-  }, [hasCheckedFirstTime, isProcessing]);
-
-  useInput(
-    (_char, key) => {
-      if (key.escape && isProcessing && abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    },
-    { isActive: isProcessing && !pendingQuestion }
-  );
-
-  const addMessage = (role: Message["role"], content: string, direct = false) => {
+  const addMessage = useCallback((role: Message["role"], content: string, direct = false) => {
     if (role === "tool" || role === "debug" || role === "error") {
       setDebugMessages((prev) => [...prev.slice(-100), { role, content }]);
       return;
@@ -213,42 +139,33 @@ export default function App({ resume = false }: { resume?: boolean }) {
     } else {
       setDynamic((prev) => [...prev, item]);
     }
-    if (role === "user" || role === "assistant") {
-      appendChatMessage({ role, content });
-    }
-  };
+  }, []);
 
-  const commitDynamic = () => {
+  const commitDynamic = useCallback(() => {
     setDynamic((prev) => {
       if (prev.length > 0) {
         setCommitted((c) => [...c, ...prev]);
       }
       return [];
     });
-  };
+  }, []);
 
-  const streamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
-    setIsProcessing(true);
-    toolTracker.reset();
-    setStreamingText(null);
-    const state: MessageHandlerState = { currentResponse: "", hadToolCall: false };
+  // Initialize persistent subprocess on mount
+  useEffect(() => {
+    if (hasStarted) return;
+    setHasStarted(true);
 
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    const callbacks = { addMessage, setStreamingText, toolTracker };
-
-    try {
+    const init = async () => {
       const canUseTool = async (
         toolName: string,
-        input: Record<string, unknown>,
+        toolInput: Record<string, unknown>,
         options: { signal: AbortSignal },
       ): Promise<PermissionResult> => {
-        logEvent("can_use_tool", { tool: toolName, input_keys: Object.keys(input) });
+        logEvent("can_use_tool", { tool: toolName, input_keys: Object.keys(toolInput) });
         if (toolName !== "AskUserQuestion") {
-          return { behavior: "allow", updatedInput: input };
+          return { behavior: "allow", updatedInput: toolInput };
         }
-        const questions = (input as { questions: AskQuestion[] }).questions;
+        const questions = (toolInput as { questions: AskQuestion[] }).questions;
         return new Promise<PermissionResult>((resolve) => {
           options.signal.addEventListener("abort", () => {
             setPendingQuestion(null);
@@ -257,67 +174,187 @@ export default function App({ resume = false }: { resume?: boolean }) {
             resolve({ behavior: "deny", message: "Aborted" });
           }, { once: true });
           questionResolverRef.current = resolve;
-          questionInputRef.current = input;
+          questionInputRef.current = toolInput;
           setPendingQuestion(questions);
         });
       };
 
-      const options = await createAgentOptions(canUseTool);
-
-      if (options.systemPrompt) {
-        saveSystemPrompt(typeof options.systemPrompt === "string" ? options.systemPrompt : JSON.stringify(options.systemPrompt));
+      const agentOptions = await createAgentOptions(canUseTool);
+      if (agentOptions.systemPrompt) {
+        saveSystemPrompt(typeof agentOptions.systemPrompt === "string" ? agentOptions.systemPrompt : JSON.stringify(agentOptions.systemPrompt));
       }
-      logEvent("user_message", { prompt: prompt.slice(0, 2000), has_attachments: !!(attachments && attachments.length > 0) });
 
-      if (attachments && attachments.length > 0) {
-        const contentBlocks = buildContentBlocks(prompt, attachments);
-        async function* messageStream(): AsyncIterable<SDKUserMessage> {
-          yield {
-            type: "user",
-            message: { role: "user", content: contentBlocks as any },
-            parent_tool_use_id: null,
-            session_id: getCurrentSessionId() ?? crypto.randomUUID(),
-          };
-        }
-        for await (const message of abortable(query({ prompt: messageStream(), options }), abortController.signal)) {
-          handleSdkMessage(message, callbacks, state);
-        }
+      // Determine the first message before starting the subprocess —
+      // the SDK reads from the iterable immediately, so a message must
+      // already be queued when query() is called.
+      let needsOnboarding = false;
+      try {
+        const contextContent = await fs.readFile(CONTEXT_FILE, "utf-8");
+        needsOnboarding = contextContent.includes("[not set]") || contextContent.includes("[No goals set yet]");
+      } catch {
+        needsOnboarding = true;
+      }
+
+      const channel = createMessageChannel<SDKUserMessage>();
+      channelRef.current = channel;
+
+      // Set up turn state for the first message
+      setIsProcessing(true);
+      const firstState: MessageHandlerState = { currentResponse: "", hadToolCall: false };
+      turnStateRef.current = firstState;
+      const firstTurnComplete = new Promise<void>((resolve) => {
+        turnResolveRef.current = resolve;
+      });
+
+      // Determine and queue the first prompt
+      let firstPrompt: string;
+      if (needsOnboarding) {
+        const protocol = await fs.readFile(
+          path.join(PROJECT_ROOT, "plugins/coach/commands/setup.md"), "utf-8"
+        ).catch(() => "");
+        firstPrompt = protocol
+          ? `[Onboarding] Follow this protocol exactly:\n\n${protocol}`
+          : "[Session start]";
       } else {
-        for await (const message of abortable(query({ prompt, options }), abortController.signal)) {
-          handleSdkMessage(message, callbacks, state);
+        firstPrompt = "[Session start]";
+      }
+
+      logEvent("user_message", { prompt: firstPrompt.slice(0, 2000), has_attachments: false });
+      channel.push({
+        type: "user",
+        message: { role: "user", content: firstPrompt },
+        parent_tool_use_id: null,
+        session_id: "",
+      });
+
+      const q = query({ prompt: channel.iterable, options: agentOptions });
+      queryRef.current = q;
+
+      // Background consumer loop — runs for the entire session
+      (async () => {
+        try {
+          const callbacks = { addMessage, setStreamingText, toolTracker };
+          for await (const message of q) {
+            const state = turnStateRef.current;
+            if (state) {
+              handleSdkMessage(message, callbacks, state);
+            }
+
+            // Turn complete — flush and signal
+            if (message.type === "result") {
+              if (state && state.currentResponse.trim()) {
+                addMessage("assistant", state.currentResponse);
+                state.currentResponse = "";
+              }
+              setStreamingText(null);
+              setIsProcessing(false);
+              turnResolveRef.current?.();
+              turnResolveRef.current = null;
+              turnStateRef.current = null;
+            }
+          }
+        } catch (error) {
+          logEvent("error", {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+          addMessage("system", `Session error: ${error instanceof Error ? error.message : error}`);
         }
+
+        // Query generator ended — subprocess terminated
+        setSessionEnded(true);
+        setIsProcessing(false);
+        if (turnResolveRef.current) {
+          turnResolveRef.current();
+          turnResolveRef.current = null;
+        }
+      })();
+
+      setShowWelcome(false);
+
+      if (needsOnboarding) {
+        addMessage("system", "Welcome! Let me help you get started...\n", true);
       }
-    } catch (error) {
-      if (!abortController.signal.aborted) {
-        logEvent("error", {
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-        addMessage("system", `Error: ${error instanceof Error ? error.message : error}`);
+
+      // Wait for the first turn to complete
+      await firstTurnComplete;
+    };
+
+    init();
+
+    return () => {
+      // Cleanup on unmount
+      channelRef.current?.close();
+      queryRef.current?.close();
+    };
+  }, [hasStarted]);
+
+  // Esc to interrupt current turn
+  useInput(
+    (_char, key) => {
+      if (key.escape && isProcessing && queryRef.current) {
+        queryRef.current.interrupt();
       }
+    },
+    { isActive: isProcessing && !pendingQuestion }
+  );
+
+  const doStreamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
+    if (sessionEnded || !channelRef.current) return;
+
+    setIsProcessing(true);
+    toolTracker.reset();
+    setStreamingText(null);
+
+    const state: MessageHandlerState = { currentResponse: "", hadToolCall: false };
+    turnStateRef.current = state;
+
+    logEvent("user_message", { prompt: prompt.slice(0, 2000), has_attachments: !!(attachments && attachments.length > 0) });
+
+    // Build the SDKUserMessage
+    let content: any;
+    if (attachments && attachments.length > 0) {
+      content = buildContentBlocks(prompt, attachments);
+    } else {
+      content = prompt;
     }
 
-    if (state.currentResponse.trim()) {
-      addMessage("assistant", state.currentResponse);
-    }
-    if (abortController.signal.aborted) {
-      addMessage("status", "Cancelled");
-    }
+    const message: SDKUserMessage = {
+      type: "user",
+      message: { role: "user", content },
+      parent_tool_use_id: null,
+      session_id: getCurrentSessionId() ?? "",
+    };
 
+    // Create a promise that resolves when this turn completes
+    const turnComplete = new Promise<void>((resolve) => {
+      turnResolveRef.current = resolve;
+    });
+
+    // Push the message into the channel
+    channelRef.current.push(message);
+
+    // Wait for the turn to complete (result message received)
+    await turnComplete;
+
+    // Clean up any dangling question prompt
     if (questionResolverRef.current) {
-      questionResolverRef.current({ behavior: "deny", message: "Session ended" });
+      questionResolverRef.current({ behavior: "deny", message: "Turn ended" });
       questionResolverRef.current = null;
       questionInputRef.current = null;
       setPendingQuestion(null);
     }
+  };
 
-    setStreamingText(null);
-    setIsProcessing(false);
-    abortControllerRef.current = null;
+  // Serialized wrapper — prevents concurrent calls from corrupting turn refs
+  const streamResponse = (prompt: string, attachments?: FileAttachment[]) => {
+    const next = turnQueueRef.current.then(() => doStreamResponse(prompt, attachments));
+    turnQueueRef.current = next.catch(() => {}); // swallow errors so the queue doesn't stall
+    return next;
   };
 
   const handleSubmit = async (value: string) => {
-    if (isProcessing) return;
+    if (isProcessing || sessionEnded) return;
 
     if (suggestions.length > 0) {
       const selected = suggestions[selectedSuggestion];
@@ -354,18 +391,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
         if (command.name === "exit") {
           addMessage("system", "Happy running!");
+          channelRef.current?.close();
           setTimeout(() => exit(), 500);
-          return;
-        }
-
-        if (command.name === "clear") {
-          setCommitted([]);
-          setDynamic([]);
-          setDebugMessages([]);
-          setInput("");
-          clearPersistedSession();
-          resetUsage();
-          console.clear();
           return;
         }
 
@@ -391,15 +418,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
               // Directory doesn't exist yet
             }
           }
-
-          setCommitted([]);
-          setDynamic([]);
-          setDebugMessages([]);
-          clearPersistedSession();
-          resetUsage();
-          setHasCheckedFirstTime(false);
-          console.clear();
-          addMessage("system", "Profile reset. Strava data preserved. Restarting onboarding...\n", true);
+          addMessage("system", "Profile reset. Strava data preserved. Send a message to restart onboarding.");
           setInput("");
           return;
         }
@@ -555,9 +574,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
       {/* Input area — hidden during question prompt */}
       {!pendingQuestion && (
-        <Box borderStyle="round" borderColor={isProcessing ? "gray" : "cyan"} paddingX={1}>
+        <Box borderStyle="round" borderColor={isProcessing ? "gray" : sessionEnded ? "red" : "cyan"} paddingX={1}>
           <Text color="cyan" bold>{">"} </Text>
-          {isProcessing ? (
+          {sessionEnded ? (
+            <Text color="red">Session ended. Restart the app to continue.</Text>
+          ) : isProcessing ? (
             <Text dimColor>Thinking...{elapsed > 0 ? ` (${formatElapsed(elapsed)})` : ""} · Esc to cancel</Text>
           ) : (
             <TextInput
@@ -571,7 +592,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
       )}
 
       {/* Footer hint */}
-      {!showWelcome && !isProcessing && (
+      {!showWelcome && !isProcessing && !sessionEnded && (
         <Box marginTop={1}>
           <Text dimColor>
             /help for commands · /verbose to {verbose ? "hide" : "show"} debug info

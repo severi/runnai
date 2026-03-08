@@ -5,7 +5,7 @@ import type { Message } from "./commands.js";
 import type { ExchangeUsage } from "../utils/usage-tracker.js";
 import { recordExchange, formatExchangeLine } from "../utils/usage-tracker.js";
 import { logEvent, saveToolResult, saveSystemPrompt, updateMeta } from "../utils/logger.js";
-import { saveSession } from "../utils/session.js";
+import { setSessionId } from "../utils/session.js";
 
 function extractToolUseId(message: SDKMessage): string | null {
   const content = (message as any).message?.content;
@@ -53,7 +53,7 @@ export function handleSdkMessage(
         updateMeta({ model: initMsg.model, session_id: initMsg.session_id });
         addMessage("debug", `Model: ${initMsg.model}`);
         if (initMsg.session_id) {
-          saveSession(initMsg.session_id);
+          setSessionId(initMsg.session_id);
         }
       }
       break;
@@ -140,7 +140,7 @@ export function handleSdkMessage(
 
     case "result": {
       if (message.session_id) {
-        saveSession(message.session_id);
+        setSessionId(message.session_id);
       }
 
       const subtype = (message as any).subtype as string | undefined;
