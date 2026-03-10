@@ -138,3 +138,51 @@ export function parsePlan(markdown: string, planSlug: string, weekFilter?: numbe
 
   return workouts;
 }
+
+export interface PlanWeekExcerpt {
+  weekNumber: number;
+  markdown: string;
+}
+
+export function extractPlanWeeks(markdown: string, weekNumbers: number[]): PlanWeekExcerpt[] {
+  const lines = markdown.split("\n");
+  const weekSet = new Set(weekNumbers);
+  const results: PlanWeekExcerpt[] = [];
+
+  let currentWeek: number | null = null;
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const weekMatch = line.match(/^##\s+Week\s+(\d+)\b/i);
+    if (weekMatch) {
+      // Flush previous week if it was one we wanted
+      if (currentWeek !== null && weekSet.has(currentWeek)) {
+        results.push({ weekNumber: currentWeek, markdown: currentLines.join("\n").trim() });
+      }
+      currentWeek = parseInt(weekMatch[1], 10);
+      currentLines = [line];
+      continue;
+    }
+
+    // End of a week section: another ## heading that is NOT a Week header
+    if (currentWeek !== null) {
+      if (line.match(/^##\s/) && !line.match(/^##\s+Week\s+\d+/i)) {
+        // Non-week ## heading — flush and reset
+        if (weekSet.has(currentWeek)) {
+          results.push({ weekNumber: currentWeek, markdown: currentLines.join("\n").trim() });
+        }
+        currentWeek = null;
+        currentLines = [];
+        continue;
+      }
+      currentLines.push(line);
+    }
+  }
+
+  // Flush last week
+  if (currentWeek !== null && weekSet.has(currentWeek)) {
+    results.push({ weekNumber: currentWeek, markdown: currentLines.join("\n").trim() });
+  }
+
+  return results;
+}

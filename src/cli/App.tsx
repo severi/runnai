@@ -8,6 +8,7 @@ import { createAgentOptions } from "../agent.js";
 import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
 import { getCurrentSessionId } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
+import { startupSync, formatNewRunsPrompt, formatCompactStatus } from "../utils/startup-sync.js";
 import { logEvent, saveSystemPrompt } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
@@ -20,6 +21,13 @@ import { handleSdkMessage, type MessageHandlerState } from "./handleSdkMessage.j
 import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
+
+function getTimeGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning!";
+  if (hour < 17) return "Good afternoon!";
+  return "Good evening!";
+}
 
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -179,14 +187,7 @@ export default function App() {
         });
       };
 
-      const agentOptions = await createAgentOptions(canUseTool);
-      if (agentOptions.systemPrompt) {
-        saveSystemPrompt(typeof agentOptions.systemPrompt === "string" ? agentOptions.systemPrompt : JSON.stringify(agentOptions.systemPrompt));
-      }
-
-      // Determine the first message before starting the subprocess —
-      // the SDK reads from the iterable immediately, so a message must
-      // already be queued when query() is called.
+      // Check onboarding status early — needed to decide startup path
       let needsOnboarding = false;
       try {
         const contextContent = await fs.readFile(CONTEXT_FILE, "utf-8");
@@ -195,19 +196,35 @@ export default function App() {
         needsOnboarding = true;
       }
 
+      // For returning users: show generic greeting immediately, then sync in parallel
+      let ctx: Awaited<ReturnType<typeof startupSync>>;
+      let agentOptions: Awaited<ReturnType<typeof createAgentOptions>>;
+      let greetingIsBackground = false;
+
+      if (!needsOnboarding) {
+        setShowWelcome(false);
+        addMessage("assistant", getTimeGreeting() + " Let me check your training...", true);
+
+        const [syncResult, options] = await Promise.all([
+          startupSync(),
+          createAgentOptions(canUseTool),
+        ]);
+        ctx = syncResult;
+        agentOptions = options;
+      } else {
+        agentOptions = await createAgentOptions(canUseTool);
+      }
+
+      if (agentOptions.systemPrompt) {
+        saveSystemPrompt(typeof agentOptions.systemPrompt === "string" ? agentOptions.systemPrompt : JSON.stringify(agentOptions.systemPrompt));
+      }
+
       const channel = createMessageChannel<SDKUserMessage>();
       channelRef.current = channel;
 
-      // Set up turn state for the first message
-      setIsProcessing(true);
-      const firstState: MessageHandlerState = { currentResponse: "", hadToolCall: false };
-      turnStateRef.current = firstState;
-      const firstTurnComplete = new Promise<void>((resolve) => {
-        turnResolveRef.current = resolve;
-      });
-
-      // Determine and queue the first prompt
+      // Determine first prompt
       let firstPrompt: string;
+
       if (needsOnboarding) {
         const protocol = await fs.readFile(
           path.join(PROJECT_ROOT, "plugins/coach/commands/setup.md"), "utf-8"
@@ -215,9 +232,25 @@ export default function App() {
         firstPrompt = protocol
           ? `[Onboarding] Follow this protocol exactly:\n\n${protocol}`
           : "[Session start]";
+      } else if (ctx!.sync.newRunIds.length > 0) {
+        firstPrompt = formatNewRunsPrompt(ctx!);
       } else {
-        firstPrompt = "[Session start]";
+        // No new runs — static guidance + background LLM warmup
+        const status = formatCompactStatus(ctx!);
+        addMessage("assistant", status + "\n\nWhat would you like to work on? Try: \"analyze my last run\", \"what's today's workout?\", or type / for commands", true);
+        firstPrompt = "[Session start — no new activities. Respond only: ready]";
+        greetingIsBackground = true;
       }
+
+      // Set up turn state for the first message
+      if (!greetingIsBackground) {
+        setIsProcessing(true);
+        turnStateRef.current = { currentResponse: "", hadToolCall: false };
+      }
+      // For background warmup, turnStateRef stays null — response silently consumed
+      const firstTurnComplete = new Promise<void>((resolve) => {
+        turnResolveRef.current = resolve;
+      });
 
       logEvent("user_message", { prompt: firstPrompt.slice(0, 2000), has_attachments: false });
       channel.push({
@@ -276,8 +309,13 @@ export default function App() {
         addMessage("system", "Welcome! Let me help you get started...\n", true);
       }
 
-      // Wait for the first turn to complete
-      await firstTurnComplete;
+      if (greetingIsBackground) {
+        // Background warmup — queue user messages behind it so subprocess is ready
+        turnQueueRef.current = firstTurnComplete;
+      } else {
+        // Blocking turn (onboarding, new runs) — wait for completion
+        await firstTurnComplete;
+      }
     };
 
     init();
@@ -289,14 +327,21 @@ export default function App() {
     };
   }, [hasStarted]);
 
-  // Esc to interrupt current turn
+  // Esc / Ctrl+C to interrupt current turn (or exit when idle)
   useInput(
-    (_char, key) => {
-      if (key.escape && isProcessing && queryRef.current) {
-        queryRef.current.interrupt();
+    (input, key) => {
+      const isCtrlC = key.ctrl && input === "c";
+      if (isProcessing && queryRef.current) {
+        if (key.escape || isCtrlC) {
+          queryRef.current.interrupt();
+        }
+      } else if (isCtrlC && !isProcessing) {
+        // Idle — Ctrl+C exits the app
+        channelRef.current?.close();
+        exit();
       }
     },
-    { isActive: isProcessing && !pendingQuestion }
+    { isActive: !pendingQuestion }
   );
 
   const doStreamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
@@ -348,6 +393,11 @@ export default function App() {
 
   // Serialized wrapper — prevents concurrent calls from corrupting turn refs
   const streamResponse = (prompt: string, attachments?: FileAttachment[]) => {
+    // If a background turn (greeting) is active, interrupt it so the
+    // queue drains faster and the user's message processes immediately
+    if (turnStateRef.current && !isProcessing && queryRef.current) {
+      queryRef.current.interrupt();
+    }
     const next = turnQueueRef.current.then(() => doStreamResponse(prompt, attachments));
     turnQueueRef.current = next.catch(() => {}); // swallow errors so the queue doesn't stall
     return next;

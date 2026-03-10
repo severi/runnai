@@ -201,38 +201,40 @@ export const stravaSyncTool = tool(
         // Analysis is best-effort, don't fail the sync
       }
 
-      // Fetch weather for new runs + backfill runs without weather
+      // Fetch weather for new runs (skip backfill on no-op sync)
       let weatherFetched = 0;
-      try {
-        const runsNeedingWeather = [
-          ...newRuns
-            .filter(r => r.start_latlng?.[0] != null)
-            .map(r => ({
-              id: r.id,
-              start_date_local: r.start_date_local,
-              start_latitude: r.start_latlng![0],
-              start_longitude: r.start_latlng![1],
-              moving_time: r.moving_time,
-            })),
-          ...getActivitiesWithoutWeather(20),
-        ];
-        // Deduplicate by activity ID
-        const seen = new Set<number>();
-        for (const run of runsNeedingWeather) {
-          if (seen.has(run.id)) continue;
-          seen.add(run.id);
-          const weather = await fetchActivityWeather(
-            run.id, run.start_latitude, run.start_longitude,
-            run.start_date_local, run.moving_time
-          );
-          if (weather) {
-            saveActivityWeather(weather);
-            weatherFetched++;
+      if (newActivities.length > 0) {
+        try {
+          const runsNeedingWeather = [
+            ...newRuns
+              .filter(r => r.start_latlng?.[0] != null)
+              .map(r => ({
+                id: r.id,
+                start_date_local: r.start_date_local,
+                start_latitude: r.start_latlng![0],
+                start_longitude: r.start_latlng![1],
+                moving_time: r.moving_time,
+              })),
+            ...getActivitiesWithoutWeather(20),
+          ];
+          // Deduplicate by activity ID
+          const seen = new Set<number>();
+          for (const run of runsNeedingWeather) {
+            if (seen.has(run.id)) continue;
+            seen.add(run.id);
+            const weather = await fetchActivityWeather(
+              run.id, run.start_latitude, run.start_longitude,
+              run.start_date_local, run.moving_time
+            );
+            if (weather) {
+              saveActivityWeather(weather);
+              weatherFetched++;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
           }
-          await new Promise((resolve) => setTimeout(resolve, 50));
+        } catch {
+          // Weather fetch is best-effort
         }
-      } catch {
-        // Weather fetch is best-effort
       }
 
       // --- Build output text (after classification so we can include run types) ---
@@ -414,9 +416,18 @@ export const stravaAuthTool = tool(
 
 export const queryActivitiesTool = tool(
   "query_activities",
-  "Runs a SQL SELECT query against the activities database. Tables: 'activities' (summary data), 'activity_laps' (per-lap splits with elevation), 'activity_analysis' (pre-computed per-run analysis: hill_category, grade_adjusted_pace, comparison metrics — JOIN on activity_id), 'activity_stream_analysis' (stream-derived metrics: hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases JSON, intervals JSON — JOIN on activity_id), 'activity_streams' (per-second data — use get_activity_streams tool instead), 'best_efforts' (PRs). Use get_run_analysis tool for structured per-run analysis data.",
+  `Runs a SQL SELECT query against the activities database.
+
+SCHEMA:
+activities: id, name, type, sport_type, start_date, start_date_local, distance (meters), moving_time (seconds), elapsed_time, total_elevation_gain, average_speed (m/s), max_speed, average_heartrate, max_heartrate, suffer_score, average_cadence, workout_type, description, trainer, run_type, run_type_detail
+activity_laps: activity_id, lap_index, distance (m), elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate, elevation_gain, elevation_loss
+activity_analysis: activity_id, run_type, run_type_detail, hill_category, distance_m, moving_time_s, pace_sec_per_km, grade_adjusted_pace_sec_per_km, avg_heartrate, lap_summaries, prose_summary, detailed_analysis, strava_title, strava_description
+activity_stream_analysis: activity_id, hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases (JSON), intervals (JSON)
+best_efforts: activity_id, name, distance, elapsed_time, moving_time, start_date
+
+SEARCH TIPS: To find specific workouts, search MULTIPLE text fields — activity names are often generic (e.g. "Lunch Run"), so also search activity_analysis.strava_title (AI-generated descriptive name) and activity_analysis.detailed_analysis (full prose). Example: WHERE a.name LIKE '%tempo%' OR aa.strava_title LIKE '%tempo%' OR aa.detailed_analysis LIKE '%tempo%'. run_type values: easy, tempo, threshold, interval, long_run, race, recovery, fartlek, hill_repeat. Note: long runs with workout segments (e.g. MP pace blocks) are classified as long_run — search detailed_analysis for specifics.`,
   {
-    query: z.string().describe("SQL SELECT query. Can query activities, activity_laps (activity_id, lap_index, distance, elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate, elevation_gain, elevation_loss), and best_efforts tables."),
+    query: z.string().describe("SQL SELECT query against the schema above"),
   },
   async ({ query }) => {
     try {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parsePlan } from "../plan-parser.js";
+import { parsePlan, extractPlanWeeks } from "../plan-parser.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -175,5 +175,78 @@ describe("parsePlan", () => {
     // External IDs should all be unique
     const ids = result.map((w) => w.externalId);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("extractPlanWeeks", () => {
+  test("extracts a specific week's markdown section", () => {
+    const markdown = `# Plan
+
+## Week 1: Build
+
+**Dates:** Monday March 9 - Sunday March 15
+**Target Volume:** ~73km
+
+| Day | Date | Session | Details |
+|-----|------|---------|---------|
+| Mon | Mar 9 | Easy | 9km easy. |
+| Sat | Mar 14 | Long Run | 26km with MP. |
+
+**Key workout:** Saturday's 26km.
+
+---
+
+## Week 2: Peak
+
+**Dates:** Monday March 16 - Sunday March 22
+
+| Day | Date | Session | Details |
+|-----|------|---------|---------|
+| Mon | Mar 16 | Easy | 10km easy. |
+`;
+
+    const result = extractPlanWeeks(markdown, [1]);
+    expect(result).toHaveLength(1);
+    expect(result[0].weekNumber).toBe(1);
+    expect(result[0].markdown).toContain("Week 1: Build");
+    expect(result[0].markdown).toContain("9km easy");
+    expect(result[0].markdown).toContain("26km with MP");
+    expect(result[0].markdown).not.toContain("Week 2");
+  });
+
+  test("extracts multiple weeks", () => {
+    const markdown = `# Plan
+
+## Week 1: Build
+
+| Day | Date | Session | Details |
+|-----|------|---------|---------|
+| Mon | Mar 9 | Easy | 9km. |
+
+## Week 2: Peak
+
+| Day | Date | Session | Details |
+|-----|------|---------|---------|
+| Mon | Mar 16 | Easy | 10km. |
+
+## Week 3: Taper
+
+| Day | Date | Session | Details |
+|-----|------|---------|---------|
+| Mon | Mar 23 | Easy | 8km. |
+`;
+
+    const result = extractPlanWeeks(markdown, [1, 3]);
+    expect(result).toHaveLength(2);
+    expect(result[0].weekNumber).toBe(1);
+    expect(result[1].weekNumber).toBe(3);
+    expect(result[0].markdown).toContain("9km");
+    expect(result[1].markdown).toContain("8km");
+  });
+
+  test("returns empty for non-existent week", () => {
+    const markdown = `# Plan\n\n## Week 1: Build\n\nSome content.\n`;
+    const result = extractPlanWeeks(markdown, [99]);
+    expect(result).toHaveLength(0);
   });
 });
