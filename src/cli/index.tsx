@@ -58,6 +58,7 @@ export async function startCLI(): Promise<void> {
   const { waitUntilExit } = render(<App />, {
     // Ink 6.5+: only update changed lines, reduces flickering
     patchConsole: false,
+    exitOnCtrlC: false, // We handle Ctrl+C ourselves (interrupt during processing, exit when idle)
   });
   await waitUntilExit();
 }
