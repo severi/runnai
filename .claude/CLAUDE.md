@@ -21,24 +21,25 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 - Research: research, save_research
 
 ## Session Logs
-Each session creates a folder under `logs/session-<timestamp>/` with:
-- `meta.json` — session metadata (start time, model, session ID, auth type, PID)
-- `events.jsonl` — all events in chronological order (JSONL, one JSON object per line)
-- `system-prompt.md` — full system prompt snapshot from first exchange
-- `tool-results/` — full tool results for large outputs (>1KB), referenced by tool_use_id
+Each session creates a single JSONL file at `logs/<session-id>.jsonl` (Claude Code format). Every event carries: `type`, `uuid`, `parentUuid`, `sessionId`, `version`, `timestamp`.
+
+### Event types
+- **`user`** — user messages: `message: { role: "user", content: "..." }`
+- **`assistant`** — raw API response with content blocks + per-turn `usage` (tokens, cache hits)
+- **`system`** — subtypes: `session_start`, `init`, `system_prompt`, `can_use_tool`, `turn_duration`, `result`, `error`
+- **`progress`** — reserved for future use
 
 ### Debugging with session logs
-- List sessions: `ls -lt logs/` (newest first)
-- Scan events: `cat logs/session-<ts>/events.jsonl | jq .` or filter by type: `jq 'select(.type == "tool_use")' logs/session-<ts>/events.jsonl`
-- Find tool calls: `jq 'select(.type == "tool_use") | {tool, tool_use_id, input}' < events.jsonl`
-- Find tool results: `jq 'select(.type == "tool_result") | {tool_name, is_error, duration_ms, preview}' < events.jsonl`
-- Full tool output: check `tool-results/<tool_use_id>.json` for results >1KB
-- Trace a specific tool call: match `tool_use_id` between `tool_use` and `tool_result` events
-- Check what the agent said: `jq 'select(.type == "assistant_text") | .text' < events.jsonl`
-- Session cost: `jq 'select(.type == "result")' < events.jsonl`
-
-### Event types in events.jsonl
-`session_start`, `system_init`, `user_message`, `assistant_text`, `tool_use`, `tool_result`, `can_use_tool`, `result`, `error`, `sdk_message`
+- List sessions: `ls -lt logs/*.jsonl`
+- Scan events: `jq . < logs/<id>.jsonl`
+- Event types: `jq -r .type < logs/<id>.jsonl | sort | uniq -c`
+- Assistant messages: `jq 'select(.type == "assistant") | .message.content[] | select(.type == "text") | .text' < logs/<id>.jsonl`
+- Tool calls: `jq 'select(.type == "assistant") | .message.content[] | select(.type == "tool_use") | {name, input}' < logs/<id>.jsonl`
+- Tool results: `jq 'select(.type == "user" and .tool_name) | {tool_name, duration_ms}' < logs/<id>.jsonl`
+- Per-turn tokens: `jq 'select(.type == "assistant") | .message.usage' < logs/<id>.jsonl`
+- Turn durations: `jq 'select(.subtype == "turn_duration") | .durationMs' < logs/<id>.jsonl`
+- Session cost: `jq 'select(.subtype == "result")' < logs/<id>.jsonl`
+- Event tree: `jq '{uuid: .uuid[:8], parent: .parentUuid[:8]?, type, subtype}' < logs/<id>.jsonl`
 
 ## Important
 - Use date_calc for ALL date math

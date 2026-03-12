@@ -5,6 +5,7 @@ import * as path from "path";
 import { execSync } from "child_process";
 import { PROJECT_ROOT, getDataDir } from "../utils/paths.js";
 import { getLogPath, logEvent } from "../utils/logger.js";
+import * as os from "os";
 import App from "./App.js";
 
 const DATA_SUBDIRS = [
@@ -48,11 +49,17 @@ export async function startCLI(): Promise<void> {
   await ensureDataDirs();
 
   // Initialize session log and print path
-  logEvent("session_start", {});
-  const logDir = getLogPath();
-  if (logDir) {
-    const relative = path.relative(PROJECT_ROOT, logDir);
-    console.log(`Session log: ${relative}/`);
+  logEvent("system", {
+    subtype: "session_start",
+    auth: process.env.ANTHROPIC_API_KEY ? "api_key" : "claude_account",
+    pid: process.pid,
+    nodeVersion: process.version,
+    platform: os.platform(),
+  });
+  const logFile = getLogPath();
+  if (logFile) {
+    const relative = path.relative(PROJECT_ROOT, logFile);
+    console.log(`Session log: ${relative}`);
   }
 
   const { waitUntilExit } = render(<App />, {
