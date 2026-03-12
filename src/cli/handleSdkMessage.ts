@@ -4,20 +4,11 @@ import { formatToolInput } from "./hooks/useToolTracker.js";
 import type { Message } from "./commands.js";
 import type { ExchangeUsage } from "../utils/usage-tracker.js";
 import { recordExchange, formatExchangeLine } from "../utils/usage-tracker.js";
-import { logEvent, saveToolResult, saveSystemPrompt, updateMeta } from "../utils/logger.js";
+import { logEvent, setLogSessionId } from "../utils/logger.js";
 import { setSessionId } from "../utils/session.js";
 
-function extractToolUseId(message: SDKMessage): string | null {
-  const content = (message as any).message?.content;
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (typeof block === "object" && block !== null && block.type === "tool_result" && block.tool_use_id) {
-        return block.tool_use_id;
-      }
-    }
-  }
-  return null;
-}
+let turnStartTime: number | null = null;
+let lastUserUuid: string | null = null;
 
 export interface MessageHandlerCallbacks {
   addMessage: (role: Message["role"], content: string) => void;
@@ -37,28 +28,34 @@ export function handleSdkMessage(
 ): void {
   const { addMessage, setStreamingText, toolTracker } = callbacks;
 
-  logEvent("sdk_message", {
-    sdk_type: message.type,
-    ...("subtype" in message ? { subtype: (message as any).subtype } : {}),
-  });
-
   switch (message.type) {
     case "system":
       if ("subtype" in message && message.subtype === "init") {
         const initMsg = message as SDKMessage & { model: string; session_id?: string };
-        logEvent("system_init", {
+        logEvent("system", {
+          subtype: "init",
           model: initMsg.model,
           session_id: initMsg.session_id,
         });
-        updateMeta({ model: initMsg.model, session_id: initMsg.session_id });
-        addMessage("debug", `Model: ${initMsg.model}`);
         if (initMsg.session_id) {
+          setLogSessionId(initMsg.session_id);
           setSessionId(initMsg.session_id);
         }
+        addMessage("debug", `Model: ${initMsg.model}`);
       }
       break;
 
-    case "assistant":
+    case "assistant": {
+      // Track turn start
+      if (turnStartTime === null) {
+        turnStartTime = Date.now();
+      }
+
+      // Log the full raw API message (includes content blocks + usage)
+      logEvent("assistant", {
+        message: message.message,
+      }, lastUserUuid);
+
       for (const block of message.message.content) {
         if (block.type === "text") {
           if (state.hadToolCall) {
@@ -67,14 +64,8 @@ export function handleSdkMessage(
 
           state.currentResponse += block.text;
           setStreamingText(state.currentResponse);
-          logEvent("assistant_text", { text: block.text });
         } else if (block.type === "tool_use") {
           const toolUseId = (block as any).id as string || `fallback-${Date.now()}`;
-          logEvent("tool_use", {
-            tool: block.name,
-            tool_use_id: toolUseId,
-            input: block.input,
-          });
           // Flush accumulated text as a proper message
           if (state.currentResponse.trim()) {
             addMessage("assistant", state.currentResponse);
@@ -91,6 +82,7 @@ export function handleSdkMessage(
         }
       }
       break;
+    }
 
     case "user":
       if (message.tool_use_result !== undefined) {
@@ -102,16 +94,19 @@ export function handleSdkMessage(
         const toolUseId = extractToolUseId(message);
         const { tool, durationMs } = toolTracker.completeTool(toolUseId ?? "");
 
-        const preview = resultStr.slice(0, 500);
-        const fullResultFile = toolUseId ? saveToolResult(toolUseId, result) : null;
-        logEvent("tool_result", {
-          tool_use_id: toolUseId,
-          tool_name: tool?.name ?? null,
-          is_error: isError,
+        // Log as raw user message with tool_result content
+        logEvent("user", {
+          message: (message as any).message ?? {
+            role: "user",
+            content: [{
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: resultStr,
+              is_error: isError,
+            }],
+          },
           duration_ms: durationMs || null,
-          preview,
-          ...(fullResultFile ? { full_result_file: fullResultFile } : {}),
-          ...(resultStr.length <= 1024 ? { result: resultStr } : {}),
+          tool_name: tool?.name ?? null,
         });
 
         if (tool) {
@@ -139,6 +134,15 @@ export function handleSdkMessage(
       break;
 
     case "result": {
+      // Emit turn_duration
+      if (turnStartTime !== null) {
+        logEvent("system", {
+          subtype: "turn_duration",
+          durationMs: Date.now() - turnStartTime,
+        });
+        turnStartTime = null;
+      }
+
       if (message.session_id) {
         setSessionId(message.session_id);
       }
@@ -176,8 +180,8 @@ export function handleSdkMessage(
         durationMs: message.duration_ms,
         numTurns: message.num_turns,
       };
-      logEvent("result", {
-        subtype,
+      logEvent("system", {
+        subtype: "result",
         ...exchange,
       });
       recordExchange(exchange);
@@ -185,4 +189,26 @@ export function handleSdkMessage(
       break;
     }
   }
+}
+
+function extractToolUseId(message: SDKMessage): string | null {
+  const content = (message as any).message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block === "object" && block !== null && block.type === "tool_result" && block.tool_use_id) {
+        return block.tool_use_id;
+      }
+    }
+  }
+  return null;
+}
+
+/** Set the parent UUID for linking assistant events to the user message that triggered them. */
+export function setLastUserUuid(uuid: string): void {
+  lastUserUuid = uuid;
+}
+
+/** Reset turn tracking (call before each new user turn). */
+export function resetTurn(): void {
+  turnStartTime = null;
 }

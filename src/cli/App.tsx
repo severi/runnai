@@ -9,7 +9,7 @@ import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
 import { getCurrentSessionId } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
 import { startupSync, formatNewRunsPrompt, formatCompactStatus } from "../utils/startup-sync.js";
-import { logEvent, saveSystemPrompt } from "../utils/logger.js";
+import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
@@ -17,7 +17,7 @@ import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
 import { useCommandSuggestions, isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
-import { handleSdkMessage, type MessageHandlerState } from "./handleSdkMessage.js";
+import { handleSdkMessage, setLastUserUuid, resetTurn, type MessageHandlerState } from "./handleSdkMessage.js";
 import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
@@ -169,7 +169,7 @@ export default function App() {
         toolInput: Record<string, unknown>,
         options: { signal: AbortSignal },
       ): Promise<PermissionResult> => {
-        logEvent("can_use_tool", { tool: toolName, input_keys: Object.keys(toolInput) });
+        logEvent("system", { subtype: "can_use_tool", tool: toolName, input_keys: Object.keys(toolInput) });
         if (toolName !== "AskUserQuestion") {
           return { behavior: "allow", updatedInput: toolInput };
         }
@@ -216,7 +216,10 @@ export default function App() {
       }
 
       if (agentOptions.systemPrompt) {
-        saveSystemPrompt(typeof agentOptions.systemPrompt === "string" ? agentOptions.systemPrompt : JSON.stringify(agentOptions.systemPrompt));
+        logEvent("system", {
+          subtype: "system_prompt",
+          prompt: typeof agentOptions.systemPrompt === "string" ? agentOptions.systemPrompt : JSON.stringify(agentOptions.systemPrompt),
+        });
       }
 
       const channel = createMessageChannel<SDKUserMessage>();
@@ -252,7 +255,9 @@ export default function App() {
         turnResolveRef.current = resolve;
       });
 
-      logEvent("user_message", { prompt: firstPrompt.slice(0, 2000), has_attachments: false });
+      resetTurn();
+      const firstUserUuid = logEvent("user", { message: { role: "user", content: firstPrompt } });
+      setLastUserUuid(firstUserUuid);
       channel.push({
         type: "user",
         message: { role: "user", content: firstPrompt },
@@ -287,7 +292,8 @@ export default function App() {
             }
           }
         } catch (error) {
-          logEvent("error", {
+          logEvent("system", {
+            subtype: "error",
             message: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
           });
@@ -354,7 +360,12 @@ export default function App() {
     const state: MessageHandlerState = { currentResponse: "", hadToolCall: false };
     turnStateRef.current = state;
 
-    logEvent("user_message", { prompt: prompt.slice(0, 2000), has_attachments: !!(attachments && attachments.length > 0) });
+    resetTurn();
+    const userUuid = logEvent("user", {
+      message: { role: "user", content: prompt },
+      has_attachments: !!(attachments && attachments.length > 0),
+    });
+    setLastUserUuid(userUuid);
 
     // Build the SDKUserMessage
     let content: any;
