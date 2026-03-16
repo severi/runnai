@@ -4,6 +4,7 @@ import type {
   HrZoneDistribution,
   SplitType,
   PhaseSegment,
+  HrTrend,
   DetectedInterval,
   StreamAnalysisResult,
 } from "../types/index.js";
@@ -607,11 +608,17 @@ function detectPhases(
       phase = "recovery";
     }
 
+    // Compute HR trend for work phases with sufficient distance and HR data
+    const hrTrend = (phase === "work" && distM >= 2000 && hr)
+      ? computeSegmentHrTrend(hr, distance, time, p.startIdx, p.endIdx)
+      : null;
+
     segments.push({
       phase, start_s: startS, end_s: endS, distance_m: round(distM, 0),
       avg_pace_sec_per_km: avgPace, avg_hr: avgHr,
       elevation_gain_m: elev ? round(elev.gain, 0) : null,
       elevation_loss_m: elev ? round(elev.loss, 0) : null,
+      hr_trend: hrTrend,
     });
   }
 
@@ -766,6 +773,124 @@ function computeSegmentAvgHr(hr: number[], time: number[], start: number, end: n
     count += dt;
   }
   return count > 0 ? round(sum / count, 0) : null;
+}
+
+// --- HR Trend Analysis ---
+
+/**
+ * Linear regression slope for an array of values indexed by position.
+ * Returns the slope in units-per-index (e.g., bpm per km if each value is a per-km average).
+ */
+function linearRegressionSlope(values: number[]): number {
+  const n = values.length;
+  if (n < 2) return 0;
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += i;
+    sumY += values[i];
+    sumXY += i * values[i];
+    sumX2 += i * i;
+  }
+  const denom = n * sumX2 - sumX * sumX;
+  return denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+}
+
+/** Standard deviation of an array. */
+function stdDev(values: number[]): number {
+  const n = values.length;
+  if (n === 0) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  return Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+}
+
+/**
+ * Analyze HR trend within a segment by building per-km windowed averages
+ * and classifying the shape as stable / step-then-plateau / linear drift / variable.
+ *
+ * This prevents the "endpoints-only fallacy" where comparing only first and last
+ * values suggests continuous drift when the actual pattern is a quick initial rise
+ * followed by stabilization.
+ *
+ * Requires >= 2km of data with HR. Returns null otherwise.
+ */
+export function computeSegmentHrTrend(
+  hr: number[], distance: number[], time: number[], startIdx: number, endIdx: number
+): HrTrend | null {
+  const segDist = distance[endIdx] - distance[startIdx];
+  if (segDist < 2000) return null;
+
+  // Build per-km windowed HR averages
+  const startDist = distance[startIdx];
+  const numWindows = Math.floor(segDist / 1000);
+  if (numWindows < 2) return null;
+
+  const windowHrs: number[] = [];
+  let winLeft = startIdx;
+
+  for (let w = 0; w < numWindows; w++) {
+    const targetDist = startDist + (w + 1) * 1000;
+    let winRight = winLeft;
+    while (winRight < endIdx && distance[winRight + 1] <= targetDist) winRight++;
+
+    // Time-weighted avg HR for this window
+    const avg = computeSegmentAvgHr(hr, time, winLeft, winRight);
+    if (avg !== null) windowHrs.push(avg);
+    winLeft = winRight + 1;
+  }
+
+  if (windowHrs.length < 2) return null;
+
+  const n = windowHrs.length;
+
+  // Overall linear regression slope (bpm per km)
+  const driftPerKm = linearRegressionSlope(windowHrs);
+  const overallStd = stdDev(windowHrs);
+
+  // Find settle point: use last 70% as baseline, find first window within 3 bpm
+  const baselineStart = Math.max(1, Math.ceil(n * 0.3));
+  const baselineSlice = windowHrs.slice(baselineStart);
+  const baseline = arrayMean(baselineSlice);
+
+  // Find first km where HR is within 3 bpm of baseline (settled)
+  let settleKm = 0;
+  for (let k = 0; k < Math.min(n - 1, Math.ceil(n * 0.5)); k++) {
+    if (Math.abs(windowHrs[k] - baseline) <= 3) break;
+    settleKm = k + 1;
+  }
+  if (settleKm >= n - 1) settleKm = 0; // no clear settle found
+
+  const initialHr = settleKm > 0
+    ? round(arrayMean(windowHrs.slice(0, settleKm)), 0)
+    : round(windowHrs[0], 0);
+  const settledSlice = windowHrs.slice(settleKm);
+  const settledHr = round(arrayMean(settledSlice), 0);
+  const plateauMin = round(Math.min(...settledSlice), 0);
+  const plateauMax = round(Math.max(...settledSlice), 0);
+
+  // Post-settle drift to distinguish step_then_plateau from continuous drift
+  const postSettleDrift = settledSlice.length >= 2
+    ? linearRegressionSlope(settledSlice) : driftPerKm;
+
+  // Classify pattern
+  let pattern: HrTrend["pattern"];
+  if (overallStd < 3 && Math.abs(driftPerKm) < 1) {
+    pattern = "stable";
+  } else if (settleKm > 0 && initialHr < settledHr - 3 && Math.abs(postSettleDrift) < 2) {
+    pattern = "step_then_plateau";
+  } else if (Math.abs(driftPerKm) >= 1.5) {
+    pattern = "linear_drift";
+  } else {
+    pattern = "variable";
+  }
+
+  return {
+    pattern,
+    initial_hr: initialHr,
+    settled_hr: settledHr,
+    settle_km: settleKm,
+    plateau_range: [plateauMin, plateauMax],
+    drift_bpm_per_km: round(driftPerKm, 1),
+  };
 }
 
 // --- Interval Detection ---

@@ -59,6 +59,7 @@ export const getRunAnalysisTool = tool(
           avg_hr: p.avg_hr,
           elevation_gain_m: p.elevation_gain_m,
           elevation_loss_m: p.elevation_loss_m,
+          ...(p.hr_trend ? { hr_trend: p.hr_trend } : {}),
         })),
         interval_count: sa.intervals.length,
         intervals: sa.intervals.length > 0 ? sa.intervals.map(i => ({
