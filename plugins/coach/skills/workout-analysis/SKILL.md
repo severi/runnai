@@ -74,6 +74,15 @@ If more than 25% is moderate+hard, the athlete is likely doing too much intensit
 - Drift >10%: dehydration, heat, or insufficient fitness
 - Drift >15%: significant concern
 
+**HR Trend Shape** (critical - avoid the endpoints-only fallacy):
+- NEVER characterize HR by comparing only the first and last values of a segment
+- Use the `hr_trend` field on work phases when available - it pre-computes the pattern
+- **step_then_plateau**: HR rises in first 1-3km as body adjusts to the pace, then stabilizes. This is normal cardiovascular response, NOT drift. Describe as "HR settled at X after initial ramp-up" rather than "HR climbed from A to B"
+- **linear_drift**: HR rises progressively throughout. This IS cardiac drift and worth flagging
+- **stable**: HR stays consistent throughout - strong aerobic capacity signal
+- Cross-check: if `cardiac_drift_pct` < 3%, a claim of "concerning HR rise" is almost certainly wrong. Re-examine the per-km data before making such a claim
+- When in doubt, describe the actual shape ("rose for 2km then held steady at 167-170") rather than the delta ("rose 12 beats")
+
 **Cadence**:
 - Optimal: 170-185 spm for most runners
 - Below 160: may indicate overstriding

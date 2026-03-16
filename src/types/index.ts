@@ -281,6 +281,21 @@ export interface HrZoneDistribution {
 
 export type SplitType = "negative" | "positive" | "even";
 
+export interface HrTrend {
+  /** Shape of HR evolution within the segment */
+  pattern: "stable" | "step_then_plateau" | "linear_drift" | "variable";
+  /** Avg HR in the initial portion before settling (bpm) */
+  initial_hr: number;
+  /** Avg HR after settling (bpm) */
+  settled_hr: number;
+  /** Km into segment where HR reached the plateau (0 = immediate) */
+  settle_km: number;
+  /** Min/max of per-km HR averages after settling */
+  plateau_range: [number, number];
+  /** Linear regression slope across full segment (bpm per km) */
+  drift_bpm_per_km: number;
+}
+
 export interface PhaseSegment {
   phase: "warmup" | "work" | "recovery" | "cooldown" | "stopped";
   start_s: number;
@@ -290,6 +305,8 @@ export interface PhaseSegment {
   avg_hr: number | null;
   elevation_gain_m: number | null;
   elevation_loss_m: number | null;
+  /** HR trend analysis for work phases >= 2km with HR data */
+  hr_trend: HrTrend | null;
 }
 
 export interface DetectedInterval {

@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   computeStreamAnalysis,
+  computeSegmentHrTrend,
   distanceWindowSmooth,
   minettiGapFactor,
   detectManualLaps,
@@ -1088,6 +1089,120 @@ describe("computeStreamAnalysis", () => {
       // Should still be a single work phase — no split since effort is uniform
       const workPhases = withLaps.phases.filter(p => p.phase === "work");
       expect(workPhases.length).toBe(1);
+    });
+  });
+
+  // ─── HR Trend Analysis ────────────────────────────────────────────────────────
+
+  describe("HR trend analysis", () => {
+    /**
+     * Build a stream segment with per-km HR values.
+     * Each km takes ~(1000/speed) seconds. Returns hr, distance, time arrays
+     * and the valid index range [0, n-1].
+     */
+    function makeHrSegment(perKmHr: number[], paceSecPerKm = 300) {
+      const speedMs = 1000 / paceSecPerKm;
+      const totalSeconds = Math.ceil(perKmHr.length * paceSecPerKm);
+      const time: number[] = [];
+      const distance: number[] = [];
+      const hr: number[] = [];
+
+      for (let t = 0; t <= totalSeconds; t++) {
+        const d = t * speedMs;
+        const kmIdx = Math.min(Math.floor(d / 1000), perKmHr.length - 1);
+        time.push(t);
+        distance.push(d);
+        hr.push(perKmHr[kmIdx]);
+      }
+      return { hr, distance, time, endIdx: time.length - 1 };
+    }
+
+    test("detects step-then-plateau pattern (the bug case)", () => {
+      // Real-world case: HR jumps in first 2-3km then plateaus
+      const { hr, distance, time, endIdx } = makeHrSegment(
+        [160, 163, 166, 168, 167, 168, 167, 170, 169, 170, 167, 172]
+      );
+
+      const trend = computeSegmentHrTrend(hr, distance, time, 0, endIdx);
+      expect(trend).not.toBeNull();
+      expect(trend!.pattern).toBe("step_then_plateau");
+      expect(trend!.initial_hr).toBeLessThan(trend!.settled_hr);
+      expect(trend!.settle_km).toBeGreaterThan(0);
+    });
+
+    test("detects stable HR pattern", () => {
+      const { hr, distance, time, endIdx } = makeHrSegment(
+        [150, 151, 150, 149, 151, 150, 151, 150]
+      );
+
+      const trend = computeSegmentHrTrend(hr, distance, time, 0, endIdx);
+      expect(trend).not.toBeNull();
+      expect(trend!.pattern).toBe("stable");
+      expect(Math.abs(trend!.drift_bpm_per_km)).toBeLessThan(1);
+    });
+
+    test("detects linear drift pattern", () => {
+      // HR rises steadily: 2 bpm per km
+      const { hr, distance, time, endIdx } = makeHrSegment(
+        [150, 152, 154, 156, 158, 160, 162, 164, 166, 168]
+      );
+
+      const trend = computeSegmentHrTrend(hr, distance, time, 0, endIdx);
+      expect(trend).not.toBeNull();
+      expect(trend!.pattern).toBe("linear_drift");
+      expect(trend!.drift_bpm_per_km).toBeGreaterThan(1.5);
+    });
+
+    test("returns null for segments shorter than 2km", () => {
+      const { hr, distance, time } = makeHrSegment([150]);
+      // Only 1km of data
+      const trend = computeSegmentHrTrend(hr, distance, time, 0, time.length - 1);
+      expect(trend).toBeNull();
+    });
+
+    test("work phases in full analysis include hr_trend", () => {
+      // Build a long work run (12km at work pace) with step-then-plateau HR
+      const easyPace = 360; // 6:00/km
+      const workSpeed = 1000 / 270; // 4:30/km
+      const perKmHr = [155, 160, 165, 168, 167, 168, 167, 169, 168, 167, 169, 168];
+      const totalS = Math.ceil(perKmHr.length * 270);
+
+      const time: number[] = [];
+      const distance: number[] = [];
+      const heartrate: number[] = [];
+
+      for (let t = 0; t <= totalS; t++) {
+        const d = t * workSpeed;
+        const kmIdx = Math.min(Math.floor(d / 1000), perKmHr.length - 1);
+        time.push(t);
+        distance.push(d);
+        heartrate.push(perKmHr[kmIdx]);
+      }
+
+      const zones: HrZones = { lt1: 155, lt2: 172, max_hr: 190, source: "lactate_test", confirmed: true };
+      const result = computeStreamAnalysis({ time, distance, heartrate }, zones, totalS, easyPace);
+
+      const workPhases = result.phases.filter(p => p.phase === "work");
+      expect(workPhases.length).toBeGreaterThan(0);
+
+      const longWork = workPhases.find(p => p.distance_m >= 2000);
+      if (longWork) {
+        expect(longWork.hr_trend).not.toBeNull();
+        expect(longWork.hr_trend!.pattern).toBeDefined();
+      }
+    });
+
+    test("non-work phases have null hr_trend", () => {
+      // Easy run — all recovery/warmup/cooldown phases
+      const streams = makeUniformRun({ durationS: 1200, paceSecPerKm: 380, hr: 140 });
+      const zones: HrZones = { lt1: 155, lt2: 172, max_hr: 190, source: "lactate_test", confirmed: true };
+      const result = computeStreamAnalysis(streams, zones, 1200, 360);
+
+      for (const phase of result.phases) {
+        if (phase.phase !== "work") {
+          expect(phase.hr_trend).toBeNull();
+        }
+      }
     });
   });
 });
