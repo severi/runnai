@@ -421,9 +421,7 @@ export function formatCompactStatus(ctx: StartupContext): string {
 }
 
 export function formatNewRunsPrompt(ctx: StartupContext): string {
-  return `New runs synced — analyze each one.
+  return `New runs synced — analyze each one following the "New Run Analysis" steps in your instructions.
 
-${ctx.sync.message}
-
-For each run ID listed above, call get_run_analysis(activity_id), write a coaching analysis covering training load significance, zone distribution, and notable signals. Save each with save_run_analysis. Then offer to update Strava with names and coaching notes.`;
+${ctx.sync.message}`;
 }
