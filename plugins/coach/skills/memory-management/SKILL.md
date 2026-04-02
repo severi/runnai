@@ -70,10 +70,16 @@ Write when:
 Write when fitness assessment is done. Track evolution over time.
 
 ### session-summaries/
-Write at the end of every significant conversation. Include:
+Write **incrementally** — don't wait until session end. Save a session summary:
+- Immediately after a plan modification is agreed upon (workout skipped, swapped, moved)
+- After a significant coaching decision (target pace change, race strategy update, injury management change)
+- After analyzing a key workout that changes the training picture
+- At the end of every significant conversation (as a catch-all)
+
+Multiple saves on the same day append to the same file, so saving often is safe. Include:
 - Key topics discussed
-- Decisions made
-- Plan adjustments
+- Decisions made (especially schedule changes — these are the most likely to be lost)
+- Plan adjustments and what specifically changed
 - New information learned about the athlete
 - Open questions for next session
 
@@ -120,4 +126,6 @@ Before a conversation ends:
 1. Check if you learned anything new about the athlete
 2. If yes, write relevant observations to deep memory
 3. If training phase or goals changed, update CONTEXT.md
-4. Write a session summary with `save_session_summary`
+4. Write a session summary with `save_session_summary` (if not already saved during this session)
+
+**Critical:** Session summaries are the bridge between conversations. If a decision isn't in the plan file or a session summary, it doesn't exist for the next session. When in doubt, save.

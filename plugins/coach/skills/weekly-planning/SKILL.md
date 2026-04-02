@@ -105,6 +105,22 @@ If 3+ indicators present: take an unplanned recovery week.
 - Heavy rain/storms: postpone or treadmill
 - Post-rain: watch for slippery surfaces, especially leaves
 
+## Persisting Schedule Changes
+
+When the athlete agrees to any schedule modification, you MUST:
+
+1. **Update the plan file immediately** — call `manage_plan(action: "update")` with the modified week. Read the current plan, change the affected day(s), write it back. The plan file is the source of truth for all future sessions.
+2. **Save a session summary** — call `save_session_summary` noting what changed and why (e.g., "Swapped Monday easy to Sunday due to knee rest. Friday skipped to protect Saturday long run.")
+
+Common modifications that need persisting:
+- Skipping a planned workout (injury, fatigue, schedule conflict)
+- Swapping two days (e.g., moving Friday run to Sunday)
+- Converting a quality session to easy
+- Adding an unplanned run
+- Changing a workout's distance or intensity
+
+If you discuss a change but DON'T persist it, the next session will see the original plan and lose the decision entirely.
+
 ## Pre-Race Week Modifications
 
 ### Week Before a Goal Race
