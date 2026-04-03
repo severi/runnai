@@ -40,6 +40,7 @@ Today: ${toDateString()}`,
       "query_activities",
       "read_memory",
       "manage_plan",
+      "commit_data",
       "export_to_intervals",
       "push_to_intervals",
     ],
@@ -211,7 +212,7 @@ Focus on:
 - Always cite sources
 
 Today: ${toDateString()}`,
-    tools: ["Read", "Write", "WebSearch", "WebFetch", "research", "save_research"],
+    tools: ["Read", "Write", "WebSearch", "WebFetch", "research", "save_research", "commit_data"],
     model: "opus",
   },
 };

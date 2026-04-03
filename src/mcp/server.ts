@@ -27,6 +27,7 @@ import {
   getWeatherTool,
   exportToIntervalsTool,
   pushToIntervalsTool,
+  commitDataTool,
 } from "../tools/index.js";
 
 export const coachMcpServer = createSdkMcpServer({
@@ -64,6 +65,8 @@ export const coachMcpServer = createSdkMcpServer({
     // Intervals.icu
     exportToIntervalsTool,
     pushToIntervalsTool,
+    // Data backup
+    commitDataTool,
     // Memory
     readMemoryTool,
     writeMemoryTool,

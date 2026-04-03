@@ -5,6 +5,7 @@ import * as path from "path";
 import { execSync } from "child_process";
 import { PROJECT_ROOT, getDataDir } from "../utils/paths.js";
 import { getLogPath, logEvent } from "../utils/logger.js";
+import { ensureDataRepo, registerCrashHandlers, commitOnClose } from "../utils/data-git.js";
 import * as os from "os";
 import App from "./App.js";
 
@@ -47,6 +48,8 @@ export async function startCLI(): Promise<void> {
   }
 
   await ensureDataDirs();
+  await ensureDataRepo();
+  registerCrashHandlers();
 
   // Initialize session log and print path
   logEvent("system", {
@@ -68,4 +71,5 @@ export async function startCLI(): Promise<void> {
     exitOnCtrlC: false, // We handle Ctrl+C ourselves (interrupt during processing, exit when idle)
   });
   await waitUntilExit();
+  await commitOnClose("session end: auto-backup");
 }

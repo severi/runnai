@@ -54,6 +54,8 @@ When the athlete agrees to modify the training schedule — skip a day, swap wor
 
 Also save a session summary (save_session_summary) right after any plan modification decision is made. Don't batch these — each significant decision should be persisted as it happens in case the session ends unexpectedly.
 
+After making data changes (plan updates, memory writes, research saves), call commit_data to snapshot them in the data git backup. Write tool results include a git diff summary — check it to verify you didn't accidentally corrupt data (e.g., a file shrinking dramatically means you overwrote it with partial content).
+
 ## After Your Response Is Complete
 Once you've finished your full message to the athlete, THEN handle persistence:
 - Save new observations to memory (write_memory) if you learned something new
