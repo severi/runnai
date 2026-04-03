@@ -5,6 +5,7 @@ import * as path from "path";
 import { evaluate } from "mathjs";
 import { getDataDir } from "../utils/paths.js";
 import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
+import { withDiffNote } from "../utils/data-git.js";
 
 function getPlansDir(): string {
   return path.join(getDataDir(), "plans");
@@ -16,7 +17,7 @@ export const planManagerTool = tool(
   {
     action: z.enum(["create", "read", "update", "delete", "list"]).describe("Action to perform"),
     planName: z.string().optional().describe("Name of the plan"),
-    content: z.string().optional().describe("Plan content in markdown"),
+    content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file — pass the complete plan, not a partial patch."),
   },
   async ({ action, planName, content }) => {
     try {
@@ -59,7 +60,7 @@ export const planManagerTool = tool(
           }
 
           await fs.writeFile(filePath, content);
-          return toolResult(`Created training plan '${planName}'. Saved to: ${filename}`);
+          return toolResult(await withDiffNote(`Created training plan '${planName}'. Saved to: ${filename}`));
         }
 
         case "read": {
@@ -84,14 +85,27 @@ export const planManagerTool = tool(
           const filename = `${sanitizeFilename(planName)}.md`;
           const filePath = path.join(getPlansDir(), filename);
 
+          let existing: string;
           try {
-            await fs.access(filePath);
+            existing = await fs.readFile(filePath, "utf-8");
           } catch {
             return toolResult(`Plan '${planName}' not found. Use 'create'.`, true);
           }
 
+          // Safety: reject updates that would lose >50% of the plan content.
+          // This catches accidental partial overwrites (e.g. passing a patch
+          // instead of the full plan). The content param must be the FULL plan.
+          if (existing.length > 500 && content.length < existing.length * 0.5) {
+            return toolResult(
+              `Error: update content (${content.length} chars) is much shorter than existing plan (${existing.length} chars). ` +
+              `The 'update' action replaces the ENTIRE plan file — you must pass the full updated plan, not a partial patch. ` +
+              `Read the plan first, make your edits, and pass the complete result.`,
+              true
+            );
+          }
+
           await fs.writeFile(filePath, content);
-          return toolResult(`Updated training plan '${planName}'.`);
+          return toolResult(await withDiffNote(`Updated training plan '${planName}'.`));
         }
 
         case "delete": {

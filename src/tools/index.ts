@@ -20,6 +20,9 @@ export { getWeatherTool } from "./weather.js";
 // Intervals.icu
 export { exportToIntervalsTool, pushToIntervalsTool } from "./intervals.js";
 
+// Data backup
+export { commitDataTool } from "./data-backup.js";
+
 // Phase 3: Memory tools
 export {
   readMemoryTool,

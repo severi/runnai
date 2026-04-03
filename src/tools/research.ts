@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
 import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
+import { withDiffNote } from "../utils/data-git.js";
 
 function getResearchDir(): string {
   return path.join(getDataDir(), "research");
@@ -204,7 +205,7 @@ export const saveResearchTool = tool(
   async ({ topic, content, sources }) => {
     try {
       await saveResearch(topic, content, sources);
-      return toolResult(`Saved research on "${topic}" with ${sources.length} sources.`);
+      return toolResult(await withDiffNote(`Saved research on "${topic}" with ${sources.length} sources.`));
     } catch (error) {
       return toolError(error);
     }

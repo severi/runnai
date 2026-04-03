@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
 import { toDateString, toolResult, toolError } from "../utils/format.js";
+import { withDiffNote } from "../utils/data-git.js";
 
 function getMemoryDir(): string {
   return path.join(getDataDir(), "memory");
@@ -68,7 +69,7 @@ export const writeMemoryTool = tool(
         await fs.writeFile(filePath, content);
       }
 
-      return toolResult(`Updated memory file: ${file}`);
+      return toolResult(await withDiffNote(`Updated memory file: ${file}`));
     } catch (error) {
       return toolError(error);
     }
@@ -89,7 +90,7 @@ export const updateContextTool = tool(
       }
 
       await fs.writeFile(getContextFile(), content);
-      return toolResult(`Updated CONTEXT.md (${lines} lines). Changes will be reflected in the next message.`);
+      return toolResult(await withDiffNote(`Updated CONTEXT.md (${lines} lines). Changes will be reflected in the next message.`));
     } catch (error) {
       return toolError(error);
     }
@@ -183,7 +184,7 @@ export const saveSessionSummaryTool = tool(
       const content = `${existing}# Session Summary - ${date}\n\n${summary}\n`;
       await fs.writeFile(filePath, content);
 
-      return toolResult(`Session summary saved to session-summaries/${date}.md`);
+      return toolResult(await withDiffNote(`Session summary saved to session-summaries/${date}.md`));
     } catch (error) {
       return toolError(error);
     }
