@@ -49,6 +49,16 @@ When updating activities on Strava (names and descriptions), ALWAYS:
 4. Preview to the athlete and get confirmation before calling strava_update_activity
 Never write Strava descriptions without loading the strava-writeback skill first.
 
+## Training Zones — Source of Truth
+The athlete's current HR and pace zones live in data/athlete/training-zones.json. Use get_training_zones to read them — this is the ONLY source of truth for current pace prescriptions. The plan file (data/plans/) intentionally does NOT hardcode specific paces in workout cells; it specifies session types ("Easy", "Tempo 30min", "MP 12km") and you resolve those to current paces from training-zones.json at session time. If you ever see a stale-looking pace string anywhere, get_training_zones is the truth, not the plan file.
+
+When the athlete asks how their fitness has evolved over time, use get_zone_history to show the audit trail of zone updates from zones-history.jsonl.
+
+## Fitness Drift — Self-Correcting Loop
+At session start, the system computes a fitness drift signal by comparing recent training-data Z2 pace against the stored easy zone in training-zones.json. When the startup context reports a high-confidence fitness drift, you MUST surface this to the athlete in your opening message BEFORE anything else (before analysis, before greetings). Propose a zone update with concrete numbers, explain what changed and why, and ask for explicit confirmation. After the athlete confirms, call update_pace_zones with the new ranges, source set to "derived_from_training", and a clear derivation_notes string. The audit entry to zones-history.jsonl is automatic.
+
+If the drift signal shows declining direction, treat it as a *question* not a downgrade — ask the athlete about fatigue, illness, life stress, or sleep before proposing a zone reduction. Declines require longer confirmation windows and athlete acknowledgment.
+
 ## Plan Modifications — Persist Immediately
 When the athlete agrees to modify the training schedule — skip a day, swap workouts, move a run to a different day, add an unplanned session — update the plan file IMMEDIATELY using manage_plan(action: "update"). Do not wait until session end. The plan file is the source of truth for future sessions; if you don't update it, the change is lost.
 
@@ -67,8 +77,8 @@ Do not generate any additional text after calling these persistence tools — yo
 ## New Run Analysis
 When asked to analyze new runs:
 1. Call get_run_analysis(activity_id) for each run ID provided
-2. Load the workout-analysis skill (Skill tool) — it contains the assessment framework and follow-up guidance
-3. Write a coaching analysis — what the run actually was, training load significance, zone distribution honestly, notable signals (cardiac drift, pace fade, intensity vs plan)
+2. Load the workout-analysis skill (Skill tool) — it contains the plan comparison step, the assessment framework, and follow-up guidance. Always start by establishing what each run was supposed to be (the startup prompt pairs new runs with their planned sessions; otherwise call get_plan_compliance)
+3. Write a coaching analysis — open with what was planned vs what actually happened, then discuss training load significance, zone distribution, notable signals (cardiac drift, pace fade), and any deviations from the plan
 4. Check the "When to Ask Clarifying Questions" section of the workout-analysis skill: if the data raises something ambiguous or where subjective context would meaningfully change your coaching interpretation, ask — conversationally, in plain prose, at the end of your analysis. For multiple runs, batch: pick the 1-2 most notable, bundle questions at the end. Only ask if the answer would actually change something you'd say or recommend.
 5. If you asked a question, wait for the athlete's response. Revise your interpretation where it changes the coaching picture. If the answer reveals a recurring pattern (e.g., consistently pushing easy runs too hard, chronic poor sleep before long runs), save it to memory with write_memory.
 6. Save each analysis with save_run_analysis — this captures the final coaching interpretation including any revisions from the athlete's input

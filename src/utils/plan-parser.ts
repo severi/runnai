@@ -139,6 +139,40 @@ export function parsePlan(markdown: string, planSlug: string, weekFilter?: numbe
   return workouts;
 }
 
+/**
+ * Find the plan week number containing the given date by parsing
+ * the "**Dates:** Monday Month D – Sunday Month D" line under each
+ * "## Week N:" header. Returns null if no week matches.
+ */
+export function findCurrentWeekNumber(planContent: string, today: Date = new Date()): number | null {
+  const lines = planContent.split("\n");
+  const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const year = extractPlanYear(planContent);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const datesMatch = line.match(/\*\*Dates:\*\*\s*\w+\s+(\w+)\s+(\d{1,2})\s*[-–]\s*\w+\s+(\w+)\s+(\d{1,2})/i);
+    if (!datesMatch) continue;
+
+    const [, startMonth, startDay, endMonth, endDay] = datesMatch;
+    const startIdx = MONTH_MAP[startMonth.toLowerCase().slice(0, 3)];
+    const endIdx = MONTH_MAP[endMonth.toLowerCase().slice(0, 3)];
+    if (startIdx === undefined || endIdx === undefined) continue;
+
+    const weekStart = new Date(year, startIdx, parseInt(startDay));
+    const weekEnd = new Date(year, endIdx, parseInt(endDay));
+    weekEnd.setHours(23, 59, 59, 999);
+
+    if (todayMs >= weekStart.getTime() && todayMs <= weekEnd.getTime()) {
+      for (let j = i; j >= 0; j--) {
+        const weekMatch = lines[j].match(/^##\s+Week\s+(\d+)\b/i);
+        if (weekMatch) return parseInt(weekMatch[1], 10);
+      }
+    }
+  }
+  return null;
+}
+
 export interface PlanWeekExcerpt {
   weekNumber: number;
   markdown: string;

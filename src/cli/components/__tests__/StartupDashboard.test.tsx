@@ -9,6 +9,9 @@ const baseCtx: StartupContext = {
   recentSummary: "",
   planExcerpt: null,
   raceCountdowns: [],
+  weekCompliance: null,
+  newRunPlanContext: [],
+  fitnessDrift: null,
 };
 
 describe("StartupDashboard", () => {

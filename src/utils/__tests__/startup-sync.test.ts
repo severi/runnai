@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { formatNewRunsPrompt, formatCompactStatus, parseRaceCountdowns, findCurrentWeekNumber, type StartupContext } from "../startup-sync.js";
+import { formatNewRunsPrompt, formatCompactStatus, parseRaceCountdowns, type StartupContext } from "../startup-sync.js";
+import { findCurrentWeekNumber } from "../plan-parser.js";
 
 describe("parseRaceCountdowns", () => {
   test("parses race dates from CONTEXT.md format", () => {
@@ -79,6 +80,9 @@ describe("formatNewRunsPrompt", () => {
       recentSummary: "",
       planExcerpt: null,
       raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
     };
     const prompt = formatNewRunsPrompt(ctx);
     expect(prompt).toContain("123");
@@ -97,6 +101,9 @@ describe("formatNewRunsPrompt", () => {
       recentSummary: "",
       planExcerpt: null,
       raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
     };
     const prompt = formatNewRunsPrompt(ctx);
     expect(prompt).toContain("789");
@@ -117,6 +124,9 @@ describe("formatCompactStatus", () => {
       raceCountdowns: [
         { name: "Vienna Marathon", date: "2026-04-19", daysAway: 41, weeksAway: 6 },
       ],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
     };
     const result = formatCompactStatus(ctx);
     expect(result).toContain("Synced");
@@ -134,6 +144,9 @@ describe("formatCompactStatus", () => {
       recentSummary: "",
       planExcerpt: null,
       raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
     };
     const result = formatCompactStatus(ctx);
     expect(result).toContain("Not authorized");

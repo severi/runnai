@@ -8,7 +8,7 @@ import { createAgentOptions } from "../agent.js";
 import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
 import { getCurrentSessionId } from "../utils/session.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
-import { startupSync, formatNewRunsPrompt, formatCompactStatus } from "../utils/startup-sync.js";
+import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGreeting } from "../utils/startup-sync.js";
 import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
@@ -237,8 +237,13 @@ export default function App() {
           : "[Session start]";
       } else if (ctx!.sync.newRunIds.length > 0) {
         firstPrompt = formatNewRunsPrompt(ctx!);
+      } else if (ctx!.fitnessDrift?.should_prompt) {
+        // No new runs but fitness drift detected — coach must surface it proactively
+        const status = formatCompactStatus(ctx!);
+        addMessage("assistant", status + "\n\nFitness drift detected — checking your zones...", true);
+        firstPrompt = formatStartupGreeting(ctx!);
       } else {
-        // No new runs — static guidance + background LLM warmup
+        // No new runs and no drift — static guidance + background LLM warmup
         const status = formatCompactStatus(ctx!);
         addMessage("assistant", status + "\n\nWhat would you like to work on? Try: \"analyze my last run\", \"what's today's workout?\", or type / for commands", true);
         firstPrompt = "[Session start — no new activities. Respond only: ready]";

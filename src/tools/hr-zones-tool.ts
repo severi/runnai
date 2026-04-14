@@ -6,17 +6,18 @@ import { toolResult, toolError } from "../utils/format.js";
 
 export const setHrZonesTool = tool(
   "set_hr_zones",
-  "Sets the athlete's heart rate zone thresholds. Use when the athlete provides lactate test results, confirms estimated zones, or wants to manually set zones. Always marks zones as confirmed.",
+  "Sets the athlete's heart rate zone thresholds. Use when the athlete provides lactate test results, confirms estimated zones, or wants to manually set zones. Always marks zones as confirmed. Writes an audit entry to zones-history.jsonl.",
   {
     lt1: z.number().describe("Aerobic threshold (LT1) heart rate"),
     lt2: z.number().describe("Anaerobic threshold (LT2) heart rate"),
     max_hr: z.number().describe("Maximum heart rate"),
     source: z.enum(["lactate_test", "estimated", "manual"]).describe("How the zones were determined"),
+    notes: z.string().optional().describe("Free-text note about why these zones were set (e.g., 'Pajulahti lab test')"),
   },
-  async ({ lt1, lt2, max_hr, source }) => {
+  async ({ lt1, lt2, max_hr, source, notes }) => {
     try {
       const zones: HrZones = { source, lt1, lt2, max_hr, confirmed: true };
-      await saveHrZones(zones);
+      await saveHrZones(zones, { approvedBy: "athlete", notes });
       return toolResult(`HR zones saved and confirmed:\n- LT1 (aerobic): ${lt1} bpm\n- LT2 (anaerobic): ${lt2} bpm\n- Max HR: ${max_hr} bpm\n- Source: ${source}\n\nRun strava_sync to classify activities with these zones.`);
     } catch (error) {
       return toolError(error);

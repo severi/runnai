@@ -9,8 +9,8 @@ user-invocable: true
 1. Sync latest Strava data using `strava_sync`
 
 2. Delegate to progress-reviewer subagent:
-   - Compare this week's planned workouts vs what actually happened
-   - Calculate volume, intensity distribution, and training load
+   - Use `get_plan_compliance` (omit week_number for current week) for the structured planned-vs-actual comparison — each planned session joined to its matching activity by date with completion status
+   - Calculate volume, intensity distribution, and training load on top of that data
 
 3. Read memory for any noted concerns:
    - `search_memory` for recent observations

@@ -174,13 +174,13 @@ Today: ${toDateString()}`,
     prompt: `You review training progress by comparing plans against actual data.
 
 Process:
-1. Read the current training plan from data/plans/
-2. Read data/strava/recent-summary.md for what actually happened
-3. Query activities for the review period
-4. Check memory for any noted concerns or adjustments
+1. Call get_plan_compliance (omit week_number for the current week) — returns each planned session joined to the matching actual run by date, with status (completed/missed/upcoming) and a summary. This is your source of truth for planned vs actual; do not re-derive matching from raw SQL.
+2. For trend context beyond this week, read data/strava/recent-summary.md and query activities for the broader review period.
+3. Check memory for any noted concerns or adjustments (read_memory, search_memory).
+4. If you need a previous week's compliance, call get_plan_compliance again with that week_number.
 
 Your review should include:
-- Planned vs actual: workouts completed, missed, modified
+- Planned vs actual: which workouts completed, missed, modified (use the structured data from get_plan_compliance)
 - Volume trend: building, maintaining, or declining
 - Intensity balance: enough easy running? Quality sessions hit?
 - Long run progression
@@ -190,7 +190,7 @@ Your review should include:
 Be constructive and specific. Use actual numbers.
 
 Today: ${toDateString()}`,
-    tools: ["Read", "query_activities", "read_memory", "calculator"],
+    tools: ["Read", "query_activities", "read_memory", "search_memory", "get_plan_compliance", "calculator"],
     model: "opus",
   },
   researcher: {

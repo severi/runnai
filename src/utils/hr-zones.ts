@@ -1,31 +1,33 @@
-import * as fs from "fs/promises";
-import * as path from "path";
 import { getDb } from "./activities-db.js";
-import { getDataDir } from "./paths.js";
+import { loadTrainingZones, saveHrZonesPart } from "./training-zones.js";
 import type { HrZones } from "../types/index.js";
 
-function getHrZonesFile(): string {
-  return path.join(getDataDir(), "athlete/hr-zones.json");
-}
-
+/**
+ * Load HR zones. Reads the unified training-zones.json (which migrates from
+ * legacy hr-zones.json on first call). Falls back to estimating from data
+ * if no zones exist anywhere.
+ */
 export async function loadHrZones(): Promise<HrZones> {
-  try {
-    const data = await fs.readFile(getHrZonesFile(), "utf-8");
-    const zones = JSON.parse(data) as HrZones;
-    // Backwards compat: treat missing confirmed as true for existing files
-    if (zones.confirmed === undefined) zones.confirmed = true;
-    return zones;
-  } catch {
-    // No file yet — estimate from data and persist as unconfirmed
-    const estimated = estimateHrZones();
-    await saveHrZones(estimated);
-    return estimated;
+  const zones = await loadTrainingZones();
+  if (zones) {
+    const { updated_at: _u, ...hr } = zones.hr;
+    return hr;
   }
+  // No file yet — estimate from data and persist as unconfirmed
+  const estimated = estimateHrZones();
+  await saveHrZonesPart(estimated, { notes: "Initial estimate from training data — unconfirmed" });
+  return estimated;
 }
 
-export async function saveHrZones(zones: HrZones): Promise<void> {
-  await fs.mkdir(path.dirname(getHrZonesFile()), { recursive: true });
-  await fs.writeFile(getHrZonesFile(), JSON.stringify(zones, null, 2));
+/**
+ * Save HR zones via the unified training-zones store.
+ * Also appends an audit entry to zones-history.jsonl.
+ */
+export async function saveHrZones(
+  zones: HrZones,
+  options: { approvedBy?: string; notes?: string } = {}
+): Promise<void> {
+  await saveHrZonesPart(zones, options);
 }
 
 function estimateHrZones(): HrZones {
