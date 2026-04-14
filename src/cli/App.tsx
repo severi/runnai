@@ -333,18 +333,25 @@ export default function App() {
     };
   }, [hasStarted]);
 
-  // Esc / Ctrl+C to interrupt current turn (or exit when idle)
+  // Esc / Ctrl+C:
+  //  - processing → interrupt the current turn
+  //  - idle with input → clear the input
+  //  - idle with empty input → exit
   useInput(
-    (input, key) => {
-      const isCtrlC = key.ctrl && input === "c";
+    (keyInput, key) => {
+      const isCtrlC = key.ctrl && keyInput === "c";
       if (isProcessing && queryRef.current) {
         if (key.escape || isCtrlC) {
           queryRef.current.interrupt();
         }
-      } else if (isCtrlC && !isProcessing) {
-        // Idle — Ctrl+C exits the app
-        channelRef.current?.close();
-        exit();
+      } else if (isCtrlC) {
+        if (input.length > 0) {
+          setInput("");
+          setSuggestions([]);
+        } else {
+          channelRef.current?.close();
+          exit();
+        }
       }
     },
     { isActive: !pendingQuestion }

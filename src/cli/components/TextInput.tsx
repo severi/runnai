@@ -72,7 +72,15 @@ export function TextInput({
         return;
       }
 
-      if (key.return) {
+      // Shift+Enter: most terminals (incl. iTerm2) send a bare LF (\n, 0x0A)
+      // which Ink reports as name="enter" — distinct from plain Enter's \r.
+      // Detect via the raw input byte rather than key flags since Ink does
+      // not expose name="enter" through its key object.
+      const isShiftEnter = input === "\n";
+      // Plain Enter with kitty protocol + shift modifier also means newline.
+      const isKittyShiftReturn = key.return && key.shift;
+
+      if (key.return && !key.shift) {
         onSubmit?.(valueRef.current);
         return;
       }
@@ -80,6 +88,17 @@ export function TextInput({
       const oldValue = valueRef.current;
       let nextCursor = cursorRef.current;
       let nextValue = oldValue;
+
+      if (isShiftEnter || isKittyShiftReturn) {
+        nextValue = nextValue.slice(0, nextCursor) + "\n" + nextValue.slice(nextCursor);
+        nextCursor += 1;
+        versionRef.current++;
+        valueRef.current = nextValue;
+        cursorRef.current = nextCursor;
+        rerender();
+        onChange(nextValue);
+        return;
+      }
 
       if (key.ctrl && input === "a") {
         nextCursor = 0;
@@ -139,7 +158,12 @@ export function TextInput({
             nextValue.slice(0, nextCursor - toDelete) + nextValue.slice(nextCursor);
           nextCursor = nextCursor - toDelete;
         }
-        const printable = input.replace(/[^\x20-\x7e\u00a0-\uffff]/g, "");
+        // Normalize line terminators from pastes (CRLF/CR → LF) so multi-line
+        // pastes preserve their line breaks. Plain Enter (single \r) is
+        // handled earlier via key.return, so this only affects multi-char input.
+        const normalized = input.replace(/\r\n?/g, "\n");
+        // Allow printable chars, newline, and tab through the filter.
+        const printable = normalized.replace(/[^\x20-\x7e\u00a0-\uffff\n\t]/g, "");
         if (printable) {
           nextValue =
             nextValue.slice(0, nextCursor) + printable + nextValue.slice(nextCursor);
@@ -190,6 +214,17 @@ export function TextInput({
     displayCursor < displayValue.length
       ? displayValue.slice(displayCursor + 1)
       : "";
+
+  if (cursorChar === "\n") {
+    return (
+      <Text>
+        {before}
+        <Text inverse> </Text>
+        {"\n"}
+        {after}
+      </Text>
+    );
+  }
 
   return (
     <Text>

@@ -69,6 +69,11 @@ export async function startCLI(): Promise<void> {
     // Ink 6.5+: only update changed lines, reduces flickering
     patchConsole: false,
     exitOnCtrlC: false, // We handle Ctrl+C ourselves (interrupt during processing, exit when idle)
+    // Kitty keyboard protocol — lets supporting terminals send distinct
+    // sequences for modified keys (e.g. Shift+Enter → \x1b[13;2u), so we
+    // can detect key.shift + key.return. Unsupported terminals ignore the
+    // enable sequence harmlessly.
+    kittyKeyboard: { mode: "enabled", flags: ["disambiguateEscapeCodes"] },
   });
   await waitUntilExit();
   await commitOnClose("session end: auto-backup");
