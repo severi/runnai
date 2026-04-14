@@ -185,6 +185,76 @@ export interface HrZones {
   confirmed: boolean;
 }
 
+// --- Training Zones (HR + Pace, single source of truth) ---
+
+export interface PaceRange {
+  /** Faster end of the range, sec/km. */
+  min_sec: number;
+  /** Slower end of the range, sec/km. */
+  max_sec: number;
+}
+
+export type PaceZoneName = "recovery" | "easy" | "marathon" | "tempo" | "threshold";
+
+export interface PaceZones {
+  source: "lactate_test" | "derived_from_training" | "manual";
+  recovery: PaceRange;
+  easy: PaceRange;
+  marathon: PaceRange;
+  tempo: PaceRange;
+  threshold: PaceRange;
+  /** ISO date the zones were last updated. */
+  updated_at: string;
+  /** Free-text description of how these were derived. */
+  derivation_notes: string;
+}
+
+export interface TrainingZones {
+  hr: HrZones & { updated_at: string };
+  pace: PaceZones | null;
+}
+
+// --- Fitness Drift Detection ---
+
+export type FitnessDriftDirection = "improving" | "stable" | "declining";
+export type FitnessDriftConfidence = "high" | "medium" | "low";
+
+export interface FitnessDriftSignal {
+  /** Median observed easy pace (sec/km) at Z2 HR from recent training. */
+  observed_easy_pace_sec: number;
+  /** Sample count used for the observation. */
+  sample_count: number;
+  /** First and last sample dates (YYYY-MM-DD). */
+  date_range: { start: string; end: string };
+  /** The currently stored easy pace range from training-zones.json. */
+  stored_easy_pace: PaceRange | null;
+  /** Median observed minus midpoint of stored range, sec/km. Negative = faster now. */
+  delta_sec_per_km: number | null;
+  direction: FitnessDriftDirection;
+  confidence: FitnessDriftConfidence;
+  /** True only when confidence === "high" — the coach should surface this proactively. */
+  should_prompt: boolean;
+  /** One-line human-readable explanation. */
+  summary: string;
+}
+
+// --- Zone History (audit trail) ---
+
+export interface ZoneHistoryEntry {
+  /** ISO date the change happened. */
+  date: string;
+  type: "hr" | "pace";
+  source: HrZones["source"] | PaceZones["source"];
+  /** The new values written. Shape depends on type. */
+  values: Record<string, unknown>;
+  /** Supporting context — sample count, prior values, detector confidence, etc. */
+  basis?: Record<string, unknown>;
+  /** Who approved the change ("athlete", "automatic", "lab_test", etc.) */
+  approved_by?: string;
+  /** Free-text note. */
+  notes?: string;
+}
+
 export interface ClassificationResult {
   run_type: RunType;
   run_type_detail: string | null;
@@ -319,6 +389,43 @@ export interface DetectedInterval {
   rest_start_s: number | null;
   rest_end_s: number | null;
   rest_distance_m: number | null;
+}
+
+// --- Plan Compliance Types ---
+
+export type ComplianceStatus = "completed" | "missed" | "upcoming";
+
+export interface ComplianceActivity {
+  id: number;
+  name: string;
+  distance_km: number;
+  pace_sec_per_km: number;
+  run_type: string | null;
+  start_date_local: string;
+}
+
+export interface ComplianceEntry {
+  planned: {
+    date: string;          // "YYYY-MM-DD"
+    sessionName: string;
+    details: string;
+    weekNumber: number;
+  };
+  actual: ComplianceActivity | null;
+  status: ComplianceStatus;
+}
+
+export interface WeeklyComplianceResult {
+  weekNumber: number;
+  planSlug: string;
+  entries: ComplianceEntry[];
+  summary: {
+    completed: number;
+    missed: number;
+    upcoming: number;
+    total: number;
+    completedKm: number;
+  };
 }
 
 export interface StreamAnalysisResult {

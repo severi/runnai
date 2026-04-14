@@ -25,8 +25,10 @@ import { loadHrZones, computeEasyPaceRef } from "./hr-zones.js";
 import { classifyRun, detectHillProfile } from "./run-classifier.js";
 import { generateTrainingPatterns } from "./training-patterns.js";
 import { toDateString, formatPace } from "./format.js";
-import { extractPlanWeeks } from "./plan-parser.js";
-import type { ActivityLapRecord, ActivityStream } from "../types/index.js";
+import { extractPlanWeeks, findCurrentWeekNumber, parsePlan } from "./plan-parser.js";
+import { findActivePlan, getWeeklyPlanCompliance } from "./plan-compliance.js";
+import { computeFitnessDrift } from "./fitness-drift.js";
+import type { ActivityLapRecord, ActivityStream, WeeklyComplianceResult, FitnessDriftSignal } from "../types/index.js";
 
 export interface StartupContext {
   sync: {
@@ -47,16 +49,18 @@ export interface StartupContext {
     daysAway: number;
     weeksAway: number;
   }[];
+  weekCompliance: WeeklyComplianceResult | null;
+  newRunPlanContext: Array<{
+    runId: number;
+    date: string;
+    planned: { sessionName: string; details: string; weekNumber: number } | null;
+  }>;
+  fitnessDrift: FitnessDriftSignal | null;
 }
 
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-};
-
-const MONTHS_LONG: Record<string, number> = {
-  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
 };
 
 export function parseRaceCountdowns(
@@ -103,44 +107,6 @@ export function parseRaceCountdowns(
   }
 
   return countdowns;
-}
-
-function extractYear(markdown: string): number {
-  const headerLines = markdown.split("\n").slice(0, 20);
-  for (const line of headerLines) {
-    const match = line.match(/\b(20\d{2})\b/);
-    if (match) return parseInt(match[1], 10);
-  }
-  return new Date().getFullYear();
-}
-
-export function findCurrentWeekNumber(planContent: string, today: Date = new Date()): number | null {
-  const lines = planContent.split("\n");
-  const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const year = extractYear(planContent);
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const datesMatch = line.match(/\*\*Dates:\*\*\s*\w+\s+(\w+)\s+(\d{1,2})\s*[-–]\s*\w+\s+(\w+)\s+(\d{1,2})/i);
-    if (!datesMatch) continue;
-
-    const [, startMonth, startDay, endMonth, endDay] = datesMatch;
-    const startIdx = MONTHS_LONG[startMonth.toLowerCase()];
-    const endIdx = MONTHS_LONG[endMonth.toLowerCase()];
-    if (startIdx === undefined || endIdx === undefined) continue;
-
-    const weekStart = new Date(year, startIdx, parseInt(startDay));
-    const weekEnd = new Date(year, endIdx, parseInt(endDay));
-    weekEnd.setHours(23, 59, 59, 999);
-
-    if (todayMs >= weekStart.getTime() && todayMs <= weekEnd.getTime()) {
-      for (let j = i; j >= 0; j--) {
-        const weekMatch = lines[j].match(/^##\s+Week\s+(\d+)\b/i);
-        if (weekMatch) return parseInt(weekMatch[1], 10);
-      }
-    }
-  }
-  return null;
 }
 
 async function fetchAndStoreDetail(activityId: number): Promise<ActivityStream | undefined> {
@@ -192,6 +158,7 @@ export async function startupSync(): Promise<StartupContext> {
 
   // 1. Run incremental Strava sync
   let syncStatus: StartupContext["sync"];
+  let newRunDates: Array<{ id: number; date: string }> = [];
   try {
     const existingIds = getExistingActivityIds();
     const syncResult = await syncActivities(30, undefined, true);
@@ -300,6 +267,11 @@ export async function startupSync(): Promise<StartupContext> {
           }
         }
 
+        newRunDates = newRuns.map(r => ({
+          id: r.id,
+          date: toDateString(new Date(r.start_date_local)),
+        }));
+
         syncStatus = {
           status: "new_activities",
           message: msg,
@@ -322,36 +294,49 @@ export async function startupSync(): Promise<StartupContext> {
     recentSummary = await fs.readFile(summaryPath, "utf-8");
   } catch {}
 
-  // 3. Load plan excerpt (current + next week)
+  // 3. Load plan once, then derive: plan excerpt, weekly compliance, per-run plan context
   let planExcerpt: StartupContext["planExcerpt"] = null;
+  let weekCompliance: WeeklyComplianceResult | null = null;
+  const newRunPlanContext: StartupContext["newRunPlanContext"] = newRunDates.map(r => ({
+    runId: r.id,
+    date: r.date,
+    planned: null,
+  }));
   try {
-    const plansDir = path.join(dataDir, "plans");
-    const planFiles = await fs.readdir(plansDir);
-    const mdFiles = planFiles.filter(f => f.endsWith(".md"));
-    if (mdFiles.length > 0) {
-      let bestFile = mdFiles[0];
-      let bestMtime = 0;
-      for (const f of mdFiles) {
-        const stat = await fs.stat(path.join(plansDir, f));
-        if (stat.mtimeMs > bestMtime) {
-          bestMtime = stat.mtimeMs;
-          bestFile = f;
-        }
-      }
-      const planContent = await fs.readFile(path.join(plansDir, bestFile), "utf-8");
-      const planName = bestFile.replace(".md", "");
-      const currentWeekNum = findCurrentWeekNumber(planContent, today);
+    const plan = await findActivePlan();
+    if (plan) {
+      const currentWeekNum = findCurrentWeekNumber(plan.content, today);
       if (currentWeekNum !== null) {
-        const weeksToExtract = [currentWeekNum, currentWeekNum + 1];
-        const excerpts = extractPlanWeeks(planContent, weeksToExtract);
-        const current = excerpts.find(e => e.weekNumber === currentWeekNum);
-        const next = excerpts.find(e => e.weekNumber === currentWeekNum + 1);
+        const wk = currentWeekNum;
+        const excerpts = extractPlanWeeks(plan.content, [wk, wk + 1]);
+        const current = excerpts.find(e => e.weekNumber === wk);
+        const next = excerpts.find(e => e.weekNumber === wk + 1);
         if (current) {
           planExcerpt = {
-            name: planName,
+            name: plan.slug,
             currentWeek: current.markdown,
             nextWeek: next?.markdown ?? "",
           };
+        }
+        try {
+          weekCompliance = await getWeeklyPlanCompliance(wk, today, plan);
+        } catch {}
+      }
+
+      // Per-run plan context: parse the entire plan once and look up each new run by date.
+      // This handles late-synced runs from previous weeks correctly.
+      if (newRunDates.length > 0) {
+        const allWorkouts = parsePlan(plan.content, plan.slug);
+        const byDate = new Map(allWorkouts.map(w => [w.date.slice(0, 10), w]));
+        for (const ctx of newRunPlanContext) {
+          const planned = byDate.get(ctx.date);
+          if (planned) {
+            ctx.planned = {
+              sessionName: planned.sessionName,
+              details: planned.details,
+              weekNumber: planned.weekNumber,
+            };
+          }
         }
       }
     }
@@ -365,7 +350,14 @@ export async function startupSync(): Promise<StartupContext> {
     raceCountdowns = parseRaceCountdowns(contextContent, today);
   } catch {}
 
-  return { sync: syncStatus, recentSummary, planExcerpt, raceCountdowns };
+  // 5. Fitness drift detection — compares recent training-data Z2 pace
+  // against stored easy zone in training-zones.json
+  let fitnessDrift: FitnessDriftSignal | null = null;
+  try {
+    fitnessDrift = await computeFitnessDrift(today);
+  } catch {}
+
+  return { sync: syncStatus, recentSummary, planExcerpt, raceCountdowns, weekCompliance, newRunPlanContext, fitnessDrift };
 }
 
 export function formatStartupGreeting(ctx: StartupContext): string {
@@ -379,6 +371,12 @@ export function formatStartupGreeting(ctx: StartupContext): string {
     for (const r of ctx.raceCountdowns) {
       parts.push(`- ${r.name}: ${r.daysAway} days (${r.weeksAway} weeks)`);
     }
+  }
+  if (ctx.fitnessDrift?.should_prompt) {
+    parts.push("");
+    parts.push("**Fitness drift detected — surface this BEFORE the casual greeting:**");
+    parts.push(ctx.fitnessDrift.summary);
+    parts.push("Open by flagging the drift and proposing a zone update. Ask the athlete to confirm before calling update_pace_zones. Then continue with the casual check-in.");
   }
   return parts.join("\n");
 }
@@ -417,11 +415,51 @@ export function formatCompactStatus(ctx: StartupContext): string {
     if (weekTitle) lines.push(`**${weekTitle}** — ${sessions.join(" · ")}`);
   }
 
+  // Plan compliance — compact week-so-far summary
+  if (ctx.weekCompliance && ctx.weekCompliance.entries.length > 0) {
+    const { summary, entries } = ctx.weekCompliance;
+    const parts: string[] = [`${summary.completed}/${summary.total} done · ${summary.completedKm}km`];
+    const missed = entries.filter(e => e.status === "missed");
+    if (missed.length > 0) {
+      parts.push(`missed: ${missed.map(e => e.planned.sessionName).join(", ")}`);
+    }
+    const upcoming = entries.filter(e => e.status === "upcoming");
+    if (upcoming.length > 0) {
+      parts.push(`upcoming: ${upcoming.map(e => e.planned.sessionName).join(", ")}`);
+    }
+    lines.push(`Week ${ctx.weekCompliance.weekNumber} compliance: ${parts.join(" — ")}`);
+  }
+
+  // Fitness drift — only when high confidence
+  if (ctx.fitnessDrift?.should_prompt) {
+    lines.push(`⚡ Fitness drift (${ctx.fitnessDrift.confidence}): ${ctx.fitnessDrift.summary}`);
+  }
+
   return lines.join("\n");
 }
 
 export function formatNewRunsPrompt(ctx: StartupContext): string {
-  return `New runs synced — analyze each one following the "New Run Analysis" steps in your instructions.
+  let prompt = `New runs synced — analyze each one following the "New Run Analysis" steps in your instructions.
 
 ${ctx.sync.message}`;
+
+  // Pair each new run with its planned session so the LLM can compare
+  if (ctx.newRunPlanContext.length > 0) {
+    const lines: string[] = [];
+    for (const entry of ctx.newRunPlanContext) {
+      if (entry.planned) {
+        lines.push(`- Run ${entry.runId} (${entry.date}, plan week ${entry.planned.weekNumber}) → Planned: **${entry.planned.sessionName}** — ${entry.planned.details}`);
+      } else {
+        lines.push(`- Run ${entry.runId} (${entry.date}) → No planned session for this date (unplanned run or rest day)`);
+      }
+    }
+    prompt += `\n\n**Plan context — compare each run against what was scheduled:**\n${lines.join("\n")}`;
+  }
+
+  // Surface fitness drift signal so the coach addresses it before run analysis
+  if (ctx.fitnessDrift?.should_prompt) {
+    prompt += `\n\n**Fitness drift detected (${ctx.fitnessDrift.confidence} confidence):**\n${ctx.fitnessDrift.summary}\n\nBefore analyzing the new runs, flag this to the athlete and propose a zone update. Use update_pace_zones AFTER the athlete confirms. Reference get_training_zones for the current values.`;
+  }
+
+  return prompt;
 }

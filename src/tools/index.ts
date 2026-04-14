@@ -7,12 +7,22 @@ export { saveRunAnalysisTool } from "./save-run-analysis.js";
 
 // Phase 2: Planning & utility tools
 export { planManagerTool, dateCalcTool, calculatorTool } from "./planning.js";
+export { getPlanComplianceTool } from "./plan-compliance.js";
 export { researchTool, saveResearchTool } from "./research.js";
 export { saveRacePredictionTool, getPredictionHistoryTool } from "./analysis.js";
+export { generateAerobicChartTool } from "./aerobic-chart.js";
 export { managePersonalRecordsTool } from "./personal-records.js";
 
 // HR zones
 export { setHrZonesTool, getHrZonesTool } from "./hr-zones-tool.js";
+
+// Training zones (HR + pace) and fitness drift
+export {
+  getTrainingZonesTool,
+  updatePaceZonesTool,
+  getFitnessDriftTool,
+  getZoneHistoryTool,
+} from "./training-zones.js";
 
 // Weather
 export { getWeatherTool } from "./weather.js";

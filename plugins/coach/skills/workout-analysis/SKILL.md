@@ -5,18 +5,48 @@ description: Post-run assessment framework, effort evaluation, pace zone analysi
 
 # Workout Analysis
 
+## Plan Comparison — Do This First
+
+Before assessing effort quality, establish what the run was *supposed* to be:
+
+1. **Check the plan context.** When analyzing new runs at session start, the startup prompt already pairs each run id with its planned session. If that pairing is present, use it directly. Otherwise call `get_plan_compliance` (omit `week_number` for the current week) — it returns each planned session joined to its matching actual run by date.
+2. **Open the analysis with the plan reference.** Lead with what was planned: "You had **Tempo** scheduled today — 12km total: 2km WU → 30min @ 4:55–5:10/km → 2km CD."
+3. **Assess execution against the plan, not against generic templates:**
+   - Did the run match the session **type** (easy vs tempo vs long)?
+   - For quality sessions: was the **intensity target** hit? Was the structure (warmup, work block, cooldown) executed correctly?
+   - For easy runs: was it **genuinely easy** (Z1–Z2) as prescribed?
+   - For long runs with MP segments: did the MP block hit the target window?
+4. **Note deviations explicitly:**
+   - If the planned distance/pace was missed by more than ~10%, call it out
+   - If the run was a different type than planned (e.g., tempo done as easy, easy done at threshold), explain the gap
+   - If the day was meant to be rest and a run happened anyway, flag it
+5. **No plan match for this date?** Treat as unplanned — note it briefly and analyze on its own merits.
+
+### Annotating Completion in the Plan
+
+After your analysis is complete and the athlete has confirmed (or you're saving the analysis), update the plan row to mark the session as done:
+
+- Call `manage_plan(action: "update")` with the full plan content (read it first)
+- Add a brief outcome to the session cell of the matching row — keep the existing convention (e.g., `✅` followed by a one-line result)
+- **Simple completion**: `✅ 12.1km @ 5:08/km, hit tempo target` — when the run matched the plan
+- **Notable deviation**: include the key deviation: `✅ 8.2km tempo done at 4:55/km — 30% short on distance, dropped to a quality interval session`
+- Do NOT rewrite other rows — preserve the rest of the plan exactly
+
+This is how plan completion stays in the source of truth across sessions.
+
 ## Post-Run Assessment Framework
 
 When analyzing a completed run, consider:
 
 ### 1. Was it the right effort?
 
+**Always reference current pace zones from get_training_zones — not generic formulas, not the plan file's pace strings, not the lab test from months ago.** The plan file no longer hardcodes pace strings in workout cells; it says "Easy" and you resolve to the athlete's current easy range. If you're about to flag a run as "too fast for easy" based on a pace string somewhere, STOP and call get_training_zones first.
+
 **Easy Run Assessment**:
-- Pace should be 1:00-1:30/km slower than threshold
-- Heart rate should be in Zone 1-2 (below 75% max HR)
-- If pace was faster than this, the run was too hard
-- Conversation test: could they talk in full sentences?
-- Common issue: "easy" runs done too fast
+- Pace should fall within the **current** easy range from get_training_zones (pace.easy)
+- Heart rate should be in Zone 1-2 (between LT1 × 0.88 and LT1)
+- HR is the ground truth: a run that looks "fast for easy" but had stable HR in Z2 with cardiac drift < 5% is NOT too hard — the zones may be stale, or the athlete may be fitter than the stored zones reflect. In that case, do not lecture on pace discipline. Trust the HR data and consider whether a fitness drift update is overdue.
+- Common false alarm: flagging a run as "too fast for easy" based on stale stored paces when the training-data-derived current pace would put it squarely in Z2.
 
 **Long Run Assessment**:
 - First half should feel comfortable

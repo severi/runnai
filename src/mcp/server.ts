@@ -12,13 +12,19 @@ import {
   planManagerTool,
   dateCalcTool,
   calculatorTool,
+  getPlanComplianceTool,
   researchTool,
   saveResearchTool,
   saveRacePredictionTool,
   getPredictionHistoryTool,
+  generateAerobicChartTool,
   managePersonalRecordsTool,
   setHrZonesTool,
   getHrZonesTool,
+  getTrainingZonesTool,
+  updatePaceZonesTool,
+  getFitnessDriftTool,
+  getZoneHistoryTool,
   readMemoryTool,
   writeMemoryTool,
   updateContextTool,
@@ -50,16 +56,23 @@ export const coachMcpServer = createSdkMcpServer({
     planManagerTool,
     dateCalcTool,
     calculatorTool,
+    getPlanComplianceTool,
     // Research
     researchTool,
     saveResearchTool,
     // Analysis
     saveRacePredictionTool,
     getPredictionHistoryTool,
+    generateAerobicChartTool,
     managePersonalRecordsTool,
     // HR zones
     setHrZonesTool,
     getHrZonesTool,
+    // Training zones (HR + pace) and fitness drift
+    getTrainingZonesTool,
+    updatePaceZonesTool,
+    getFitnessDriftTool,
+    getZoneHistoryTool,
     // Weather
     getWeatherTool,
     // Intervals.icu

@@ -1,0 +1,199 @@
+import * as fs from "fs/promises";
+import * as path from "path";
+import { getDataDir } from "./paths.js";
+import { parsePlan, findCurrentWeekNumber, type ParsedWorkout } from "./plan-parser.js";
+import { getDb } from "./activities-db.js";
+import type { WeeklyComplianceResult, ComplianceEntry, ComplianceActivity } from "../types/index.js";
+
+export interface ActivePlan {
+  filePath: string;
+  slug: string;
+  content: string;
+}
+
+/** Find the most recently modified plan file in data/plans/. */
+export async function findActivePlan(): Promise<ActivePlan | null> {
+  const plansDir = path.join(getDataDir(), "plans");
+  let files: string[];
+  try {
+    files = await fs.readdir(plansDir);
+  } catch {
+    return null;
+  }
+
+  const mdFiles = files.filter(f => f.endsWith(".md"));
+  if (mdFiles.length === 0) return null;
+
+  let bestFile = mdFiles[0];
+  let bestMtime = 0;
+  for (const f of mdFiles) {
+    const stat = await fs.stat(path.join(plansDir, f));
+    if (stat.mtimeMs > bestMtime) {
+      bestMtime = stat.mtimeMs;
+      bestFile = f;
+    }
+  }
+
+  const filePath = path.join(plansDir, bestFile);
+  const content = await fs.readFile(filePath, "utf-8");
+  return {
+    filePath,
+    slug: bestFile.replace(".md", ""),
+    content,
+  };
+}
+
+export interface ActivityRow {
+  id: number;
+  name: string;
+  distance: number;
+  moving_time: number;
+  run_type: string | null;
+  start_date_local: string;
+}
+
+function toComplianceActivity(row: ActivityRow): ComplianceActivity {
+  const distanceKm = Math.round((row.distance / 1000) * 100) / 100;
+  const paceSecPerKm = row.distance > 0 ? (row.moving_time / row.distance) * 1000 : 0;
+  return {
+    id: row.id,
+    name: row.name,
+    distance_km: distanceKm,
+    pace_sec_per_km: Math.round(paceSecPerKm),
+    run_type: row.run_type,
+    start_date_local: row.start_date_local,
+  };
+}
+
+function pickBestActivityForWorkout(rows: ActivityRow[]): ActivityRow | null {
+  if (rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  // Multiple activities on the same day (e.g., a double): pick the longest by distance.
+  return rows.reduce((best, r) => (r.distance > best.distance ? r : best));
+}
+
+function todayMs(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function plannedDateMs(workout: ParsedWorkout): number {
+  // workout.date is "YYYY-MM-DDT00:00:00" — local midnight
+  const [datePart] = workout.date.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+/**
+ * Pure matching logic: join parsed workouts to activity rows by date, compute status.
+ * Extracted for testability — no DB or filesystem dependencies.
+ */
+export function buildComplianceEntries(
+  workouts: ParsedWorkout[],
+  activities: ActivityRow[],
+  today: Date = new Date()
+): ComplianceEntry[] {
+  // Group activities by date prefix for fast lookup
+  const byDate = new Map<string, ActivityRow[]>();
+  for (const row of activities) {
+    const key = row.start_date_local.slice(0, 10);
+    const list = byDate.get(key);
+    if (list) list.push(row);
+    else byDate.set(key, [row]);
+  }
+
+  const todayStartMs = todayMs(today);
+
+  return workouts.map(w => {
+    const dateKey = w.date.slice(0, 10);
+    const matches = byDate.get(dateKey) ?? [];
+    const best = pickBestActivityForWorkout(matches);
+    const actual = best ? toComplianceActivity(best) : null;
+
+    let status: ComplianceEntry["status"];
+    if (actual) {
+      status = "completed";
+    } else if (plannedDateMs(w) >= todayStartMs) {
+      status = "upcoming";
+    } else {
+      status = "missed";
+    }
+
+    return {
+      planned: {
+        date: dateKey,
+        sessionName: w.sessionName,
+        details: w.details,
+        weekNumber: w.weekNumber,
+      },
+      actual,
+      status,
+    };
+  });
+}
+
+/**
+ * Compare a training plan week against actual logged activities.
+ * Returns each planned (non-rest) workout joined to the matching activity by date.
+ *
+ * @param weekNumber Optional plan week number. Defaults to the current week.
+ * @param today Reference date for "current week" detection and upcoming/missed status.
+ * @param plan Optional pre-loaded plan to avoid re-reading the file.
+ */
+export async function getWeeklyPlanCompliance(
+  weekNumber?: number,
+  today: Date = new Date(),
+  plan?: ActivePlan
+): Promise<WeeklyComplianceResult | null> {
+  const activePlan = plan ?? (await findActivePlan());
+  if (!activePlan) return null;
+
+  const week = weekNumber ?? findCurrentWeekNumber(activePlan.content, today);
+  if (week === null || week === undefined) return null;
+
+  const workouts = parsePlan(activePlan.content, activePlan.slug, [week]);
+  if (workouts.length === 0) {
+    return {
+      weekNumber: week,
+      planSlug: activePlan.slug,
+      entries: [],
+      summary: { completed: 0, missed: 0, upcoming: 0, total: 0, completedKm: 0 },
+    };
+  }
+
+  // Date range for the SQL query
+  const dates = workouts.map(w => w.date.slice(0, 10)).sort();
+  const minDate = dates[0];
+  const maxDate = dates[dates.length - 1];
+
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, name, distance, moving_time, run_type, start_date_local
+     FROM activities
+     WHERE type = 'Run'
+       AND (trainer = 0 OR trainer IS NULL)
+       AND date(start_date_local) BETWEEN date(?) AND date(?)
+     ORDER BY start_date_local ASC`
+  ).all(minDate, maxDate) as ActivityRow[];
+
+  const entries = buildComplianceEntries(workouts, rows, today);
+
+  const completed = entries.filter(e => e.status === "completed").length;
+  const missed = entries.filter(e => e.status === "missed").length;
+  const upcoming = entries.filter(e => e.status === "upcoming").length;
+  const completedKm = entries
+    .filter(e => e.actual)
+    .reduce((sum, e) => sum + (e.actual?.distance_km ?? 0), 0);
+
+  return {
+    weekNumber: week,
+    planSlug: activePlan.slug,
+    entries,
+    summary: {
+      completed,
+      missed,
+      upcoming,
+      total: entries.length,
+      completedKm: Math.round(completedKm * 10) / 10,
+    },
+  };
+}
