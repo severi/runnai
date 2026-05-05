@@ -11,7 +11,6 @@ import {
   getPlanFile,
   getDraftPlanFile,
   getDraftReasoningFile,
-  getDraftMarker,
   isDraftActive,
   listPlanSlugs,
   nextDraftVersion,
