@@ -70,4 +70,15 @@ describe("plan-references", () => {
   test("setUsedInVersions on missing entry throws", async () => {
     await expect(setUsedInVersions("p", "missing.pdf", ["v1"])).rejects.toThrow();
   });
+
+  test("attachReference preserves existing Used in versions when re-linking", async () => {
+    const srcPath = path.join(tmp, "doc.pdf");
+    await fs.writeFile(srcPath, "x");
+    await attachReference("p", srcPath, "first note");
+    await setUsedInVersions("p", "doc.pdf", ["v1", "v2"]);
+    await attachReference("p", srcPath, "updated note");
+    const index = await readReferencesIndex("p");
+    expect(index).toContain("Used in versions: v1, v2");
+    expect(index).toContain("Note: updated note");
+  });
 });

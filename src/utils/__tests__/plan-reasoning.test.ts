@@ -67,7 +67,7 @@ describe("plan-reasoning", () => {
     await initReasoning(filePath, { version: 2 });
     const empty = await checkRequiredSectionsFilled(filePath);
     expect(empty.sort()).toEqual(
-      ["Decisions and rationale", "Key changes from previous version", "Trigger"].sort(),
+      (["Decisions and rationale", "Key changes from previous version", "Trigger"] as ReasoningSection[]).sort(),
     );
 
     await appendToSection(filePath, "Trigger", "Just because.");
