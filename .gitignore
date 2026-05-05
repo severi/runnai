@@ -13,6 +13,9 @@ dist/
 # User data (all generated at runtime)
 data/
 
+# XLSX exports — transient renders of plan.md
+data/plans/*/exports/
+
 # Private docs
 .private/
 
