@@ -620,6 +620,85 @@ describe("computeStreamAnalysis", () => {
         expect(interval.rep_number).toBeGreaterThan(0);
       }
     });
+
+    test("short reps: peak_hr_lagged captures post-rep peak, exceeds avg_hr", () => {
+      // Simulate 3x ~35s hill-rep efforts. HR profile per rep:
+      //   - rest baseline 130
+      //   - during the 35s rep, HR ramps linearly 140 → 175
+      //   - first 15s after rep, HR keeps climbing to 185 (cardiac lag), then
+      //     drifts back down to 140 over the 90s recovery
+      // This is the hill-repeat scenario: avg_hr inside the rep is ~157
+      // (mid of 140→175), but the true peak (in the 15s lag window) is 185.
+      const workSpeed = 1000 / 200;     // ~3:20/km uphill effort speed
+      const recoverySpeed = 1000 / 480; // 8:00/km jog
+      const easyPace = 360;
+      const restHr = 130;
+
+      const time: number[] = [];
+      const distance: number[] = [];
+      const hr: number[] = [];
+      let dist = 0;
+      let t = 0;
+
+      // Warmup: 600s at easy pace, HR 130
+      for (let s = 0; s < 600; s++) {
+        time.push(t); distance.push(dist); hr.push(restHr);
+        dist += 1000 / easyPace; t++;
+      }
+
+      const REP_S = 35;
+      const RECOVERY_S = 90;
+      for (let rep = 0; rep < 3; rep++) {
+        // Work: HR ramps 140 → 175 over 35s
+        for (let s = 0; s < REP_S; s++) {
+          time.push(t); distance.push(dist);
+          hr.push(Math.round(140 + (175 - 140) * (s / REP_S)));
+          dist += workSpeed; t++;
+        }
+        // Recovery: first 15s HR keeps climbing 175 → 185 (lag), then drops 185 → 140 over remaining 75s
+        for (let s = 0; s < RECOVERY_S; s++) {
+          time.push(t); distance.push(dist);
+          if (s < 15) {
+            hr.push(Math.round(175 + (185 - 175) * (s / 15)));
+          } else {
+            hr.push(Math.round(185 - (185 - 140) * ((s - 15) / 75)));
+          }
+          dist += recoverySpeed; t++;
+        }
+      }
+      // Cooldown
+      for (let s = 0; s < 200; s++) {
+        time.push(t); distance.push(dist); hr.push(restHr);
+        dist += 1000 / easyPace; t++;
+      }
+
+      const streams: ActivityStream = { time, distance, heartrate: hr };
+      const result = computeStreamAnalysis(streams, null, t, easyPace);
+
+      expect(result.intervals.length).toBeGreaterThanOrEqual(2);
+
+      for (const iv of result.intervals) {
+        expect(iv.work_avg_hr).not.toBeNull();
+        expect(iv.work_peak_hr).not.toBeNull();
+        expect(iv.work_peak_hr_lagged).not.toBeNull();
+
+        // Peak should be substantially higher than the in-rep average (top of
+        // the 140→175 ramp, ~175). Phase detection smoothing means the
+        // detected work phase may extend slightly past the synthetic boundary,
+        // so peak_hr could already include the 185 lag peak — that's fine.
+        expect(iv.work_peak_hr!).toBeGreaterThanOrEqual(170);
+
+        // Lagged peak must capture (or exceed) the 185 bpm post-rep peak.
+        expect(iv.work_peak_hr_lagged!).toBeGreaterThanOrEqual(180);
+
+        // Lagged peak is always >= in-rep peak by definition.
+        expect(iv.work_peak_hr_lagged!).toBeGreaterThanOrEqual(iv.work_peak_hr!);
+
+        // The whole point: avg understates effort on short reps. Lagged peak
+        // should be meaningfully above avg here.
+        expect(iv.work_peak_hr_lagged! - iv.work_avg_hr!).toBeGreaterThanOrEqual(15);
+      }
+    });
   });
 
   // ─── Full pipeline integration ─────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { detectHillProfile, classifyRun } from "./run-classifier.js";
 import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
 import { computeStreamAnalysis } from "./stream-analysis.js";
 
-const CURRENT_ANALYSIS_VERSION = 2;
+const CURRENT_ANALYSIS_VERSION = 3;
 
 export function computeActivityAnalysis(
   activityId: number,
@@ -52,6 +52,7 @@ export function computeActivityAnalysis(
     elevation_gain: l.elevation_gain,
     elevation_loss: l.elevation_loss,
     avg_heartrate: l.average_heartrate,
+    peak_heartrate: l.max_heartrate,
   }));
 
   // Elevation aggregates from laps

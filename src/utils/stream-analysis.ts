@@ -9,7 +9,7 @@ import type {
   StreamAnalysisResult,
 } from "../types/index.js";
 
-export const STREAM_ANALYSIS_VERSION = 3;
+export const STREAM_ANALYSIS_VERSION = 4;
 
 /** Lap boundary hint for phase detection. */
 export interface LapHint {
@@ -117,8 +117,11 @@ export function computeStreamAnalysis(
 
   // Tier 3
   const manualLapBoundaries = lapHints ? detectManualLaps(lapHints) : null;
-  const phases = detectPhases(smoothedEffortSpeed, smoothedSpeed, smoothedHr, time, distance, altitude, easyPaceRef, manualLapBoundaries);
-  const intervals = detectIntervals(phases);
+  // Pass raw (unsmoothed) HR so peak HR reflects the actual max bpm reached,
+  // not a smoothed-down value. Smoothed HR is right for averages, raw is right
+  // for peaks.
+  const phases = detectPhases(smoothedEffortSpeed, smoothedSpeed, smoothedHr, hr, time, distance, altitude, easyPaceRef, manualLapBoundaries);
+  const intervals = detectIntervals(phases, hr, time);
 
   return {
     hr_zones: hrZoneDist,
@@ -524,6 +527,7 @@ function detectPhases(
   effortSpeed: number[],
   rawSpeed: number[],
   hr: number[] | null,
+  rawHr: number[] | null,
   time: number[],
   distance: number[],
   altitude: number[] | null,
@@ -593,6 +597,7 @@ function detectPhases(
     const distM = distance[p.endIdx] - distance[p.startIdx];
     const avgPace = computeSegmentPace(rawSpeed, time, p.startIdx, p.endIdx);
     const avgHr = hr ? computeSegmentAvgHr(hr, time, p.startIdx, p.endIdx) : null;
+    const peakHr = rawHr ? computeSegmentPeakHr(rawHr, p.startIdx, p.endIdx) : null;
     const elev = smoothedAlt ? computeSegmentElevation(smoothedAlt, p.startIdx, p.endIdx) : null;
 
     let phase: PhaseSegment["phase"];
@@ -615,7 +620,7 @@ function detectPhases(
 
     segments.push({
       phase, start_s: startS, end_s: endS, distance_m: round(distM, 0),
-      avg_pace_sec_per_km: avgPace, avg_hr: avgHr,
+      avg_pace_sec_per_km: avgPace, avg_hr: avgHr, peak_hr: peakHr,
       elevation_gain_m: elev ? round(elev.gain, 0) : null,
       elevation_loss_m: elev ? round(elev.loss, 0) : null,
       hr_trend: hrTrend,
@@ -775,6 +780,33 @@ function computeSegmentAvgHr(hr: number[], time: number[], start: number, end: n
   return count > 0 ? round(sum / count, 0) : null;
 }
 
+/** Peak (max) HR observed in a segment, inclusive end index. Null if no valid samples. */
+function computeSegmentPeakHr(hr: number[], start: number, end: number): number | null {
+  let peak = 0;
+  const lo = Math.max(0, start);
+  const hi = Math.min(hr.length - 1, end);
+  for (let i = lo; i <= hi; i++) {
+    if (hr[i] > peak) peak = hr[i];
+  }
+  return peak > 0 ? peak : null;
+}
+
+/** Peak HR in [startS, endS + lagS] using time array to map seconds → indices. */
+function computeSegmentPeakHrLagged(
+  hr: number[], time: number[], startS: number, endS: number, lagS: number
+): number | null {
+  const targetEnd = endS + lagS;
+  let startIdx = -1;
+  let endIdx = -1;
+  for (let i = 0; i < time.length; i++) {
+    if (startIdx === -1 && time[i] >= startS) startIdx = i;
+    if (time[i] <= targetEnd) endIdx = i;
+    else break;
+  }
+  if (startIdx === -1 || endIdx < startIdx) return null;
+  return computeSegmentPeakHr(hr, startIdx, endIdx);
+}
+
 // --- HR Trend Analysis ---
 
 /**
@@ -903,7 +935,11 @@ export function computeSegmentHrTrend(
  * distance, it's a continuous run with a minor tail, not an interval workout.
  * Returns empty array for continuous runs.
  */
-function detectIntervals(phases: PhaseSegment[]): DetectedInterval[] {
+function detectIntervals(
+  phases: PhaseSegment[],
+  rawHr: number[] | null,
+  time: number[]
+): DetectedInterval[] {
   // Find alternating work/recovery patterns
   const workPhases = phases.filter(p => p.phase === "work");
   if (workPhases.length < 2) return []; // need at least 2 work bouts for intervals
@@ -926,6 +962,12 @@ function detectIntervals(phases: PhaseSegment[]): DetectedInterval[] {
     const nextRecovery = i + 1 < phases.length && phases[i + 1].phase === "recovery"
       ? phases[i + 1] : null;
 
+    // Peak HR with lag: cardiac response lags effort by 10–20s, so on short
+    // reps (<90s) the true effort peak often lands a few seconds into recovery.
+    const peakLagged = rawHr
+      ? computeSegmentPeakHrLagged(rawHr, time, p.start_s, p.end_s, 15)
+      : null;
+
     intervals.push({
       rep_number: repNum,
       work_start_s: p.start_s,
@@ -933,6 +975,8 @@ function detectIntervals(phases: PhaseSegment[]): DetectedInterval[] {
       work_distance_m: p.distance_m,
       work_avg_pace_sec_per_km: p.avg_pace_sec_per_km ?? 0,
       work_avg_hr: p.avg_hr,
+      work_peak_hr: p.peak_hr,
+      work_peak_hr_lagged: peakLagged,
       rest_start_s: nextRecovery?.start_s ?? null,
       rest_end_s: nextRecovery?.end_s ?? null,
       rest_distance_m: nextRecovery?.distance_m ?? null,
