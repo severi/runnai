@@ -292,6 +292,7 @@ export interface LapSummary {
   elevation_gain: number | null;
   elevation_loss: number | null;
   avg_heartrate: number | null;
+  peak_heartrate: number | null;
 }
 
 export interface ActivityAnalysisRecord {
@@ -373,6 +374,7 @@ export interface PhaseSegment {
   distance_m: number;
   avg_pace_sec_per_km: number | null;
   avg_hr: number | null;
+  peak_hr: number | null;
   elevation_gain_m: number | null;
   elevation_loss_m: number | null;
   /** HR trend analysis for work phases >= 2km with HR data */
@@ -386,6 +388,16 @@ export interface DetectedInterval {
   work_distance_m: number;
   work_avg_pace_sec_per_km: number;
   work_avg_hr: number | null;
+  /** Max HR observed during the work segment. */
+  work_peak_hr: number | null;
+  /**
+   * Max HR observed in [work_start_s, work_end_s + 15s]. Cardiac response lags
+   * effort by 10–20s, so on short reps (<90s) HR often peaks just after the
+   * rep ends. This is the more honest effort indicator on short intervals;
+   * `work_avg_hr` systematically understates because most of the rep is the
+   * ramp-up phase.
+   */
+  work_peak_hr_lagged: number | null;
   rest_start_s: number | null;
   rest_end_s: number | null;
   rest_distance_m: number | null;

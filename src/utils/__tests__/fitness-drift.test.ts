@@ -24,6 +24,7 @@ function workPhase(distance_m: number, pace: number, hr: number, withHr: boolean
     distance_m,
     avg_pace_sec_per_km: pace,
     avg_hr: withHr ? hr : null,
+    peak_hr: null,
     elevation_gain_m: 0,
     elevation_loss_m: 0,
     hr_trend: null,
@@ -133,7 +134,7 @@ describe("extractEasyPaceSamples", () => {
         phases: [
           workPhase(2000, 320, 142),
           workPhase(3000, 305, 146),
-          { phase: "recovery", start_s: 0, end_s: 100, distance_m: 200, avg_pace_sec_per_km: 480, avg_hr: 130, elevation_gain_m: 0, elevation_loss_m: 0, hr_trend: null },
+          { phase: "recovery", start_s: 0, end_s: 100, distance_m: 200, avg_pace_sec_per_km: 480, avg_hr: 130, peak_hr: null, elevation_gain_m: 0, elevation_loss_m: 0, hr_trend: null },
           workPhase(2500, 312, 144),
         ],
       }),
@@ -148,7 +149,7 @@ describe("extractEasyPaceSamples", () => {
         date: "2026-04-01",
         phases: [
           workPhase(5000, 310, 145, false), // null hr
-          { phase: "work", start_s: 0, end_s: 100, distance_m: 5000, avg_pace_sec_per_km: null, avg_hr: 145, elevation_gain_m: 0, elevation_loss_m: 0, hr_trend: null },
+          { phase: "work", start_s: 0, end_s: 100, distance_m: 5000, avg_pace_sec_per_km: null, avg_hr: 145, peak_hr: null, elevation_gain_m: 0, elevation_loss_m: 0, hr_trend: null },
         ],
       }),
     ];
