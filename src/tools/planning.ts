@@ -15,7 +15,9 @@ import {
   isDraftActive,
   listPlanSlugs,
   nextDraftVersion,
+  getExportsDir,
 } from "../utils/plan-paths.js";
+import { exportPlanToXlsx } from "../utils/plan-xlsx.js";
 import { renderDiff } from "../utils/plan-diff.js";
 import { writeFrontmatter, parseFrontmatter } from "../utils/plan-frontmatter.js";
 import { appendChangelogEntry } from "../utils/plan-changelog.js";
@@ -29,7 +31,7 @@ export const planManagerTool = tool(
     action: z.enum([
       "create", "read", "update", "delete", "list",
       "revise", "finalize", "discard", "rename",
-      "diff", "show",
+      "diff", "show", "export-xlsx",
     ]).describe("Action to perform"),
     planName: z.string().optional().describe("Name of the plan"),
     content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file — pass the complete plan, not a partial patch."),
@@ -241,6 +243,22 @@ export const planManagerTool = tool(
           const outPath = path.join(getDraftDir(slug, version), "diff.md");
           await fs.writeFile(outPath, rendered);
           return toolResult(`diff written to ${outPath}`);
+        }
+
+        case "export-xlsx": {
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          const draft = await isDraftActive(slug);
+          const which = target ?? (draft ? "draft" : "current");
+          const sourcePath = which === "draft"
+            ? getDraftPlanFile(slug, await nextDraftVersion(slug))
+            : getPlanFile(slug);
+          const sourceContent = await fs.readFile(sourcePath, "utf-8");
+
+          await fs.mkdir(getExportsDir(slug), { recursive: true });
+          const outPath = path.join(getExportsDir(slug), `${slug}-${toDateString()}-${which}.xlsx`);
+          await exportPlanToXlsx(sourceContent, slug, outPath);
+          return toolResult(`xlsx exported (${which}): ${outPath}`);
         }
 
         default:
