@@ -6,7 +6,13 @@ import { getDataDir } from "../utils/paths.js";
 import { sanitizeFilename, toolResult, toolError } from "../utils/format.js";
 import { parsePlan } from "../utils/plan-parser.js";
 import type { IntervalsEvent } from "../intervals/client.js";
-import { getIntervalsCredentials, workoutsToEvents, bulkUpsertEvents } from "../intervals/client.js";
+import {
+  getIntervalsCredentials,
+  workoutsToEvents,
+  bulkUpsertEvents,
+  listEvents,
+  deleteEvent,
+} from "../intervals/client.js";
 
 export const exportToIntervalsTool = tool(
   "export_to_intervals",
@@ -166,6 +172,181 @@ export const pushToIntervalsTool = tool(
       }
 
       return toolResult(`Pushed ${result.eventCount} enriched workouts to intervals.icu with structured descriptions, tags, and colors.`);
+    } catch (error) {
+      return toolError(error);
+    }
+  },
+);
+
+export const listIntervalsEventsTool = tool(
+  "list_intervals_events",
+  "Fetch workout events currently on intervals.icu within a date range. Returns each event's server id, date, name, and external_id (null = orphan from a non-runnai export). Use this to inspect what's actually stored on the server, e.g., to find duplicates or stale entries.",
+  {
+    oldest: z.string().describe("Inclusive start date, YYYY-MM-DD"),
+    newest: z.string().describe("Inclusive end date, YYYY-MM-DD"),
+  },
+  async ({ oldest, newest }) => {
+    try {
+      let creds: { athleteId: string; apiKey: string };
+      try {
+        creds = getIntervalsCredentials();
+      } catch (e) {
+        return toolResult(`intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}`, true);
+      }
+
+      const events = await listEvents(creds.athleteId, creds.apiKey, oldest, newest);
+      const summary = events
+        .map(e => ({
+          id: e.id,
+          date: e.start_date_local.slice(0, 10),
+          name: e.name,
+          external_id: e.external_id,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date) || (a.external_id ?? "").localeCompare(b.external_id ?? ""));
+
+      return toolResult(JSON.stringify({
+        oldest,
+        newest,
+        total: events.length,
+        runnai_tagged: events.filter(e => e.external_id?.startsWith("runnai:")).length,
+        orphans: events.filter(e => e.external_id == null).length,
+        events: summary,
+      }, null, 2));
+    } catch (error) {
+      return toolError(error);
+    }
+  },
+);
+
+export const deleteIntervalsEventTool = tool(
+  "delete_intervals_event",
+  "Delete a single workout event from intervals.icu by its server id. Returns 'deleted' on success or already-gone (404). Use list_intervals_events first to find ids of stale/duplicate events.",
+  {
+    event_id: z.number().describe("Server-side event id from list_intervals_events"),
+  },
+  async ({ event_id }) => {
+    try {
+      let creds: { athleteId: string; apiKey: string };
+      try {
+        creds = getIntervalsCredentials();
+      } catch (e) {
+        return toolResult(`intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}`, true);
+      }
+      await deleteEvent(creds.athleteId, creds.apiKey, event_id);
+      return toolResult(`Deleted event ${event_id}.`);
+    } catch (error) {
+      return toolError(error);
+    }
+  },
+);
+
+export const reconcileIntervalsPlanTool = tool(
+  "reconcile_intervals_plan",
+  "Diff intervals.icu calendar against the local plan and (optionally) clean up. Identifies orphan events (no runnai: external_id) and stale runnai-tagged events whose external_id no longer matches the current plan parser. With apply=true, deletes those stale events AND re-pushes the current plan via upsert. With apply=false (default), reports what would happen without changes.",
+  {
+    planName: z.string().describe("Plan name (same as in manage_plan / export_to_intervals)"),
+    oldest: z.string().describe("Date range start YYYY-MM-DD — typically today or the plan start"),
+    newest: z.string().describe("Date range end YYYY-MM-DD — typically the plan's last race day"),
+    apply: z.boolean().optional().describe("If true, perform deletes + re-push. If false (default), dry run."),
+    weekFilter: z.array(z.number()).optional().describe("Limit reconciliation to specific plan weeks. Omit for all weeks intersecting the date range."),
+  },
+  async ({ planName, oldest, newest, apply = false, weekFilter }) => {
+    try {
+      let creds: { athleteId: string; apiKey: string };
+      try {
+        creds = getIntervalsCredentials();
+      } catch (e) {
+        return toolResult(`intervals.icu not configured. ${e instanceof Error ? e.message : String(e)}`, true);
+      }
+
+      // Load + parse current plan
+      const planSlug = sanitizeFilename(planName);
+      const filePath = path.join(getDataDir(), "plans", `${planSlug}.md`);
+      let content: string;
+      try {
+        content = await fs.readFile(filePath, "utf-8");
+      } catch {
+        return toolResult(`Plan '${planName}' not found at ${filePath}.`, true);
+      }
+      const workouts = parsePlan(content, planSlug, weekFilter);
+      const expectedEvents = workoutsToEvents(workouts);
+      const expectedIds = new Set(expectedEvents.map(e => e.external_id));
+
+      // Fetch what's actually on the server
+      const serverEvents = await listEvents(creds.athleteId, creds.apiKey, oldest, newest);
+
+      // Classify each server event
+      const orphans = serverEvents.filter(e => e.external_id == null);
+      const runnaiTagged = serverEvents.filter(e => e.external_id?.startsWith(`runnai:${planSlug}:`));
+      const stale = runnaiTagged.filter(e => !expectedIds.has(e.external_id!));
+      const aligned = runnaiTagged.filter(e => expectedIds.has(e.external_id!));
+      const otherTagged = serverEvents.filter(
+        e => e.external_id != null && !e.external_id.startsWith(`runnai:${planSlug}:`),
+      );
+
+      const toDelete = [...orphans, ...stale];
+
+      const report = {
+        planName,
+        date_range: { oldest, newest },
+        server: {
+          total: serverEvents.length,
+          orphans: orphans.length,
+          runnai_aligned: aligned.length,
+          runnai_stale: stale.length,
+          other_tagged: otherTagged.length,
+        },
+        expected_from_current_plan: expectedEvents.length,
+        to_delete: toDelete.map(e => ({
+          id: e.id,
+          date: e.start_date_local.slice(0, 10),
+          name: e.name,
+          external_id: e.external_id,
+          reason: e.external_id == null ? "orphan" : "drifted_index",
+        })),
+        applied: false,
+        deleted: 0,
+        upserted: 0,
+      };
+
+      if (!apply) {
+        return toolResult(JSON.stringify({
+          ...report,
+          note: "Dry run. Pass apply=true to delete the stale events and re-push the current plan via upsert.",
+        }, null, 2));
+      }
+
+      // Apply: delete stale, then upsert current plan
+      let deleted = 0;
+      const deleteErrors: string[] = [];
+      for (const e of toDelete) {
+        try {
+          await deleteEvent(creds.athleteId, creds.apiKey, e.id);
+          deleted++;
+        } catch (err) {
+          deleteErrors.push(`event ${e.id} (${e.start_date_local.slice(0, 10)} "${e.name}"): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      let upserted = 0;
+      let upsertError: string | undefined;
+      if (expectedEvents.length > 0) {
+        const result = await bulkUpsertEvents(creds.athleteId, creds.apiKey, expectedEvents);
+        if (result.success) {
+          upserted = result.eventCount;
+        } else {
+          upsertError = result.error;
+        }
+      }
+
+      return toolResult(JSON.stringify({
+        ...report,
+        applied: true,
+        deleted,
+        upserted,
+        delete_errors: deleteErrors.length > 0 ? deleteErrors : undefined,
+        upsert_error: upsertError,
+      }, null, 2));
     } catch (error) {
       return toolError(error);
     }
