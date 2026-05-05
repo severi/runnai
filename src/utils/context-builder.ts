@@ -137,7 +137,18 @@ When asked to export a plan to intervals.icu, use the enriched flow:
 3. Assign tags (reuse existing: recovery, tempo, long, midlong, trail; add new as needed: easy, intervals, race, marathon-pace, progressive, hill-repeats, strides, shakeout)
 4. Assign hex colors by workout type
 5. Call push_to_intervals with the enriched events
-Process workouts in batches by week (e.g. 3-4 weeks per push_to_intervals call) to keep context manageable.`;
+Process workouts in batches by week (e.g. 3-4 weeks per push_to_intervals call) to keep context manageable.
+
+## Intervals.icu Sync — Audit & Cleanup
+When the athlete asks "is intervals.icu up to date?" or reports duplicates / missing entries on the calendar, do NOT only check export_to_intervals(dryRun=true) — that shows the local plan, not the server state. The two can diverge silently because:
+- Older exports may have left orphan events without a runnai: external_id (the upsert can't reach those).
+- The plan parser uses positional session indices (\`w8:s3\`); editing the plan (adding/removing/reordering rows) can shift these indices, leaving old indices live on the server as duplicates.
+
+Use the dedicated tools:
+1. **list_intervals_events(oldest, newest)** — see what's actually on the server. Read the orphans count and runnai_tagged count.
+2. **reconcile_intervals_plan(planName, oldest, newest, apply=false)** — diff the server vs current plan in one shot. Shows exactly which events would be deleted (orphans + drifted runnai indices) and which would be upserted. Always run apply=false first and show the report to the athlete.
+3. After athlete approves, call **reconcile_intervals_plan** again with **apply=true** to delete the stale events and re-push the current plan.
+4. Use **delete_intervals_event(event_id)** for ad-hoc one-off cleanups when you don't want a full reconcile.`;
 
   return prompt;
 }

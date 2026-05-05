@@ -28,7 +28,13 @@ export {
 export { getWeatherTool } from "./weather.js";
 
 // Intervals.icu
-export { exportToIntervalsTool, pushToIntervalsTool } from "./intervals.js";
+export {
+  exportToIntervalsTool,
+  pushToIntervalsTool,
+  listIntervalsEventsTool,
+  deleteIntervalsEventTool,
+  reconcileIntervalsPlanTool,
+} from "./intervals.js";
 
 // Data backup
 export { commitDataTool } from "./data-backup.js";

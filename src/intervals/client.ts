@@ -71,3 +71,52 @@ export async function bulkUpsertEvents(
   const result = (await response.json()) as unknown[];
   return { success: true, eventCount: result.length };
 }
+
+export interface IntervalsServerEvent {
+  id: number;
+  start_date_local: string;
+  name: string;
+  category: string;
+  type: string | null;
+  description: string | null;
+  external_id: string | null;
+  athlete_id?: string;
+}
+
+function basicAuth(apiKey: string): string {
+  return "Basic " + Buffer.from(`API_KEY:${apiKey}`).toString("base64");
+}
+
+/** List events on intervals.icu within a date range. Dates are YYYY-MM-DD (inclusive). */
+export async function listEvents(
+  athleteId: string,
+  apiKey: string,
+  oldest: string,
+  newest: string,
+  category: string = "WORKOUT",
+): Promise<IntervalsServerEvent[]> {
+  const url = `${BASE_URL}/api/v1/athlete/${athleteId}/events?oldest=${oldest}&newest=${newest}&category=${category}`;
+  const response = await fetch(url, {
+    headers: { Authorization: basicAuth(apiKey) },
+  });
+  if (!response.ok) {
+    throw new Error(`intervals.icu list failed (${response.status}): ${await response.text()}`);
+  }
+  return (await response.json()) as IntervalsServerEvent[];
+}
+
+/** Delete a single event by its server-side id. */
+export async function deleteEvent(
+  athleteId: string,
+  apiKey: string,
+  eventId: number,
+): Promise<void> {
+  const url = `${BASE_URL}/api/v1/athlete/${athleteId}/events/${eventId}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: basicAuth(apiKey) },
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`intervals.icu delete failed (${response.status}): ${await response.text()}`);
+  }
+}
