@@ -5,14 +5,13 @@ import { toolResult, toolError } from "../utils/format.js";
 
 export const saveRunAnalysisTool = tool(
   "save_run_analysis",
-  "Save a coaching analysis for a run. Stores the detailed analysis, Strava title, and Strava description in the database. Call this after analyzing a run to persist your analysis for future reference.",
+  "Save a coaching analysis for a run. Stores the detailed analysis and optional Strava title. The Strava description is always identical to detailed_analysis (no separate condensed version) — the strava-writeback skill passes the same prose to strava_update_activity.",
   {
     activity_id: z.number().describe("Strava activity ID"),
-    detailed_analysis: z.string().describe("Full coaching analysis (1-2 paragraphs)"),
+    detailed_analysis: z.string().describe("Full coaching analysis (1-2 paragraphs). Also used verbatim as the Strava description."),
     strava_title: z.string().optional().describe("Short activity title for Strava"),
-    strava_description: z.string().optional().describe("Condensed coaching description for Strava (2-4 sentences)"),
   },
-  async ({ activity_id, detailed_analysis, strava_title, strava_description }) => {
+  async ({ activity_id, detailed_analysis, strava_title }) => {
     try {
       const db = getDb();
       const now = new Date().toISOString();
@@ -25,18 +24,19 @@ export const saveRunAnalysisTool = tool(
         return toolResult(`No analysis record for activity ${activity_id}. Run get_run_analysis first.`, true);
       }
 
+      // strava_description mirrors detailed_analysis to prevent divergence
+      // between what's saved locally and what's published to Strava.
       db.prepare(`
         UPDATE activity_analysis
         SET detailed_analysis = ?, strava_title = ?, strava_description = ?, analysis_generated_at = ?
         WHERE activity_id = ?
-      `).run(detailed_analysis, strava_title ?? null, strava_description ?? null, now, activity_id);
+      `).run(detailed_analysis, strava_title ?? null, detailed_analysis, now, activity_id);
 
       return toolResult(JSON.stringify({
         activity_id,
         saved: true,
         has_detailed_analysis: true,
         has_strava_title: !!strava_title,
-        has_strava_description: !!strava_description,
         saved_at: now,
       }, null, 2));
     } catch (error) {
