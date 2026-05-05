@@ -6,10 +6,19 @@ import { evaluate } from "mathjs";
 import { getDataDir } from "../utils/paths.js";
 import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
 import { withDiffNote } from "../utils/data-git.js";
-
-function getPlansDir(): string {
-  return path.join(getDataDir(), "plans");
-}
+import {
+  getPlanDir,
+  getPlanFile,
+  getDraftPlanFile,
+  getDraftReasoningFile,
+  getDraftMarker,
+  isDraftActive,
+  listPlanSlugs,
+  nextDraftVersion,
+} from "../utils/plan-paths.js";
+import { writeFrontmatter, parseFrontmatter } from "../utils/plan-frontmatter.js";
+import { appendChangelogEntry } from "../utils/plan-changelog.js";
+import { appendToSection } from "../utils/plan-reasoning.js";
 
 export const planManagerTool = tool(
   "manage_plan",
@@ -21,102 +30,109 @@ export const planManagerTool = tool(
   },
   async ({ action, planName, content }) => {
     try {
-      await fs.mkdir(getPlansDir(), { recursive: true });
-
       switch (action) {
         case "list": {
-          const files = await fs.readdir(getPlansDir());
-          const plans = files.filter((f) => f.endsWith(".md"));
-
-          if (plans.length === 0) {
-            return toolResult("No training plans found.");
-          }
-
+          const slugs = await listPlanSlugs();
+          if (slugs.length === 0) return toolResult("No training plans found.");
           let result = "**Available Training Plans:**\n\n";
-          for (const plan of plans) {
-            const filePath = path.join(getPlansDir(), plan);
-            const stat = await fs.stat(filePath);
-            const fileContent = await fs.readFile(filePath, "utf-8");
-            const firstLine = fileContent.split("\n")[0].replace(/^#\s*/, "");
-            result += `- **${plan.replace(".md", "")}**: ${firstLine}\n`;
-            result += `  Last modified: ${stat.mtime.toLocaleDateString()}\n`;
+          for (const slug of slugs) {
+            const planFile = getPlanFile(slug);
+            let stat;
+            try {
+              stat = await fs.stat(planFile);
+            } catch {
+              continue;
+            }
+            const fileContent = await fs.readFile(planFile, "utf-8");
+            const { frontmatter, body } = parseFrontmatter(fileContent);
+            const title = frontmatter?.title ?? body.split("\n")[0].replace(/^#\s*/, "");
+            const draftSuffix = (await isDraftActive(slug)) ? " ⏳ revision in progress" : "";
+            result += `- **${slug}**: ${title}${draftSuffix}\n  Last modified: ${stat.mtime.toLocaleDateString()}\n`;
           }
-
           return toolResult(result);
         }
 
         case "create": {
-          if (!planName || !content) {
-            return toolResult("Error: planName and content are required.", true);
-          }
-          const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(getPlansDir(), filename);
-
-          try {
-            await fs.access(filePath);
+          if (!planName || !content) return toolResult("Error: planName and content are required.", true);
+          const slug = sanitizeFilename(planName);
+          const planDir = getPlanDir(slug);
+          if (await fs.stat(planDir).then(() => true).catch(() => false)) {
             return toolResult(`Plan '${planName}' already exists. Use 'update' to modify.`, true);
-          } catch {
-            // Doesn't exist, proceed
           }
+          await fs.mkdir(planDir, { recursive: true });
+          await fs.mkdir(path.join(planDir, "references"), { recursive: true });
+          await fs.mkdir(path.join(planDir, "research"), { recursive: true });
+          await fs.mkdir(path.join(planDir, "versions"), { recursive: true });
 
-          await fs.writeFile(filePath, content);
-          return toolResult(await withDiffNote(`Created training plan '${planName}'. Saved to: ${filename}`));
+          const withFm = writeFrontmatter({ title: planName, slug, created: toDateString() }, content);
+          await fs.writeFile(getPlanFile(slug), withFm);
+          await fs.mkdir(path.join(planDir, "versions", "v1"), { recursive: true });
+          await fs.writeFile(path.join(planDir, "versions", "v1", "plan.md"), withFm);
+          await fs.writeFile(path.join(planDir, "versions", "v1", "reasoning.md"), `# v1\n\n## Trigger\nPlan created.\n`);
+          await fs.writeFile(path.join(planDir, "references", "INDEX.md"), "# References\n\n");
+          await fs.writeFile(path.join(planDir, "research", "INDEX.md"), "# Research used in this plan\n\n");
+          await appendChangelogEntry(slug, { date: toDateString(), title: "v1: created", body: `Initial plan: ${planName}.` });
+
+          return toolResult(await withDiffNote(`Created training plan '${planName}'. Saved to: ${slug}/plan.md`));
         }
 
         case "read": {
-          if (!planName) {
-            return toolResult("Error: planName is required.", true);
-          }
-          const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(getPlansDir(), filename);
-
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          let planContent: string;
           try {
-            const planContent = await fs.readFile(filePath, "utf-8");
-            return toolResult(`**Training Plan: ${planName}**\n\n${planContent}`);
+            planContent = await fs.readFile(getPlanFile(slug), "utf-8");
           } catch {
             return toolResult(`Plan '${planName}' not found.`, true);
           }
+          const note = (await isDraftActive(slug)) ? "\n\n_⏳ Revision in progress: see versions/vN-draft/plan.md for the current draft._" : "";
+          return toolResult(`**Training Plan: ${planName}**\n\n${planContent}${note}`);
         }
 
         case "update": {
-          if (!planName || !content) {
-            return toolResult("Error: planName and content are required.", true);
-          }
-          const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(getPlansDir(), filename);
+          if (!planName || !content) return toolResult("Error: planName and content are required.", true);
+          const slug = sanitizeFilename(planName);
+          const draft = await isDraftActive(slug);
+          const draftVersion = await nextDraftVersion(slug);
+          const targetPath = draft ? getDraftPlanFile(slug, draftVersion) : getPlanFile(slug);
 
           let existing: string;
           try {
-            existing = await fs.readFile(filePath, "utf-8");
+            existing = await fs.readFile(targetPath, "utf-8");
           } catch {
-            return toolResult(`Plan '${planName}' not found. Use 'create'.`, true);
+            return toolResult(`Plan '${planName}' not found at ${targetPath}.`, true);
           }
-
-          // Safety: reject updates that would lose >50% of the plan content.
-          // This catches accidental partial overwrites (e.g. passing a patch
-          // instead of the full plan). The content param must be the FULL plan.
           if (existing.length > 500 && content.length < existing.length * 0.5) {
             return toolResult(
-              `Error: update content (${content.length} chars) is much shorter than existing plan (${existing.length} chars). ` +
-              `The 'update' action replaces the ENTIRE plan file — you must pass the full updated plan, not a partial patch. ` +
-              `Read the plan first, make your edits, and pass the complete result.`,
-              true
+              `Error: update content (${content.length} chars) is much shorter than existing (${existing.length} chars). 'update' replaces the entire file — pass the full plan, not a partial patch.`,
+              true,
             );
           }
+          await fs.writeFile(targetPath, content);
 
-          await fs.writeFile(filePath, content);
-          return toolResult(await withDiffNote(`Updated training plan '${planName}'.`));
+          if (draft) {
+            await appendToSection(
+              getDraftReasoningFile(slug, draftVersion),
+              "Decisions and rationale",
+              `- ${toDateString()}: edited draft plan.md.`,
+            );
+            return toolResult(await withDiffNote(`Updated draft '${planName}' (v${draftVersion}-draft).`));
+          } else {
+            await appendChangelogEntry(slug, {
+              date: toDateString(),
+              title: "plan updated",
+              body: "Direct update via manage_plan.",
+            });
+            return toolResult(await withDiffNote(`Updated training plan '${planName}'.`));
+          }
         }
 
         case "delete": {
-          if (!planName) {
-            return toolResult("Error: planName is required.", true);
-          }
-          const filename = `${sanitizeFilename(planName)}.md`;
-          const filePath = path.join(getPlansDir(), filename);
-
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          const planDir = getPlanDir(slug);
           try {
-            await fs.unlink(filePath);
+            await fs.rm(planDir, { recursive: true });
             return toolResult(`Deleted training plan '${planName}'.`);
           } catch {
             return toolResult(`Plan '${planName}' not found.`, true);
