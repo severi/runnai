@@ -222,7 +222,7 @@ export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Optio
 
   return {
     cwd: PROJECT_ROOT,
-    model: "opus",
+    model: "claude-opus-4-6",
     effort: "high",
     systemPrompt,
     permissionMode: "default",
@@ -230,6 +230,8 @@ export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Optio
     plugins: [{ type: "local", path: path.join(PROJECT_ROOT, "plugins/coach") }],
     agents,
     maxTurns: 50,
+    includePartialMessages: true,
+    agentProgressSummaries: true,
     mcpServers: {
       runnai: coachMcpServer,
     },

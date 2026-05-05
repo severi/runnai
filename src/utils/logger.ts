@@ -29,7 +29,7 @@ function ensureLogFile(): number {
 export type LogEventType = "user" | "assistant" | "system" | "progress";
 export type LogEventSubtype =
   | "session_start" | "init" | "system_prompt" | "can_use_tool"
-  | "turn_duration" | "result" | "error";
+  | "turn_duration" | "result" | "error" | "task_progress";
 
 /** Log a structured event to the session JSONL file. Returns the event UUID. */
 export function logEvent(

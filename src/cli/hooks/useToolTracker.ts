@@ -6,6 +6,7 @@ export interface ActiveTool {
   name: string;
   keyArg: string;
   startTime: number;
+  summary?: string;
 }
 
 function extractKeyArg(input: Record<string, unknown>): string {
@@ -46,6 +47,7 @@ export interface ToolTracker {
   activeTools: ActiveTool[];
   startTool(toolUseId: string, name: string, input: Record<string, unknown>): ActiveTool;
   completeTool(toolUseId: string): { tool: ActiveTool | undefined; durationMs: number };
+  updateSummary(toolUseId: string, summary: string): void;
   reset(): void;
 }
 
@@ -78,11 +80,18 @@ export function useToolTracker(): ToolTracker {
     return { tool, durationMs };
   }, []);
 
+  const updateSummary = useCallback((toolUseId: string, summary: string) => {
+    const tool = mapRef.current.get(toolUseId);
+    if (!tool) return;
+    tool.summary = summary;
+    setActiveTools([...mapRef.current.values()]);
+  }, []);
+
   const reset = useCallback(() => {
     countRef.current = 0;
     mapRef.current.clear();
     setActiveTools([]);
   }, []);
 
-  return { activeTools, startTool, completeTool, reset };
+  return { activeTools, startTool, completeTool, updateSummary, reset };
 }

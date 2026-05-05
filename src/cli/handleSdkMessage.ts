@@ -9,11 +9,14 @@ import { setSessionId } from "../utils/session.js";
 
 let turnStartTime: number | null = null;
 let lastUserUuid: string | null = null;
+// Correlate task_progress events back to the Task tool_use that started them
+const taskToToolUse = new Map<string, string>();
 
 export interface MessageHandlerCallbacks {
   addMessage: (role: Message["role"], content: string) => void;
   setStreamingText: (text: string | null) => void;
   toolTracker: ToolTracker;
+  onRequesting?: () => void;
 }
 
 export interface MessageHandlerState {
@@ -26,24 +29,49 @@ export function handleSdkMessage(
   callbacks: MessageHandlerCallbacks,
   state: MessageHandlerState,
 ): void {
-  const { addMessage, setStreamingText, toolTracker } = callbacks;
+  const { addMessage, setStreamingText, toolTracker, onRequesting } = callbacks;
 
   switch (message.type) {
-    case "system":
-      if ("subtype" in message && message.subtype === "init") {
-        const initMsg = message as SDKMessage & { model: string; session_id?: string };
+    case "system": {
+      if (!("subtype" in message)) break;
+      const sys = message as SDKMessage & {
+        subtype: string;
+        model?: string;
+        session_id?: string;
+        status?: string;
+        task_id?: string;
+        tool_use_id?: string;
+        summary?: string;
+      };
+      if (sys.subtype === "init") {
         logEvent("system", {
           subtype: "init",
-          model: initMsg.model,
-          session_id: initMsg.session_id,
+          model: sys.model,
+          session_id: sys.session_id,
         });
-        if (initMsg.session_id) {
-          setLogSessionId(initMsg.session_id);
-          setSessionId(initMsg.session_id);
+        if (sys.session_id) {
+          setLogSessionId(sys.session_id);
+          setSessionId(sys.session_id);
         }
-        addMessage("debug", `Model: ${initMsg.model}`);
+        addMessage("debug", `Model: ${sys.model}`);
+      } else if (sys.subtype === "status") {
+        if (sys.status === "requesting") onRequesting?.();
+      } else if (sys.subtype === "task_started") {
+        if (sys.task_id && sys.tool_use_id) taskToToolUse.set(sys.task_id, sys.tool_use_id);
+      } else if (sys.subtype === "task_progress") {
+        if (sys.summary) {
+          const toolUseId = sys.tool_use_id ?? (sys.task_id ? taskToToolUse.get(sys.task_id) : undefined);
+          if (toolUseId) toolTracker.updateSummary(toolUseId, sys.summary);
+          logEvent("system", {
+            subtype: "task_progress",
+            task_id: sys.task_id,
+            tool_use_id: toolUseId,
+            summary: sys.summary,
+          });
+        }
       }
       break;
+    }
 
     case "assistant": {
       // Track turn start
@@ -147,8 +175,11 @@ export function handleSdkMessage(
         setSessionId(message.session_id);
       }
 
-      const subtype = (message as any).subtype as string | undefined;
-      if (subtype && subtype !== "success") {
+      const res = message as SDKMessage & { subtype?: string; terminal_reason?: string };
+      const subtype = res.subtype;
+      if (res.terminal_reason === "aborted_tools") {
+        addMessage("system", "Interrupted.");
+      } else if (subtype && subtype !== "success") {
         const errorMessages: Record<string, string> = {
           error_max_turns: "Reached maximum turns limit. Try breaking the task into smaller steps.",
           error_during_execution: "An error occurred during execution.",
@@ -211,4 +242,5 @@ export function setLastUserUuid(uuid: string): void {
 /** Reset turn tracking (call before each new user turn). */
 export function resetTurn(): void {
   turnStartTime = null;
+  taskToToolUse.clear();
 }
