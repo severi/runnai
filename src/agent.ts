@@ -27,7 +27,7 @@ Always consider:
 - The athlete's experience level and injury history
 
 Format plans in markdown with clear week-by-week structure.
-Save plans to data/plans/ using manage_plan.
+Save plans to data/plans/ using manage_plan. Each plan is a directory containing plan.md (live), CHANGELOG.md, references/, research/, and versions/. Use revise/finalize for major overhauls; use update for minor edits.
 
 Today: ${toDateString()}`,
     tools: [

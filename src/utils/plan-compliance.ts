@@ -3,44 +3,45 @@ import * as path from "path";
 import { getDataDir } from "./paths.js";
 import { parsePlan, findCurrentWeekNumber, type ParsedWorkout } from "./plan-parser.js";
 import { getDb } from "./activities-db.js";
+import { listPlanSlugs, getPlanFile } from "./plan-paths.js";
+import { parseFrontmatter } from "./plan-frontmatter.js";
 import type { WeeklyComplianceResult, ComplianceEntry, ComplianceActivity } from "../types/index.js";
 
 export interface ActivePlan {
   filePath: string;
   slug: string;
-  content: string;
+  content: string;        // body only — frontmatter stripped
+  rawContent: string;     // full file including frontmatter
 }
 
-/** Find the most recently modified plan file in data/plans/. */
+/**
+ * Find the most recently modified plan directory in data/plans/.
+ * Reads plan.md and strips frontmatter for `content`.
+ */
 export async function findActivePlan(): Promise<ActivePlan | null> {
-  const plansDir = path.join(getDataDir(), "plans");
-  let files: string[];
-  try {
-    files = await fs.readdir(plansDir);
-  } catch {
-    return null;
-  }
+  const slugs = await listPlanSlugs();
+  if (slugs.length === 0) return null;
 
-  const mdFiles = files.filter(f => f.endsWith(".md"));
-  if (mdFiles.length === 0) return null;
-
-  let bestFile = mdFiles[0];
+  let bestSlug = slugs[0];
   let bestMtime = 0;
-  for (const f of mdFiles) {
-    const stat = await fs.stat(path.join(plansDir, f));
+  for (const slug of slugs) {
+    const filePath = getPlanFile(slug);
+    let stat;
+    try {
+      stat = await fs.stat(filePath);
+    } catch {
+      continue; // Plan dir without a plan.md — skip.
+    }
     if (stat.mtimeMs > bestMtime) {
       bestMtime = stat.mtimeMs;
-      bestFile = f;
+      bestSlug = slug;
     }
   }
 
-  const filePath = path.join(plansDir, bestFile);
-  const content = await fs.readFile(filePath, "utf-8");
-  return {
-    filePath,
-    slug: bestFile.replace(".md", ""),
-    content,
-  };
+  const filePath = getPlanFile(bestSlug);
+  const rawContent = await fs.readFile(filePath, "utf-8");
+  const { body } = parseFrontmatter(rawContent);
+  return { filePath, slug: bestSlug, content: body, rawContent };
 }
 
 export interface ActivityRow {
