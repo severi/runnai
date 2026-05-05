@@ -12,6 +12,7 @@ import {
   planManagerTool,
   dateCalcTool,
   calculatorTool,
+  attachReferenceTool,
   getPlanComplianceTool,
   researchTool,
   saveResearchTool,
@@ -59,6 +60,7 @@ export const coachMcpServer = createSdkMcpServer({
     planManagerTool,
     dateCalcTool,
     calculatorTool,
+    attachReferenceTool,
     getPlanComplianceTool,
     // Research
     researchTool,

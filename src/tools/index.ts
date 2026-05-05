@@ -7,6 +7,7 @@ export { saveRunAnalysisTool } from "./save-run-analysis.js";
 
 // Phase 2: Planning & utility tools
 export { planManagerTool, dateCalcTool, calculatorTool } from "./planning.js";
+export { attachReferenceTool } from "./references.js";
 export { getPlanComplianceTool } from "./plan-compliance.js";
 export { researchTool, saveResearchTool } from "./research.js";
 export { saveRacePredictionTool, getPredictionHistoryTool } from "./analysis.js";
