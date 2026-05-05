@@ -5,6 +5,10 @@ import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
 import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
 import { withDiffNote } from "../utils/data-git.js";
+import { findActivePlan } from "../utils/plan-compliance.js";
+import { isDraftActive, nextDraftVersion, getDraftReasoningFile } from "../utils/plan-paths.js";
+import { linkResearch } from "../utils/plan-research-link.js";
+import { appendToSection } from "../utils/plan-reasoning.js";
 
 function getResearchDir(): string {
   return path.join(getDataDir(), "research");
@@ -205,6 +209,26 @@ export const saveResearchTool = tool(
   async ({ topic, content, sources }) => {
     try {
       await saveResearch(topic, content, sources);
+      const filename = `${sanitizeFilename(topic)}.md`;
+
+      // Auto-link to active plan when a draft is in progress.
+      try {
+        const plan = await findActivePlan();
+        if (plan && (await isDraftActive(plan.slug))) {
+          const version = await nextDraftVersion(plan.slug);
+          const noteText = `Auto-linked: research saved during v${version}-draft revision.`;
+          await linkResearch(plan.slug, filename, noteText);
+          await appendToSection(
+            getDraftReasoningFile(plan.slug, version),
+            "Sources consulted",
+            `- research/${filename} — auto-linked from save_research`,
+          );
+        }
+      } catch (autoLinkErr) {
+        // Don't fail save_research because of auto-link issues.
+        console.error("auto-link to plan failed:", autoLinkErr);
+      }
+
       return toolResult(await withDiffNote(`Saved research on "${topic}" with ${sources.length} sources.`));
     } catch (error) {
       return toolError(error);
