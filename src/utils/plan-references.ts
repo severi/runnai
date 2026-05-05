@@ -23,11 +23,15 @@ export async function attachReference(
   const destPath = path.join(getReferencesDir(slug), basename);
   await fs.copyFile(sourcePath, destPath);
 
+  const existing = await readReferencesIndex(slug);
+  const priorVersions = parseUsedInVersions(existing, basename);
+
   await upsertEntry(slug, {
     basename,
     addedDate: toDateString(),
     originalLocation: sourcePath,
     note,
+    usedInVersions: priorVersions.length > 0 ? priorVersions : undefined,
   });
 
   return { destPath, basename };
@@ -61,6 +65,19 @@ function appendEntry(existing: string, entry: RefEntry): string {
 `;
   if (existing.length === 0) return `${HEADER}${block}`;
   return `${existing.endsWith("\n") ? existing : existing + "\n"}${block}`;
+}
+
+function parseUsedInVersions(indexContent: string, basename: string): string[] {
+  if (!indexContent) return [];
+  const headingIdx = indexContent.indexOf(`## ${basename}`);
+  if (headingIdx === -1) return [];
+  const next = indexContent.indexOf("\n## ", headingIdx + 4);
+  const block = indexContent.slice(headingIdx, next === -1 ? undefined : next);
+  const m = block.match(/-\s+Used in versions:\s*(.+)/);
+  if (!m) return [];
+  const value = m[1].trim();
+  if (value === "(none yet)") return [];
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
 }
 
 function removeEntry(existing: string, basename: string): string {

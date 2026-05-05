@@ -20,17 +20,35 @@ export async function linkResearch(
 ): Promise<void> {
   await fs.mkdir(path.join(getPlanDir(slug), "research"), { recursive: true });
   const existing = await readResearchIndex(slug);
+  const priorVersions = parseUsedInVersions(existing, researchFilename);
   const without = removeEntry(existing, researchFilename);
+  const usedLine =
+    priorVersions.length > 0
+      ? `Used in versions: ${priorVersions.join(", ")}`
+      : "Used in versions: (none yet)";
   const block = `## ${researchFilename}
 - Linked: ${toDateString()}
 - Note: ${note}
-- Used in versions: (none yet)
+- ${usedLine}
 `;
   const next =
     without.length === 0
       ? `${HEADER}${block}`
       : `${without.endsWith("\n") ? without : without + "\n"}${block}`;
   await fs.writeFile(getResearchIndex(slug), next);
+}
+
+function parseUsedInVersions(indexContent: string, basename: string): string[] {
+  if (!indexContent) return [];
+  const headingIdx = indexContent.indexOf(`## ${basename}`);
+  if (headingIdx === -1) return [];
+  const next = indexContent.indexOf("\n## ", headingIdx + 4);
+  const block = indexContent.slice(headingIdx, next === -1 ? undefined : next);
+  const m = block.match(/-\s+Used in versions:\s*(.+)/);
+  if (!m) return [];
+  const value = m[1].trim();
+  if (value === "(none yet)") return [];
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
 }
 
 function removeEntry(existing: string, basename: string): string {

@@ -54,4 +54,13 @@ describe("plan-research-link", () => {
     const index = await readResearchIndex("p");
     expect(index).toContain("Used in versions: v1");
   });
+
+  test("linkResearch preserves existing Used in versions when re-linking", async () => {
+    await linkResearch("p", "topic.md", "first");
+    await setUsedInVersions("p", "topic.md", ["v1"]);
+    await linkResearch("p", "topic.md", "second");
+    const index = await readResearchIndex("p");
+    expect(index).toContain("Used in versions: v1");
+    expect(index).toContain("Note: second");
+  });
 });
