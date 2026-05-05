@@ -134,3 +134,134 @@ export async function exportPlanToXlsx(
 
   await wb.xlsx.writeFile(outPath);
 }
+
+export interface XlsxScheduleRow {
+  week: number;
+  phase: string;
+  week_focus: string;
+  date: string; // YYYY-MM-DD
+  day: string;
+  session_type: string;
+  distance_km: number | null;
+  intensity: string;
+  details: string;
+  status: string;
+  user_note: string;
+}
+
+export async function parseXlsxSchedule(xlsxPath: string): Promise<XlsxScheduleRow[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(xlsxPath);
+  const sheet = wb.getWorksheet("Schedule");
+  if (!sheet) throw new Error(`Schedule sheet missing in ${xlsxPath}`);
+
+  const header = sheet.getRow(1);
+  const colIdx = new Map<string, number>();
+  header.eachCell((cell, col) => {
+    if (typeof cell.value === "string") colIdx.set(cell.value, col);
+  });
+  const required = ["week", "phase", "week_focus", "date", "day", "session_type", "distance_km", "intensity", "details", "status", "user_note"];
+  for (const r of required) {
+    if (!colIdx.has(r)) throw new Error(`xlsx missing required column: ${r}`);
+  }
+
+  const rows: XlsxScheduleRow[] = [];
+  sheet.eachRow((row, rowNum) => {
+    if (rowNum === 1) return;
+    const get = (key: string) => row.getCell(colIdx.get(key)!).value;
+    const distVal = get("distance_km");
+    const dateVal = get("date");
+    let dateStr = "";
+    if (typeof dateVal === "string") {
+      dateStr = dateVal;
+    } else if (dateVal instanceof Date) {
+      dateStr = dateVal.toISOString().slice(0, 10);
+    }
+    rows.push({
+      week: Number(get("week")) || 0,
+      phase: String(get("phase") ?? ""),
+      week_focus: String(get("week_focus") ?? ""),
+      date: dateStr,
+      day: String(get("day") ?? ""),
+      session_type: String(get("session_type") ?? ""),
+      distance_km: typeof distVal === "number" ? distVal : (distVal && (distVal as any).result) || null,
+      intensity: String(get("intensity") ?? ""),
+      details: String(get("details") ?? ""),
+      status: String(get("status") ?? ""),
+      user_note: String(get("user_note") ?? ""),
+    });
+  });
+  return rows;
+}
+
+export interface ScheduleChange {
+  kind: "distance_changed" | "session_type_changed" | "details_changed" | "added" | "removed" | "status_changed";
+  week: number;
+  date: string;
+  before?: string | number | null;
+  after?: string | number | null;
+}
+
+export interface ScheduleNote {
+  week: number;
+  date: string;
+  note: string;
+}
+
+export interface ScheduleDiff {
+  changes: ScheduleChange[];
+  notes: ScheduleNote[];
+}
+
+export function diffScheduleAgainstPlan(rows: XlsxScheduleRow[], planMarkdown: string): ScheduleDiff {
+  const { body } = parseFrontmatter(planMarkdown);
+  const planBody = body ?? planMarkdown;
+  const workouts = parsePlan(planBody, "compare");
+  const byKey = new Map<string, { distance: number | null; session: string; details: string }>();
+  for (const w of workouts) {
+    const key = `${w.weekNumber}|${w.date.slice(0, 10)}`;
+    byKey.set(key, {
+      distance: inferDistance(w.details),
+      session: w.sessionName,
+      details: w.details,
+    });
+  }
+
+  const changes: ScheduleChange[] = [];
+  const notes: ScheduleNote[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const key = `${row.week}|${row.date}`;
+    seen.add(key);
+    const original = byKey.get(key);
+    if (row.user_note.trim().length > 0) {
+      notes.push({ week: row.week, date: row.date, note: row.user_note.trim() });
+    }
+    if (!original) {
+      changes.push({ kind: "added", week: row.week, date: row.date });
+      continue;
+    }
+    if (original.distance !== row.distance_km) {
+      changes.push({ kind: "distance_changed", week: row.week, date: row.date, before: original.distance, after: row.distance_km });
+    }
+    if (original.session.toLowerCase() !== row.session_type.toLowerCase()) {
+      changes.push({ kind: "session_type_changed", week: row.week, date: row.date, before: original.session, after: row.session_type });
+    }
+    if (original.details !== row.details) {
+      changes.push({ kind: "details_changed", week: row.week, date: row.date, before: original.details, after: row.details });
+    }
+    if (row.status !== "planned") {
+      changes.push({ kind: "status_changed", week: row.week, date: row.date, after: row.status });
+    }
+  }
+
+  for (const [key] of byKey) {
+    if (!seen.has(key)) {
+      const [w, d] = key.split("|");
+      changes.push({ kind: "removed", week: parseInt(w, 10), date: d });
+    }
+  }
+
+  return { changes, notes };
+}
