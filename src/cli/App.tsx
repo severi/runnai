@@ -3,7 +3,7 @@ import { Box, Text, Static, useInput, useApp } from "ink";
 import { TextInput } from "./components/TextInput.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { query, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { query, startup, type SDKUserMessage, type Query, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
 import { createAgentOptions } from "../agent.js";
 import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
 import { getCurrentSessionId } from "../utils/session.js";
@@ -52,8 +52,13 @@ function ActiveToolsBar({ tools, elapsed }: { tools: ActiveTool[]; elapsed: numb
         const toolElapsed = Math.floor((Date.now() - tool.startTime) / 1000);
         const frame = spinnerFrames[(elapsed + tool.index) % spinnerFrames.length];
         return (
-          <Box key={tool.id}>
+          <Box key={tool.id} flexDirection="column">
             <Text color="cyan" dimColor>  {frame} [{tool.index}] {tool.name}{tool.keyArg ? `: ${tool.keyArg}` : ""} ({formatElapsed(toolElapsed)})</Text>
+            {tool.summary && (
+              <Box marginLeft={5}>
+                <Text color="gray" dimColor italic>{tool.summary}</Text>
+              </Box>
+            )}
           </Box>
         );
       })}
@@ -124,6 +129,7 @@ export default function App() {
 
   // Persistent subprocess refs
   const queryRef = useRef<Query | null>(null);
+  const warmQueryPromiseRef = useRef<Promise<WarmQuery | null> | null>(null);
   const channelRef = useRef<MessageChannel<SDKUserMessage> | null>(null);
   const turnResolveRef = useRef<(() => void) | null>(null);
   const turnStateRef = useRef<MessageHandlerState | null>(null);
@@ -196,23 +202,20 @@ export default function App() {
         needsOnboarding = true;
       }
 
+      // Build agent options first (fast — reads system prompt + recent-summary files).
+      // Then pre-warm the subprocess with those options in parallel with startupSync (slow — Strava API).
+      const agentOptions = await createAgentOptions(canUseTool);
+      const warmQueryPromise: Promise<WarmQuery | null> = startup({ options: agentOptions }).catch(() => null);
+      warmQueryPromiseRef.current = warmQueryPromise;
+
       // For returning users: show generic greeting immediately, then sync in parallel
       let ctx: Awaited<ReturnType<typeof startupSync>>;
-      let agentOptions: Awaited<ReturnType<typeof createAgentOptions>>;
       let greetingIsBackground = false;
 
       if (!needsOnboarding) {
         setShowWelcome(false);
         addMessage("assistant", getTimeGreeting() + " Let me check your training...", true);
-
-        const [syncResult, options] = await Promise.all([
-          startupSync(),
-          createAgentOptions(canUseTool),
-        ]);
-        ctx = syncResult;
-        agentOptions = options;
-      } else {
-        agentOptions = await createAgentOptions(canUseTool);
+        ctx = await startupSync();
       }
 
       if (agentOptions.systemPrompt) {
@@ -270,13 +273,21 @@ export default function App() {
         session_id: "",
       });
 
-      const q = query({ prompt: channel.iterable, options: agentOptions });
+      const warm = await warmQueryPromise;
+      const q: Query = warm
+        ? warm.query(channel.iterable)
+        : query({ prompt: channel.iterable, options: agentOptions });
       queryRef.current = q;
 
       // Background consumer loop — runs for the entire session
       (async () => {
         try {
-          const callbacks = { addMessage, setStreamingText, toolTracker };
+          const callbacks = {
+            addMessage,
+            setStreamingText,
+            toolTracker,
+            onRequesting: () => setIsProcessing(true),
+          };
           for await (const message of q) {
             const state = turnStateRef.current;
             if (state) {
@@ -335,6 +346,12 @@ export default function App() {
       // Cleanup on unmount
       channelRef.current?.close();
       queryRef.current?.close();
+      // Close the WarmQuery if we unmounted before handing it off to query().
+      // The .then() fires whenever the promise resolves — including after unmount —
+      // so a subprocess that booted late still gets closed.
+      warmQueryPromiseRef.current?.then((w) => {
+        if (w && !queryRef.current) w.close();
+      }).catch(() => {});
     };
   }, [hasStarted]);
 
@@ -510,6 +527,7 @@ export default function App() {
           print: (text) => addMessage("system", text),
           streamResponse,
           getMessages: () => [...committed, ...dynamic].map((i) => i.message),
+          getQuery: () => queryRef.current,
         };
 
         await command.handler(args, context);

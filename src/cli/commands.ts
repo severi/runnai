@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import * as fs from "fs/promises";
 import * as path from "path";
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { getSessionUsage, formatTokens } from "../utils/usage-tracker.js";
 import { PROJECT_ROOT } from "../utils/paths.js";
 
@@ -22,6 +23,7 @@ export interface CommandContext {
   print: (text: string) => void;
   streamResponse: (input: string) => Promise<void>;
   getMessages: () => Message[];
+  getQuery: () => Query | null;
 }
 
 export const commands: Command[] = [
@@ -83,6 +85,37 @@ export const commands: Command[] = [
       ].join("\n");
 
       ctx.print(text);
+    },
+  },
+  {
+    name: "context",
+    description: "Show context window usage breakdown",
+    usage: "/context",
+    handler: async (_args, ctx) => {
+      const q = ctx.getQuery();
+      if (!q) {
+        ctx.print(chalk.yellow("Context usage unavailable — query not yet started."));
+        return;
+      }
+      try {
+        const usage = await q.getContextUsage();
+        const pct = Math.round(usage.percentage);
+        const totalStr = formatTokens(usage.totalTokens);
+        const maxStr = formatTokens(usage.maxTokens);
+        const lines = [
+          "",
+          `Context: ${totalStr} / ${maxStr} tokens (${pct}%)`,
+          "────────────────────────────────",
+          ...usage.categories
+            .filter((c) => c.tokens > 0)
+            .sort((a, b) => b.tokens - a.tokens)
+            .map((c) => `  ${c.name.padEnd(20)}${formatTokens(c.tokens).padStart(8)}${c.isDeferred ? " (deferred)" : ""}`),
+          "",
+        ];
+        ctx.print(lines.join("\n"));
+      } catch (err) {
+        ctx.print(chalk.red(`Failed to fetch context usage: ${err instanceof Error ? err.message : err}`));
+      }
     },
   },
   {
