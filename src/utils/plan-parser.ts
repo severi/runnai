@@ -17,7 +17,13 @@ function stripMarkdown(text: string): string {
 }
 
 function isRestDay(session: string): boolean {
-  return stripMarkdown(session).toLowerCase() === "rest";
+  // Only sessions labeled as rest — including compound labels like "Expo + Rest".
+  // Travel/off-day cells are NOT treated as rest: if the original plan had a run
+  // that got skipped due to travel, the compliance check should still surface it.
+  const normalized = stripMarkdown(session).toLowerCase();
+  if (normalized === "rest") return true;
+  if (/\brest\b/.test(normalized)) return true;
+  return false;
 }
 
 function extractPlanYear(markdown: string): number {

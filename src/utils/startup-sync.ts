@@ -382,60 +382,78 @@ export function formatStartupGreeting(ctx: StartupContext): string {
 }
 
 export function formatCompactStatus(ctx: StartupContext): string {
-  const lines: string[] = [];
+  const sections: string[] = [];
 
   // Sync status
   if (ctx.sync.status === "error") {
-    lines.push(`✗ ${ctx.sync.message}${ctx.sync.needsAuth ? " — run /strava-auth" : ""}`);
+    sections.push(`✗ ${ctx.sync.message}${ctx.sync.needsAuth ? " — run /strava-auth" : ""}`);
   } else if (ctx.sync.status === "new_activities") {
-    lines.push(`↓ ${ctx.sync.message.split("\n")[0]}`);
+    sections.push(`↓ ${ctx.sync.message.split("\n")[0]}`);
   } else {
-    lines.push("✓ Synced — no new activities");
+    sections.push("✓ Synced · no new activities");
   }
 
-  // Race countdowns
+  // Race countdowns — aligned name column
   if (ctx.raceCountdowns.length > 0) {
-    const races = ctx.raceCountdowns.map(r => `**${r.name}** in ${r.daysAway} days`).join(" · ");
-    lines.push(races);
+    const maxName = Math.max(...ctx.raceCountdowns.map(r => r.name.length));
+    const rows = ctx.raceCountdowns.map(r => `  ${r.name.padEnd(maxName)}  in ${r.daysAway} days`);
+    sections.push(["Races", ...rows].join("\n"));
   }
 
-  // Plan excerpt — compact summary
+  // Plan sessions — parse only the first (sessions) table, cut at first ### subheading
+  // so Race Week Protocols, Sleep, Carb Loading sub-tables don't contaminate the list.
   if (ctx.planExcerpt) {
     const firstLine = ctx.planExcerpt.currentWeek.split("\n")[0] || "";
     const weekTitle = firstLine.replace(/^#+\s*/, "");
-    const sessions = ctx.planExcerpt.currentWeek
+    const weekBody = ctx.planExcerpt.currentWeek.split(/^###\s/m)[0];
+    const sessions = weekBody
       .split("\n")
       .filter(line => line.startsWith("|") && !line.startsWith("|--") && !line.match(/^\|\s*(Day|Date)\s*\|/i))
       .map(line => {
         const cols = line.split("|").filter(Boolean).map(c => c.trim());
-        if (cols.length >= 3 && cols[2].toLowerCase() !== "rest") return `${cols[0]}: ${cols[2]}`;
+        if (cols.length >= 3 && cols[2].toLowerCase() !== "rest") return { day: cols[0], session: cols[2] };
         return null;
       })
-      .filter(Boolean);
-    if (weekTitle) lines.push(`**${weekTitle}** — ${sessions.join(" · ")}`);
+      .filter((x): x is { day: string; session: string } => x !== null);
+
+    if (weekTitle && sessions.length > 0) {
+      const maxDay = Math.max(...sessions.map(s => stripMarkdown(s.day).length));
+      const rows = sessions.map(s => {
+        const dayPlain = stripMarkdown(s.day);
+        return `  ${dayPlain.padEnd(maxDay)}  ${stripMarkdown(s.session)}`;
+      });
+      sections.push([weekTitle, ...rows].join("\n"));
+    } else if (weekTitle) {
+      sections.push(weekTitle);
+    }
   }
 
-  // Plan compliance — compact week-so-far summary
+  // Plan compliance
   if (ctx.weekCompliance && ctx.weekCompliance.entries.length > 0) {
     const { summary, entries } = ctx.weekCompliance;
-    const parts: string[] = [`${summary.completed}/${summary.total} done · ${summary.completedKm}km`];
+    const header = `Week ${ctx.weekCompliance.weekNumber} · ${summary.completed}/${summary.total} done · ${summary.completedKm}km`;
+    const complianceLines = [header];
     const missed = entries.filter(e => e.status === "missed");
     if (missed.length > 0) {
-      parts.push(`missed: ${missed.map(e => e.planned.sessionName).join(", ")}`);
+      complianceLines.push(`  missed: ${missed.map(e => e.planned.sessionName).join(", ")}`);
     }
     const upcoming = entries.filter(e => e.status === "upcoming");
     if (upcoming.length > 0) {
-      parts.push(`upcoming: ${upcoming.map(e => e.planned.sessionName).join(", ")}`);
+      complianceLines.push(`  upcoming: ${upcoming.map(e => e.planned.sessionName).join(", ")}`);
     }
-    lines.push(`Week ${ctx.weekCompliance.weekNumber} compliance: ${parts.join(" — ")}`);
+    sections.push(complianceLines.join("\n"));
   }
 
-  // Fitness drift — only when high confidence
+  // Fitness drift
   if (ctx.fitnessDrift?.should_prompt) {
-    lines.push(`⚡ Fitness drift (${ctx.fitnessDrift.confidence}): ${ctx.fitnessDrift.summary}`);
+    sections.push(`⚡ Fitness drift (${ctx.fitnessDrift.confidence}): ${ctx.fitnessDrift.summary}`);
   }
 
-  return lines.join("\n");
+  return sections.join("\n\n");
+}
+
+function stripMarkdown(s: string): string {
+  return s.replace(/\*\*/g, "");
 }
 
 export function formatNewRunsPrompt(ctx: StartupContext): string {
