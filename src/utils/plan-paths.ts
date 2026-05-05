@@ -72,18 +72,16 @@ export async function isDraftActive(slug: string): Promise<boolean> {
 }
 
 export async function listPlanSlugs(): Promise<string[]> {
-  let entries: string[];
+  let entries;
   try {
-    entries = await fs.readdir(getPlansRoot());
+    entries = await fs.readdir(getPlansRoot(), { withFileTypes: true });
   } catch {
     return [];
   }
-  const dirs: string[] = [];
-  for (const entry of entries) {
-    const stat = await fs.stat(path.join(getPlansRoot(), entry));
-    if (stat.isDirectory()) dirs.push(entry);
-  }
-  return dirs.sort();
+  return entries
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
 }
 
 /**
@@ -100,7 +98,8 @@ export async function nextDraftVersion(slug: string): Promise<number> {
   }
   let max = 0;
   for (const e of entries) {
-    const m = e.match(/^v(\d+)$/); // v1, v2, ... — not v2-draft
+    // Strict match: only v1, v2, ... — ignores v2-draft and any other file/dir.
+    const m = e.match(/^v(\d+)$/);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   return max + 1;
