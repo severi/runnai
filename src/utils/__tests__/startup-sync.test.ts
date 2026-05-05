@@ -87,7 +87,7 @@ describe("formatNewRunsPrompt", () => {
     const prompt = formatNewRunsPrompt(ctx);
     expect(prompt).toContain("123");
     expect(prompt).toContain("456");
-    expect(prompt).toContain("get_run_analysis");
+    expect(prompt).toContain("New Run Analysis");
     expect(prompt).toContain("Tempo 8K");
   });
 

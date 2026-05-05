@@ -65,6 +65,27 @@ describe("parsePlan", () => {
     expect(sessions).not.toContain("Rest");
   });
 
+  test("skips rest-labeled cells (including 'Expo + Rest') but keeps travel/off cells", () => {
+    const plan = `# Plan
+
+## Week 1: Race Week
+
+**Dates:** Monday Mar 9 - Sunday Mar 15
+
+| Day | Date | Session | Details |
+|---|---|---|---|
+| Mon | Mar 9 | Easy 5K | Z2 |
+| Tue | Mar 10 | ✈️ Travel day | Travel to venue. Original shakeout skipped. |
+| Wed | Mar 11 | Expo + Rest | Expo in the morning. Rest. |
+| Thu | Mar 12 | Shakeout | 3km + strides |
+`;
+    const result = parsePlan(plan, "test-plan");
+    const sessions = result.map((w) => w.sessionName);
+    // Travel day stays — compliance should surface the missed run.
+    // Expo + Rest is excluded — explicit rest label.
+    expect(sessions).toEqual(["Easy 5K", "✈️ Travel day", "Shakeout"]);
+  });
+
   test("strips markdown from details", () => {
     const result = parsePlan(MINIMAL_PLAN, "test-plan");
     const longRun = result.find((w) => w.sessionName === "Long Run");
