@@ -17,7 +17,7 @@ import {
   nextDraftVersion,
   getExportsDir,
 } from "../utils/plan-paths.js";
-import { exportPlanToXlsx } from "../utils/plan-xlsx.js";
+import { exportPlanToXlsx, parseXlsxSchedule, diffScheduleAgainstPlan } from "../utils/plan-xlsx.js";
 import { renderDiff } from "../utils/plan-diff.js";
 import { writeFrontmatter, parseFrontmatter } from "../utils/plan-frontmatter.js";
 import { appendChangelogEntry } from "../utils/plan-changelog.js";
@@ -32,6 +32,7 @@ export const planManagerTool = tool(
       "create", "read", "update", "delete", "list",
       "revise", "finalize", "discard", "rename",
       "diff", "show", "export-xlsx",
+      "import-xlsx",
     ]).describe("Action to perform"),
     planName: z.string().optional().describe("Name of the plan"),
     content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file — pass the complete plan, not a partial patch."),
@@ -42,8 +43,9 @@ export const planManagerTool = tool(
     mode: z.enum(["summary", "unified"]).optional().describe("Diff mode: summary (markdown table + per-week) or unified (git-style)."),
     inline: z.boolean().optional().describe("If true, return diff in chat scrollback instead of writing to file."),
     target: z.enum(["current", "draft"]).optional().describe("show: which version to render."),
+    filePath: z.string().optional().describe("import-xlsx: absolute path to the xlsx file."),
   },
-  async ({ action, planName, content, newSlug, allowEmpty, changelogTitle, changelogBody, mode, inline, target }) => {
+  async ({ action, planName, content, newSlug, allowEmpty, changelogTitle, changelogBody, mode, inline, target, filePath }) => {
     try {
       switch (action) {
         case "list": {
@@ -259,6 +261,46 @@ export const planManagerTool = tool(
           const outPath = path.join(getExportsDir(slug), `${slug}-${toDateString()}-${which}.xlsx`);
           await exportPlanToXlsx(sourceContent, slug, outPath);
           return toolResult(`xlsx exported (${which}): ${outPath}`);
+        }
+
+        case "import-xlsx": {
+          if (!planName || !filePath) return toolResult("Error: planName and filePath are required.", true);
+          const slug = sanitizeFilename(planName);
+          const draft = await isDraftActive(slug);
+          const targetPath = draft ? getDraftPlanFile(slug, await nextDraftVersion(slug)) : getPlanFile(slug);
+          const targetContent = await fs.readFile(targetPath, "utf-8");
+
+          let rows;
+          try {
+            rows = await parseXlsxSchedule(filePath);
+          } catch (e) {
+            return toolError(e);
+          }
+          const diff = diffScheduleAgainstPlan(rows, targetContent);
+
+          const lines: string[] = [];
+          lines.push(`Imported xlsx from ${filePath} — diff against ${draft ? "draft" : "current"}:`);
+          lines.push("");
+          if (diff.changes.length === 0 && diff.notes.length === 0) {
+            lines.push("_No changes detected._");
+          } else {
+            if (diff.changes.length > 0) {
+              lines.push(`### Schedule changes (${diff.changes.length})`);
+              for (const c of diff.changes) {
+                lines.push(`- week ${c.week} ${c.date}: ${c.kind}` + (c.before !== undefined ? ` (${JSON.stringify(c.before)} → ${JSON.stringify(c.after)})` : ""));
+              }
+            }
+            if (diff.notes.length > 0) {
+              lines.push("");
+              lines.push(`### User notes (${diff.notes.length})`);
+              for (const n of diff.notes) {
+                lines.push(`- week ${n.week} ${n.date}: ${n.note}`);
+              }
+            }
+            lines.push("");
+            lines.push("_Apply these structurally via further conversation. Notes are conversational input — they have not been written to the plan file._");
+          }
+          return toolResult(lines.join("\n"));
         }
 
         default:
