@@ -18,16 +18,24 @@ import {
 import { writeFrontmatter, parseFrontmatter } from "../utils/plan-frontmatter.js";
 import { appendChangelogEntry } from "../utils/plan-changelog.js";
 import { appendToSection } from "../utils/plan-reasoning.js";
+import { beginRevision, finalizeRevision, discardRevision } from "../utils/plan-versions.js";
 
 export const planManagerTool = tool(
   "manage_plan",
   "Manage training plans: create, read, update, delete, or list plans.",
   {
-    action: z.enum(["create", "read", "update", "delete", "list"]).describe("Action to perform"),
+    action: z.enum([
+      "create", "read", "update", "delete", "list",
+      "revise", "finalize", "discard", "rename",
+    ]).describe("Action to perform"),
     planName: z.string().optional().describe("Name of the plan"),
     content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file — pass the complete plan, not a partial patch."),
+    newSlug: z.string().optional().describe("New slug for 'rename'. Only lowercase letters, numbers, hyphens."),
+    allowEmpty: z.boolean().optional().describe("If true, finalize proceeds even with empty required reasoning sections. Default false."),
+    changelogTitle: z.string().optional().describe("Custom changelog title for finalize."),
+    changelogBody: z.string().optional().describe("Custom changelog body for finalize."),
   },
-  async ({ action, planName, content }) => {
+  async ({ action, planName, content, newSlug, allowEmpty, changelogTitle, changelogBody }) => {
     try {
       switch (action) {
         case "list": {
@@ -136,6 +144,69 @@ export const planManagerTool = tool(
           } catch {
             return toolResult(`Plan '${planName}' not found.`, true);
           }
+        }
+
+        case "revise": {
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          try {
+            const result = await beginRevision(slug);
+            return toolResult(
+              `entered revision mode → versions/v${result.draftVersion}-draft created. Edit via manage_plan(action: 'update'). Finalize with action: 'finalize' or discard with 'discard'.`,
+            );
+          } catch (e) {
+            return toolError(e);
+          }
+        }
+
+        case "finalize": {
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          try {
+            const result = await finalizeRevision(slug, { allowEmpty, changelogTitle, changelogBody });
+            const warningText = result.warnings.length > 0 ? `\n\nWarnings:\n${result.warnings.join("\n")}` : "";
+            return toolResult(await withDiffNote(`finalized v${result.version} → live plan now reflects v${result.version}.${warningText}`));
+          } catch (e) {
+            return toolError(e);
+          }
+        }
+
+        case "discard": {
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          try {
+            await discardRevision(slug);
+            return toolResult(`Draft discarded. Live plan unchanged.`);
+          } catch (e) {
+            return toolError(e);
+          }
+        }
+
+        case "rename": {
+          if (!planName || !newSlug) return toolResult("Error: planName and newSlug are required.", true);
+          const oldSlug = sanitizeFilename(planName);
+          const newSlugSanitized = sanitizeFilename(newSlug);
+          if (oldSlug === newSlugSanitized) return toolResult("New slug is the same as the old one. No-op.", true);
+
+          const oldDir = getPlanDir(oldSlug);
+          const newDir = getPlanDir(newSlugSanitized);
+          if (await fs.stat(newDir).then(() => true).catch(() => false)) {
+            return toolResult(`Cannot rename: a plan already exists at slug '${newSlugSanitized}'.`, true);
+          }
+          await fs.rename(oldDir, newDir);
+          const planPath = getPlanFile(newSlugSanitized);
+          const fileContent = await fs.readFile(planPath, "utf-8");
+          const { frontmatter, body } = parseFrontmatter(fileContent);
+          const newFm = frontmatter
+            ? { ...frontmatter, slug: newSlugSanitized }
+            : { title: oldSlug, slug: newSlugSanitized, created: toDateString() };
+          await fs.writeFile(planPath, writeFrontmatter(newFm, body));
+          await appendChangelogEntry(newSlugSanitized, {
+            date: toDateString(),
+            title: `renamed from ${oldSlug} to ${newSlugSanitized}`,
+            body: "Slug change. No content change.",
+          });
+          return toolResult(`Renamed plan: '${oldSlug}' → '${newSlugSanitized}'. Update CONTEXT.md if it references the old slug.`);
         }
 
         default:
