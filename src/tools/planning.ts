@@ -9,12 +9,14 @@ import { withDiffNote } from "../utils/data-git.js";
 import {
   getPlanDir,
   getPlanFile,
+  getDraftDir,
   getDraftPlanFile,
   getDraftReasoningFile,
   isDraftActive,
   listPlanSlugs,
   nextDraftVersion,
 } from "../utils/plan-paths.js";
+import { renderDiff } from "../utils/plan-diff.js";
 import { writeFrontmatter, parseFrontmatter } from "../utils/plan-frontmatter.js";
 import { appendChangelogEntry } from "../utils/plan-changelog.js";
 import { appendToSection } from "../utils/plan-reasoning.js";
@@ -27,6 +29,7 @@ export const planManagerTool = tool(
     action: z.enum([
       "create", "read", "update", "delete", "list",
       "revise", "finalize", "discard", "rename",
+      "diff", "show",
     ]).describe("Action to perform"),
     planName: z.string().optional().describe("Name of the plan"),
     content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file — pass the complete plan, not a partial patch."),
@@ -34,8 +37,11 @@ export const planManagerTool = tool(
     allowEmpty: z.boolean().optional().describe("If true, finalize proceeds even with empty required reasoning sections. Default false."),
     changelogTitle: z.string().optional().describe("Custom changelog title for finalize."),
     changelogBody: z.string().optional().describe("Custom changelog body for finalize."),
+    mode: z.enum(["summary", "unified"]).optional().describe("Diff mode: summary (markdown table + per-week) or unified (git-style)."),
+    inline: z.boolean().optional().describe("If true, return diff in chat scrollback instead of writing to file."),
+    target: z.enum(["current", "draft"]).optional().describe("show: which version to render."),
   },
-  async ({ action, planName, content, newSlug, allowEmpty, changelogTitle, changelogBody }) => {
+  async ({ action, planName, content, newSlug, allowEmpty, changelogTitle, changelogBody, mode, inline, target }) => {
     try {
       switch (action) {
         case "list": {
@@ -207,6 +213,34 @@ export const planManagerTool = tool(
             body: "Slug change. No content change.",
           });
           return toolResult(`Renamed plan: '${oldSlug}' → '${newSlugSanitized}'. Update CONTEXT.md if it references the old slug.`);
+        }
+
+        case "show": {
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          const draft = await isDraftActive(slug);
+          const which = target ?? (draft ? "draft" : "current");
+          const filePath = which === "draft"
+            ? getDraftPlanFile(slug, await nextDraftVersion(slug))
+            : getPlanFile(slug);
+          const fileContent = await fs.readFile(filePath, "utf-8");
+          return toolResult(`**${slug} — ${which}**\n\n${fileContent}`);
+        }
+
+        case "diff": {
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const slug = sanitizeFilename(planName);
+          if (!(await isDraftActive(slug))) return toolResult("No active draft to diff.", true);
+          const version = await nextDraftVersion(slug);
+          const currentText = await fs.readFile(getPlanFile(slug), "utf-8");
+          const draftText = await fs.readFile(getDraftPlanFile(slug, version), "utf-8");
+          const rendered = renderDiff(currentText, draftText, { mode: mode ?? "summary" });
+
+          if (inline) return toolResult(rendered);
+
+          const outPath = path.join(getDraftDir(slug, version), "diff.md");
+          await fs.writeFile(outPath, rendered);
+          return toolResult(`diff written to ${outPath}`);
         }
 
         default:
