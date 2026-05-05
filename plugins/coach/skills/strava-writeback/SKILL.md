@@ -5,13 +5,23 @@ description: Analyze runs and write coaching insights back to Strava
 
 # Strava Write-Back
 
+## When this skill runs
+
+The athlete just agreed to push an analysis to Strava. The analysis prose has already been written and (typically) saved via `save_run_analysis`. Your job is to compose a Strava title, get athlete approval on the package, run a review, and call `strava_update_activity`. Do NOT re-write the analysis from scratch unless the athlete asked for changes.
+
 ## Flow
 
-1. Call `get_run_analysis(activity_id)` to get all structured data and training context
-2. Write the coaching analysis
-3. Pick a Strava title
-4. Show the title + analysis to the athlete as the Strava preview
-5. On approval, call `save_run_analysis` to persist, then `strava_update_activity` to write to Strava
+1. **Fetch the saved analysis** if you don't already have it in this turn: call `get_run_analysis(activity_id)` and use `detailed_analysis` as the Strava description (verbatim). If the analysis isn't yet saved (rare — only if someone invoked this skill mid-analysis), write it per the New Run Analysis protocol first.
+2. **Compose a Strava title** per the rules below.
+3. **Preview only if something is new.** If the title is unchanged from the saved \`strava_title\` AND the description (= saved \`detailed_analysis\`) is unchanged since the athlete last saw it, skip the preview — the athlete already approved this content when they said "push to Strava". Go straight to step 4. **Only show a preview** when you're proposing a new/revised title or when the analysis was edited since the athlete last saw it. In that case: show the new title + note any changes to the description, ask in plain language (no structured AskUserQuestion). End the response. Wait for the next turn.
+4. **On approval (next turn)**: dispatch the `analysis-reviewer` subagent via the Task tool with the title + description + activity_id.
+   - Do NOT call save_run_analysis or strava_update_activity in the same response block as the Task result. Emit the review outcome first, THEN commit.
+   - **No issues** → tell the athlete "✓ Review passed." Proceed.
+   - **Critical findings** → revise, show the corrected preview, end response, wait for re-approval next turn.
+   - **Important findings** → fix clear errors and mention; note any disagreement briefly.
+   - One-shot per response: don't re-dispatch on a same-response revision.
+5. **Persist any title revisions** by calling `save_run_analysis(activity_id, detailed_analysis, strava_title)` — this overwrites only the changed fields. Skip if title is unchanged from what's already saved.
+6. **Push to Strava**: call `strava_update_activity(activity_id, name=strava_title, description=detailed_analysis)`. Pass the SAME prose that's in the saved `detailed_analysis` — the two must not diverge.
 
 ## Coaching Analysis
 

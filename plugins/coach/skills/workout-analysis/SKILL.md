@@ -24,7 +24,9 @@ Before assessing effort quality, establish what the run was *supposed* to be:
 
 ### Annotating Completion in the Plan
 
-After your analysis is complete and the athlete has confirmed (or you're saving the analysis), update the plan row to mark the session as done:
+**Timing:** annotate the plan only AFTER the analysis-reviewer has passed (or its findings have been addressed) and `save_run_analysis` has run. Per the New Run Analysis protocol, this happens right after step 5 (save) and before the Strava offer. **Never** annotate before the reviewer runs — the annotation captures the final analysis, not the draft. **Never** annotate during a triage turn that ends with a clarifying question — defer to the next turn after the athlete answers.
+
+When the timing is right, update the plan row to mark the session as done:
 
 - Call `manage_plan(action: "update")` with the full plan content (read it first)
 - Add a brief outcome to the session cell of the matching row — keep the existing convention (e.g., `✅` followed by a one-line result)
@@ -171,23 +173,31 @@ Ask when a signal is present but the cause is genuinely ambiguous:
 
 ### How to Ask
 
-One question per run, plain prose, folded naturally into the end of your analysis. It should feel like a coach who reviewed the session file and wants to understand what they're seeing.
+One question per run, plain prose. It should feel like a coach who reviewed the session file and wants to understand what they're seeing.
 
 Good: "The drift suggests something was working against you in the second half — were you well-hydrated going in, or was it one of those days?"
 
 Bad: "I have some questions: 1) How was hydration? 2) How was sleep? 3) Was this the intended effort?"
 
+**Critical: the question must be the last thing in your response — no review, no save, no further tool calls after it.** The free-text question does not pause execution; the only way to actually wait for an answer is to stop emitting tools. The athlete's reply arrives as a new user turn; revise + review + save happen in that next turn. (See the "New Run Analysis" protocol in the system prompt for the exact flow.)
+
+If you would not stop and wait for the answer, you are not actually asking a question — you are speculating in prose. Either commit to waiting (end response after the question) or don't ask.
+
 ### Using the Answer
 
+The athlete's reply arrives in the next turn. Then:
+
 1. **Acknowledge and update**: revise your interpretation where the answer changes it. A sentence of correction is enough — no full rewrite
-2. **Pattern check**: if this is a one-off explanation (tired from travel), no memory write needed. If it reveals a recurring pattern (always drifts in afternoon runs, consistently pushes easy days too hard), save to memory with write_memory
-3. **Strava description**: if writing back to Strava, incorporate the context naturally — "the HR drift likely reflects a short night rather than a fitness concern"
+2. **Run the review step**: dispatch analysis-reviewer with the revised draft (per protocol step 6)
+3. **Save**: call save_run_analysis after review passes (per protocol step 7)
+4. **Pattern check**: if the answer reveals a recurring pattern (always drifts in afternoon runs, consistently pushes easy days too hard), save to memory with write_memory
+5. **Strava description**: if writing back to Strava, incorporate the context naturally — "the HR drift likely reflects a short night rather than a fitness concern"
 
 ### Multi-Run Batching
 
 When analyzing several runs at once (startup sync, weekly review):
 
 - Don't ask per-run questions for every activity — that becomes an interview
-- Pick at most 2 runs with the most coaching-consequential ambiguity
-- Bundle questions at the end of the full batch analysis, before offering Strava write-back
-- If no run has a genuinely ambiguous signal, skip the follow-up entirely
+- Pick at most 1-2 runs with the most coaching-consequential ambiguity
+- If you ask, the question(s) are the last thing in the response — no reviews or saves happen this turn. The next turn (after the athlete answers) is where review + save run for all the analyzed drafts.
+- If no run has a genuinely ambiguous signal, skip the follow-up entirely and proceed straight to per-run review + save in this turn.
