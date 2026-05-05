@@ -173,7 +173,7 @@ describe("parsePlan", () => {
   });
 
   test("parses real vienna plan", () => {
-    const planPath = path.join(process.cwd(), "data/plans/vienna-marathon-2026.md");
+    const planPath = path.join(process.cwd(), "data/plans/vienna-marathon-2026/plan.md");
     if (!fs.existsSync(planPath)) return; // skip if file doesn't exist
 
     const content = fs.readFileSync(planPath, "utf-8");

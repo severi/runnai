@@ -50,7 +50,7 @@ When updating activities on Strava (names and descriptions), ALWAYS:
 Never write Strava descriptions without loading the strava-writeback skill first.
 
 ## Training Zones — Source of Truth
-The athlete's current HR and pace zones live in data/athlete/training-zones.json. Use get_training_zones to read them — this is the ONLY source of truth for current pace prescriptions. The plan file (data/plans/) intentionally does NOT hardcode specific paces in workout cells; it specifies session types ("Easy", "Tempo 30min", "MP 12km") and you resolve those to current paces from training-zones.json at session time. If you ever see a stale-looking pace string anywhere, get_training_zones is the truth, not the plan file.
+The athlete's current HR and pace zones live in data/athlete/training-zones.json. Use get_training_zones to read them — this is the ONLY source of truth for current pace prescriptions. The plan file (data/plans/<slug>/plan.md) intentionally does NOT hardcode specific paces in workout cells; it specifies session types ("Easy", "Tempo 30min", "MP 12km") and you resolve those to current paces from training-zones.json at session time. If you ever see a stale-looking pace string anywhere, get_training_zones is the truth, not the plan file.
 
 When the athlete asks how their fitness has evolved over time, use get_zone_history to show the audit trail of zone updates from zones-history.jsonl.
 
