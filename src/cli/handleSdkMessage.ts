@@ -12,11 +12,23 @@ let lastUserUuid: string | null = null;
 // Correlate task_progress events back to the Task tool_use that started them
 const taskToToolUse = new Map<string, string>();
 
+export interface ContextUsage {
+  /** Tokens read from the cache (the bulk of conversation history) */
+  cacheReadTokens: number;
+  /** Tokens newly written to the cache this turn */
+  cacheCreationTokens: number;
+  /** Uncached input tokens (the user message) */
+  inputTokens: number;
+  /** Output tokens generated this turn */
+  outputTokens: number;
+}
+
 export interface MessageHandlerCallbacks {
   addMessage: (role: Message["role"], content: string) => void;
   setStreamingText: (text: string | null) => void;
   toolTracker: ToolTracker;
   onRequesting?: () => void;
+  onUsage?: (usage: ContextUsage) => void;
 }
 
 export interface MessageHandlerState {
@@ -29,7 +41,7 @@ export function handleSdkMessage(
   callbacks: MessageHandlerCallbacks,
   state: MessageHandlerState,
 ): void {
-  const { addMessage, setStreamingText, toolTracker, onRequesting } = callbacks;
+  const { addMessage, setStreamingText, toolTracker, onRequesting, onUsage } = callbacks;
 
   switch (message.type) {
     case "system": {
@@ -217,6 +229,12 @@ export function handleSdkMessage(
       });
       recordExchange(exchange);
       addMessage("status", formatExchangeLine(exchange));
+      onUsage?.({
+        cacheReadTokens,
+        cacheCreationTokens,
+        inputTokens,
+        outputTokens,
+      });
       break;
     }
   }
