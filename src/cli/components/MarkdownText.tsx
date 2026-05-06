@@ -76,7 +76,7 @@ function renderToken(token: Token, key: number): React.ReactNode {
 
     case "hr":
       return (
-        <Box key={key} marginY={1}>
+        <Box key={key} marginTop={1}>
           <Text dimColor>────────────────────</Text>
         </Box>
       );
@@ -86,7 +86,7 @@ function renderToken(token: Token, key: number): React.ReactNode {
       const numCols = tableToken.header.length;
       if (numCols === 0) return null;
       return (
-        <Box key={key} flexDirection="column" marginY={1}>
+        <Box key={key} flexDirection="column" marginTop={1}>
           {/* Header row */}
           <Box flexDirection="row">
             {tableToken.header.map((cell, ci) => (
@@ -97,11 +97,13 @@ function renderToken(token: Token, key: number): React.ReactNode {
               </Box>
             ))}
           </Box>
-          {/* Separator */}
+          {/* Separator — truncate prevents the long dash string from wrapping
+              to multiple lines when the column is narrower than the dash count,
+              which would inflate the row to 2-3 lines per separator. */}
           <Box flexDirection="row">
             {tableToken.header.map((_, ci) => (
               <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
-                <Text dimColor>{"─".repeat(40)}</Text>
+                <Text dimColor wrap="truncate">{"─".repeat(80)}</Text>
               </Box>
             ))}
           </Box>
