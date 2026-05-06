@@ -138,6 +138,99 @@ describe("formatCompactStatus", () => {
     expect(result).not.toContain("Rest");
   });
 
+  test("highlights today's session with → marker and inlines its details", () => {
+    // Pick today's day-of-week dynamically so the test is robust to "what day did
+    // someone run this on" — we just inject a row for today and verify it gets
+    // marked. Other days stay terse.
+    const dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+    const todayLabel = dows[new Date().getDay()];
+    // Build a small plan where today is one row and another day is a different row.
+    const otherLabel = todayLabel === "Mon" ? "Tue" : "Mon";
+    const ctx: StartupContext = {
+      sync: { status: "up_to_date", message: "Already up to date.", newRunIds: [] },
+      recentSummary: "",
+      planExcerpt: {
+        name: "test-plan",
+        currentWeek: `## Week 9: Build 1
+
+| Day | Date | Session | Details |
+|---|---|---|---|
+| ${otherLabel} | Mar 9 | Easy | 9km easy. |
+| ${todayLabel} | Mar 10 | Tempo | 10km tempo @ Z3. |
+`,
+        nextWeek: "",
+      },
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    const result = formatCompactStatus(ctx);
+    // Today's row is marked with → AND has details inline.
+    expect(result).toMatch(new RegExp(`→ ${todayLabel}\\s+Tempo — 10km tempo @ Z3\\.`));
+    // The other day is NOT marked → and does NOT have details inline.
+    expect(result).toMatch(new RegExp(`  ${otherLabel}\\s+Easy$`, "m"));
+    expect(result).not.toContain(`→ ${otherLabel}`);
+    expect(result).not.toMatch(new RegExp(`${otherLabel}.*9km easy`));
+  });
+
+  test("inlines compliance stats onto week title and drops duplicate header", () => {
+    const ctx: StartupContext = {
+      sync: { status: "up_to_date", message: "Already up to date.", newRunIds: [] },
+      recentSummary: "",
+      planExcerpt: {
+        name: "test-plan",
+        currentWeek: "## Week 9: Build 1\n\n| Day | Date | Session | Details |\n|---|---|---|---|\n| Mon | May 4 | Hill | 5x200m. |\n",
+        nextWeek: "",
+      },
+      raceCountdowns: [],
+      weekCompliance: {
+        weekNumber: 9,
+        summary: { completed: 2, total: 6, completedKm: 20, plannedKm: 70 },
+        entries: [
+          { date: "2026-05-04", planned: { sessionName: "Hill", details: "" }, actual: { activityId: 1, distanceKm: 10 }, status: "completed" },
+          { date: "2026-05-09", planned: { sessionName: "Long Run", details: "" }, actual: null, status: "upcoming" },
+        ],
+      } as unknown as StartupContext["weekCompliance"],
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    const result = formatCompactStatus(ctx);
+    // Compliance stats inlined onto the week-title line.
+    expect(result).toContain("Week 9: Build 1 · 2/6 done · 20km");
+    // No duplicate "Week 9" header — the legacy compliance section emitted a
+    // plain "Week N · ..." line on its own. Should appear exactly once now,
+    // inlined onto the title.
+    const weekHeaderCount = (result.match(/^Week 9/gm) || []).length;
+    expect(weekHeaderCount).toBe(1);
+    expect(result).not.toContain("upcoming:");
+  });
+
+  test("preserves missed-session callout (only compliance bit not visible in table)", () => {
+    const ctx: StartupContext = {
+      sync: { status: "up_to_date", message: "Already up to date.", newRunIds: [] },
+      recentSummary: "",
+      planExcerpt: {
+        name: "test-plan",
+        currentWeek: "## Week 9: Build 1\n\n| Day | Date | Session | Details |\n|---|---|---|---|\n| Mon | May 4 | Hill | 5x200m. |\n",
+        nextWeek: "",
+      },
+      raceCountdowns: [],
+      weekCompliance: {
+        weekNumber: 9,
+        summary: { completed: 1, total: 3, completedKm: 10, plannedKm: 50 },
+        entries: [
+          { date: "2026-05-04", planned: { sessionName: "Hill", details: "" }, actual: { activityId: 1, distanceKm: 10 }, status: "completed" },
+          { date: "2026-05-05", planned: { sessionName: "Easy", details: "" }, actual: null, status: "missed" },
+        ],
+      } as unknown as StartupContext["weekCompliance"],
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    const result = formatCompactStatus(ctx);
+    expect(result).toContain("missed: Easy");
+  });
+
   test("formats error state", () => {
     const ctx: StartupContext = {
       sync: { status: "error", message: "Not authorized", newRunIds: [], needsAuth: true },

@@ -402,46 +402,63 @@ export function formatCompactStatus(ctx: StartupContext): string {
 
   // Plan sessions — parse only the first (sessions) table, cut at first ### subheading
   // so Race Week Protocols, Sleep, Carb Loading sub-tables don't contaminate the list.
+  // Today's row is highlighted with → and shows the details column inline so the
+  // athlete sees km/intensity without having to ask "what's today?".
   if (ctx.planExcerpt) {
     const firstLine = ctx.planExcerpt.currentWeek.split("\n")[0] || "";
-    const weekTitle = firstLine.replace(/^#+\s*/, "");
+    let weekTitle = firstLine.replace(/^#+\s*/, "");
+    // Inline compliance stats (X/Y done · Zkm) onto the week title line — avoids
+    // a duplicate "Week N" header below.
+    if (ctx.weekCompliance && ctx.weekCompliance.entries.length > 0) {
+      const { summary } = ctx.weekCompliance;
+      weekTitle += ` · ${summary.completed}/${summary.total} done · ${summary.completedKm}km`;
+    }
     const weekBody = ctx.planExcerpt.currentWeek.split(/^###\s/m)[0];
+    const todayDow = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date().getDay()];
     const sessions = weekBody
       .split("\n")
       .filter(line => line.startsWith("|") && !line.startsWith("|--") && !line.match(/^\|\s*(Day|Date)\s*\|/i))
       .map(line => {
         const cols = line.split("|").filter(Boolean).map(c => c.trim());
-        if (cols.length >= 3 && cols[2].toLowerCase() !== "rest") return { day: cols[0], session: cols[2] };
+        if (cols.length >= 3 && cols[2].toLowerCase() !== "rest") {
+          return {
+            day: cols[0],
+            session: cols[2],
+            details: cols.length >= 4 ? cols[3] : "",
+          };
+        }
         return null;
       })
-      .filter((x): x is { day: string; session: string } => x !== null);
+      .filter((x): x is { day: string; session: string; details: string } => x !== null);
 
     if (weekTitle && sessions.length > 0) {
       const maxDay = Math.max(...sessions.map(s => stripMarkdown(s.day).length));
       const rows = sessions.map(s => {
         const dayPlain = stripMarkdown(s.day);
-        return `  ${dayPlain.padEnd(maxDay)}  ${stripMarkdown(s.session)}`;
+        const sessionPlain = stripMarkdown(s.session);
+        const isToday = dayPlain.toLowerCase().slice(0, 3) === todayDow;
+        const marker = isToday ? "→ " : "  ";
+        const base = `${marker}${dayPlain.padEnd(maxDay)}  ${sessionPlain}`;
+        // For today only, append details inline so km/intensity is visible at a glance.
+        if (isToday && s.details) {
+          return `${base} — ${stripMarkdown(s.details)}`;
+        }
+        return base;
       });
-      sections.push([weekTitle, ...rows].join("\n"));
+      const lines = [weekTitle, ...rows];
+      // Append missed-session notice (only thing from compliance that isn't already
+      // visible in the week table — the table shows what's done/upcoming via ✅, but
+      // a session that was scheduled and not done deserves an explicit callout).
+      if (ctx.weekCompliance && ctx.weekCompliance.entries.length > 0) {
+        const missed = ctx.weekCompliance.entries.filter(e => e.status === "missed");
+        if (missed.length > 0) {
+          lines.push(`  missed: ${missed.map(e => e.planned.sessionName).join(", ")}`);
+        }
+      }
+      sections.push(lines.join("\n"));
     } else if (weekTitle) {
       sections.push(weekTitle);
     }
-  }
-
-  // Plan compliance
-  if (ctx.weekCompliance && ctx.weekCompliance.entries.length > 0) {
-    const { summary, entries } = ctx.weekCompliance;
-    const header = `Week ${ctx.weekCompliance.weekNumber} · ${summary.completed}/${summary.total} done · ${summary.completedKm}km`;
-    const complianceLines = [header];
-    const missed = entries.filter(e => e.status === "missed");
-    if (missed.length > 0) {
-      complianceLines.push(`  missed: ${missed.map(e => e.planned.sessionName).join(", ")}`);
-    }
-    const upcoming = entries.filter(e => e.status === "upcoming");
-    if (upcoming.length > 0) {
-      complianceLines.push(`  upcoming: ${upcoming.map(e => e.planned.sessionName).join(", ")}`);
-    }
-    sections.push(complianceLines.join("\n"));
   }
 
   // Fitness drift
