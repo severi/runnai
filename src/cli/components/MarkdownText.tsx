@@ -159,12 +159,19 @@ function renderInline(tokens?: Token[]): React.ReactNode {
           </Text>
         );
 
-      case "link":
+      case "link": {
+        const linkToken = token as Tokens.Link;
+        // OSC 8 hyperlink: terminals that support it (iTerm2, Terminal.app,
+        // VS Code, Kitty, WezTerm, Alacritty) make this cmd/ctrl-clickable.
+        // Older terminals ignore the escape and just show the styled text.
+        const OSC = "\u001B]8;;";
+        const ST = "\u0007";
         return (
           <Text key={i} color="blue" underline>
-            {(token as Tokens.Link).text}
+            {`${OSC}${linkToken.href}${ST}${linkToken.text}${OSC}${ST}`}
           </Text>
         );
+      }
 
       case "text": {
         // Handle nested tokens in text (e.g., bold inside text)
