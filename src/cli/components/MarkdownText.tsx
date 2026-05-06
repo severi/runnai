@@ -81,6 +81,44 @@ function renderToken(token: Token, key: number): React.ReactNode {
         </Box>
       );
 
+    case "table": {
+      const tableToken = token as Tokens.Table;
+      const numCols = tableToken.header.length;
+      if (numCols === 0) return null;
+      return (
+        <Box key={key} flexDirection="column" marginY={1}>
+          {/* Header row */}
+          <Box flexDirection="row">
+            {tableToken.header.map((cell, ci) => (
+              <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
+                <Text bold color="cyan" wrap="wrap">
+                  {renderInline(cell.tokens)}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+          {/* Separator */}
+          <Box flexDirection="row">
+            {tableToken.header.map((_, ci) => (
+              <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
+                <Text dimColor>{"─".repeat(40)}</Text>
+              </Box>
+            ))}
+          </Box>
+          {/* Data rows */}
+          {tableToken.rows.map((row, ri) => (
+            <Box key={ri} flexDirection="row">
+              {row.map((cell, ci) => (
+                <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
+                  <Text wrap="wrap">{renderInline(cell.tokens)}</Text>
+                </Box>
+              ))}
+            </Box>
+          ))}
+        </Box>
+      );
+    }
+
     case "space":
       return null; // Skip extra whitespace
 
