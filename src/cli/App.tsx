@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Text, Static, useInput, useApp } from "ink";
-import { TextInput } from "./components/TextInput.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { query, startup, type SDKUserMessage, type Query, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
@@ -12,13 +11,15 @@ import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGre
 import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
+import { ChatInputArea } from "./components/ChatInputArea.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
-import { useCommandSuggestions, isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
+import { isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
 import { handleSdkMessage, setLastUserUuid, resetTurn, type MessageHandlerState } from "./handleSdkMessage.js";
 import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
+import { formatElapsed } from "./format.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
 
@@ -27,13 +28,6 @@ function getTimeGreeting(): string {
   if (hour < 12) return "Good morning!";
   if (hour < 17) return "Good afternoon!";
   return "Good evening!";
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const min = Math.floor(seconds / 60);
-  const sec = seconds % 60;
-  return `${min}m ${sec.toString().padStart(2, "0")}s`;
 }
 
 interface MessageItem {
@@ -106,9 +100,9 @@ function renderMessage(item: MessageItem) {
 
 export default function App() {
   const { exit } = useApp();
-  const [input, setInput] = useState("");
 
-  // Two-tier rendering: committed (Static, scrollback) + dynamic (live, below Static)
+  // Two-tier rendering: committed (Static, scrollback) + dynamic (live, below Static).
+  // `input` state lives in <ChatInputArea> so keystrokes don't re-render this tree.
   const [committed, setCommitted] = useState<MessageItem[]>([]);
   const [dynamic, setDynamic] = useState<MessageItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
@@ -139,8 +133,6 @@ export default function App() {
   // Extracted hooks
   const elapsed = useElapsedTimer(isProcessing);
   const toolTracker = useToolTracker();
-  const { suggestions, selectedSuggestion, setSuggestions, setSelectedSuggestion } =
-    useCommandSuggestions(input, isProcessing, pendingQuestion, setInput);
 
   const addMessage = useCallback((role: Message["role"], content: string, direct = false) => {
     if (role === "tool" || role === "debug" || role === "error") {
@@ -355,29 +347,22 @@ export default function App() {
     };
   }, [hasStarted]);
 
-  // Esc / Ctrl+C:
-  //  - processing → interrupt the current turn
-  //  - idle with input → clear the input
-  //  - idle with empty input → exit
+  // Esc / Ctrl+C while processing → interrupt the current turn.
+  // Idle Ctrl+C handling (clear input vs. exit) lives in <ChatInputArea>.
   useInput(
     (keyInput, key) => {
       const isCtrlC = key.ctrl && keyInput === "c";
-      if (isProcessing && queryRef.current) {
-        if (key.escape || isCtrlC) {
-          queryRef.current.interrupt();
-        }
-      } else if (isCtrlC) {
-        if (input.length > 0) {
-          setInput("");
-          setSuggestions([]);
-        } else {
-          channelRef.current?.close();
-          exit();
-        }
+      if ((key.escape || isCtrlC) && queryRef.current) {
+        queryRef.current.interrupt();
       }
     },
-    { isActive: !pendingQuestion }
+    { isActive: !pendingQuestion && isProcessing },
   );
+
+  const handleExit = useCallback(() => {
+    channelRef.current?.close();
+    exit();
+  }, [exit]);
 
   const doStreamResponse = async (prompt: string, attachments?: FileAttachment[]) => {
     if (sessionEnded || !channelRef.current) return;
@@ -443,26 +428,13 @@ export default function App() {
     return next;
   };
 
-  const handleSubmit = async (value: string) => {
-    if (isProcessing || sessionEnded) return;
-
-    if (suggestions.length > 0) {
-      const selected = suggestions[selectedSuggestion];
-      if (selected) {
-        const commandValue = `/${selected.name}`;
-        setSuggestions([]);
-        setInput("");
-        setShowWelcome(false);
-        value = commandValue;
-      }
-    }
-
-    if (!value.trim()) return;
+  const handleSubmit = useCallback(async (value: string) => {
+    // ChatInputArea has already resolved suggestions and cleared its own input;
+    // we just receive the final command/text.
+    if (isProcessing || sessionEnded || !value.trim()) return;
 
     commitDynamic();
-    setInput("");
     setShowWelcome(false);
-    setSuggestions([]);
 
     if (isSlashCommand(value)) {
       const [cmdPart, ...args] = value.slice(1).split(/\s+/);
@@ -489,7 +461,6 @@ export default function App() {
         if (command.name === "verbose") {
           setVerbose((v) => !v);
           addMessage("system", `Verbose mode: ${!verbose ? "ON" : "OFF"}`);
-          setInput("");
           return;
         }
 
@@ -509,7 +480,6 @@ export default function App() {
             }
           }
           addMessage("system", "Profile reset. Strava data preserved. Send a message to restart onboarding.");
-          setInput("");
           return;
         }
 
@@ -519,7 +489,6 @@ export default function App() {
             helpText += `  /${cmd.name} — ${cmd.description}\n`;
           });
           addMessage("system", helpText);
-          setInput("");
           return;
         }
 
@@ -544,7 +513,16 @@ export default function App() {
 
       await streamResponse(cleanText, attachments.length > 0 ? attachments : undefined);
     }
-  };
+  }, [
+    isProcessing,
+    sessionEnded,
+    commitDynamic,
+    addMessage,
+    verbose,
+    committed,
+    dynamic,
+    exit,
+  ]);
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -637,59 +615,17 @@ export default function App() {
         </Box>
       )}
 
-      {/* Command suggestions dropdown */}
-      {suggestions.length > 0 && (
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor="yellow"
-          paddingX={1}
-          marginBottom={1}
-        >
-          <Text dimColor>Commands:</Text>
-          {suggestions.map((cmd, i) => (
-            <Text
-              key={cmd.name}
-              backgroundColor={i === selectedSuggestion ? "blue" : undefined}
-              color={i === selectedSuggestion ? "white" : undefined}
-            >
-              <Text color={i === selectedSuggestion ? "white" : "yellow"} bold>
-                /{cmd.name}
-              </Text>
-              <Text dimColor={i !== selectedSuggestion}> {cmd.description}</Text>
-            </Text>
-          ))}
-          <Text dimColor>↑↓ navigate · Tab complete · Esc cancel</Text>
-        </Box>
-      )}
-
-      {/* Input area — hidden during question prompt */}
-      {!pendingQuestion && (
-        <Box borderStyle="round" borderColor={isProcessing ? "gray" : sessionEnded ? "red" : "cyan"} paddingX={1}>
-          <Text color="cyan" bold>{">"} </Text>
-          {sessionEnded ? (
-            <Text color="red">Session ended. Restart the app to continue.</Text>
-          ) : isProcessing ? (
-            <Text dimColor>Thinking...{elapsed > 0 ? ` (${formatElapsed(elapsed)})` : ""} · Esc to cancel</Text>
-          ) : (
-            <TextInput
-              value={input}
-              onChange={setInput}
-              onSubmit={handleSubmit}
-              placeholder="Ask anything or type / for commands"
-            />
-          )}
-        </Box>
-      )}
-
-      {/* Footer hint */}
-      {!showWelcome && !isProcessing && !sessionEnded && (
-        <Box marginTop={1}>
-          <Text dimColor>
-            /help for commands · /verbose to {verbose ? "hide" : "show"} debug info
-          </Text>
-        </Box>
-      )}
+      {/* Input area — owns its own state so keystrokes don't re-render this tree */}
+      <ChatInputArea
+        isProcessing={isProcessing}
+        hasPendingQuestion={pendingQuestion !== null}
+        sessionEnded={sessionEnded}
+        showWelcome={showWelcome}
+        verbose={verbose}
+        elapsed={elapsed}
+        onSubmit={handleSubmit}
+        onExit={handleExit}
+      />
     </Box>
   );
 }
