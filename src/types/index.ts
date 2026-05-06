@@ -437,6 +437,7 @@ export interface WeeklyComplianceResult {
     upcoming: number;
     total: number;
     completedKm: number;
+    plannedKm: number | null;
   };
 }
 
