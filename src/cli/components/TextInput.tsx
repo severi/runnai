@@ -27,6 +27,19 @@ function nextWordBoundary(value: string, pos: number): number {
   return i;
 }
 
+/** Index of the start of the current line (just after the previous \n, or 0). */
+export function lineStart(value: string, pos: number): number {
+  if (pos <= 0) return 0;
+  const prev = value.lastIndexOf("\n", pos - 1);
+  return prev === -1 ? 0 : prev + 1;
+}
+
+/** Index of the end of the current line (the position of the next \n, or len). */
+export function lineEnd(value: string, pos: number): number {
+  const next = value.indexOf("\n", pos);
+  return next === -1 ? value.length : next;
+}
+
 export function TextInput({
   value,
   onChange,
@@ -101,9 +114,13 @@ export function TextInput({
       }
 
       if (key.ctrl && input === "a") {
-        nextCursor = 0;
+        // Beginning of the current line — emacs/readline semantics. With a
+        // single-line value this is identical to "beginning of input"; with
+        // multi-line input, jump to just after the previous newline.
+        nextCursor = lineStart(nextValue, nextCursor);
       } else if (key.ctrl && input === "e") {
-        nextCursor = nextValue.length;
+        // End of the current line.
+        nextCursor = lineEnd(nextValue, nextCursor);
       } else if (key.ctrl && input === "b") {
         nextCursor = Math.max(0, nextCursor - 1);
       } else if (key.ctrl && input === "f") {
