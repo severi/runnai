@@ -45,6 +45,19 @@ describe("MarkdownText", () => {
     expect(out).not.toContain("| Day |");
   });
 
+  test("renders links with OSC 8 hyperlink escape so terminals can open them", () => {
+    const md = "See [Precision Hydration](https://www.precisionhydration.com/x) for fueling.";
+    const { lastFrame } = render(<MarkdownText>{md}</MarkdownText>);
+    const out = lastFrame()!;
+    // Visible label is present.
+    expect(out).toContain("Precision Hydration");
+    // OSC 8 sequence wraps the URL: ESC ] 8 ;; URL BEL TEXT ESC ] 8 ;; BEL
+    expect(out).toContain("]8;;https://www.precisionhydration.com/x");
+    expect(out).toContain("]8;;");
+    // The raw URL should not appear as plain visible text outside the escape.
+    expect(out).not.toMatch(/\(https:\/\/www\.precisionhydration\.com\/x\)/);
+  });
+
   test("empty or zero-column tables don't crash", () => {
     // marked won't actually produce a table token from this, but this
     // exercises the empty-input path; should render without throwing.
