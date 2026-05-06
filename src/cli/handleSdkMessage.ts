@@ -96,6 +96,27 @@ export function handleSdkMessage(
         message: message.message,
       }, lastUserUuid);
 
+      // Per-message usage = the actual input size for this single inference,
+      // i.e. the real context size at this moment. Use this (NOT the aggregated
+      // modelUsage on the result event, which sums cacheRead across sub-calls
+      // in a turn and inflates numbers).
+      const msgUsage = (message.message as any).usage as
+        | {
+            input_tokens?: number;
+            cache_read_input_tokens?: number;
+            cache_creation_input_tokens?: number;
+            output_tokens?: number;
+          }
+        | undefined;
+      if (msgUsage && onUsage) {
+        onUsage({
+          inputTokens: msgUsage.input_tokens ?? 0,
+          cacheReadTokens: msgUsage.cache_read_input_tokens ?? 0,
+          cacheCreationTokens: msgUsage.cache_creation_input_tokens ?? 0,
+          outputTokens: msgUsage.output_tokens ?? 0,
+        });
+      }
+
       for (const block of message.message.content) {
         if (block.type === "text") {
           if (state.hadToolCall) {
@@ -229,12 +250,12 @@ export function handleSdkMessage(
       });
       recordExchange(exchange);
       addMessage("status", formatExchangeLine(exchange));
-      onUsage?.({
-        cacheReadTokens,
-        cacheCreationTokens,
-        inputTokens,
-        outputTokens,
-      });
+      // NOTE: onUsage is NOT called here. The aggregated modelUsage on a
+      // result event sums cacheRead/cacheCreation across all sub-calls in a
+      // multi-tool turn, which inflates numbers (4 sub-calls × ~140k each =
+      // ~560k reported even when actual context never exceeded ~145k).
+      // The context bar updates from per-assistant-message usage instead
+      // (see the assistant case above).
       break;
     }
   }
