@@ -12,12 +12,13 @@ import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { ChatBubble } from "./components/ChatBubble.js";
 import { ChatInputArea } from "./components/ChatInputArea.js";
+import { ContextBar } from "./components/ContextBar.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
 import { isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
-import { handleSdkMessage, setLastUserUuid, resetTurn, type MessageHandlerState } from "./handleSdkMessage.js";
+import { handleSdkMessage, setLastUserUuid, resetTurn, type MessageHandlerState, type ContextUsage } from "./handleSdkMessage.js";
 import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
 import { formatElapsed } from "./format.js";
 
@@ -107,6 +108,7 @@ export default function App() {
   const [dynamic, setDynamic] = useState<MessageItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [debugMessages, setDebugMessages] = useState<Message[]>([]);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
@@ -279,6 +281,7 @@ export default function App() {
             setStreamingText,
             toolTracker,
             onRequesting: () => setIsProcessing(true),
+            onUsage: setContextUsage,
           };
           for await (const message of q) {
             const state = turnStateRef.current;
@@ -626,6 +629,18 @@ export default function App() {
         onSubmit={handleSubmit}
         onExit={handleExit}
       />
+
+      {/* Context window usage bar — shows after the first turn completes */}
+      {contextUsage && (
+        <ContextBar
+          used={
+            contextUsage.cacheReadTokens +
+            contextUsage.cacheCreationTokens +
+            contextUsage.inputTokens
+          }
+          total={1_000_000}
+        />
+      )}
     </Box>
   );
 }
