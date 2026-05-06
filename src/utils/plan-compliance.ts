@@ -152,12 +152,13 @@ export async function getWeeklyPlanCompliance(
   if (week === null || week === undefined) return null;
 
   const workouts = parsePlan(activePlan.content, activePlan.slug, [week]);
+  const plannedKm = extractWeekTargetKm(activePlan.content, week);
   if (workouts.length === 0) {
     return {
       weekNumber: week,
       planSlug: activePlan.slug,
       entries: [],
-      summary: { completed: 0, missed: 0, upcoming: 0, total: 0, completedKm: 0 },
+      summary: { completed: 0, missed: 0, upcoming: 0, total: 0, completedKm: 0, plannedKm },
     };
   }
 
@@ -195,6 +196,32 @@ export async function getWeeklyPlanCompliance(
       upcoming,
       total: entries.length,
       completedKm: Math.round(completedKm * 10) / 10,
+      plannedKm,
     },
   };
+}
+
+/**
+ * Pull the **Target Volume:** km figure for a given week from the plan markdown.
+ * Sums multiple km values on the line so race weeks like "14km + 100km" report 114.
+ */
+export function extractWeekTargetKm(planContent: string, weekNumber: number): number | null {
+  const lines = planContent.split("\n");
+  let inWeek = false;
+  for (const line of lines) {
+    const weekMatch = line.match(/^##\s+Week\s+(\d+)\b/i);
+    if (weekMatch) {
+      if (inWeek) return null;
+      inWeek = parseInt(weekMatch[1], 10) === weekNumber;
+      continue;
+    }
+    if (!inWeek) continue;
+    const m = line.match(/\*\*Target Volume:\*\*\s*(.+)/i);
+    if (!m) continue;
+    const segment = m[1].split("|")[0];
+    const nums = [...segment.matchAll(/(\d+(?:\.\d+)?)\s*km/gi)].map(x => parseFloat(x[1]));
+    if (nums.length === 0) return null;
+    return Math.round(nums.reduce((a, b) => a + b, 0));
+  }
+  return null;
 }

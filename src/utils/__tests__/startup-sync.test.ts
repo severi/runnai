@@ -197,7 +197,7 @@ describe("formatCompactStatus", () => {
     };
     const result = formatCompactStatus(ctx);
     // Compliance stats inlined onto the week-title line.
-    expect(result).toContain("Week 9: Build 1 · 2/6 done · 20km");
+    expect(result).toContain("Week 9: Build 1 · 2/6 done · 20/70km");
     // No duplicate "Week 9" header — the legacy compliance section emitted a
     // plain "Week N · ..." line on its own. Should appear exactly once now,
     // inlined onto the title.

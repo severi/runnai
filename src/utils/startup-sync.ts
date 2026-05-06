@@ -411,7 +411,10 @@ export function formatCompactStatus(ctx: StartupContext): string {
     // a duplicate "Week N" header below.
     if (ctx.weekCompliance && ctx.weekCompliance.entries.length > 0) {
       const { summary } = ctx.weekCompliance;
-      weekTitle += ` · ${summary.completed}/${summary.total} done · ${summary.completedKm}km`;
+      const kmSegment = summary.plannedKm
+        ? `${summary.completedKm}/${summary.plannedKm}km`
+        : `${summary.completedKm}km`;
+      weekTitle += ` · ${summary.completed}/${summary.total} done · ${kmSegment}`;
     }
     const weekBody = ctx.planExcerpt.currentWeek.split(/^###\s/m)[0];
     const todayDow = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date().getDay()];
