@@ -65,7 +65,6 @@ function runMigrations(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_start_date ON activities(start_date_local);
     CREATE INDEX IF NOT EXISTS idx_type ON activities(type);
     CREATE INDEX IF NOT EXISTS idx_distance ON activities(distance);
-    CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);
 
     CREATE TABLE IF NOT EXISTS best_efforts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,6 +128,9 @@ function runMigrations(db: Database): void {
   addColumn("activities", "run_type", "TEXT");
   addColumn("activities", "run_type_detail", "TEXT");
   addColumn("activities", "streams_fetched", "INTEGER DEFAULT 0");
+
+  // Index references the migrated `detail_fetched` column, so it must come AFTER addColumn.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);`);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_laps (

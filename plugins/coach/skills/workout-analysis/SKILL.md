@@ -5,6 +5,69 @@ description: Post-run assessment framework, effort evaluation, pace zone analysi
 
 # Workout Analysis
 
+## Two Artifacts, Not One
+
+This skill is for the **coaching analysis** — the thorough private read for the athlete. Do not collapse it into a Strava description. The Strava description is a *separate* artifact, written later only when the athlete asks to push, by the strava-writeback skill, derived from but distinct from this analysis.
+
+Coaching analysis is what the athlete consumes for actual coaching. It includes:
+- Plan-vs-actual context
+- Training-load significance (TRIMP, weekly load, percentile)
+- Phase / lap / structure breakdown when the run had structure
+- Derived metrics that disambiguate the story (efficiency factor, pace-CV, elevation-corrected pace, hr_trend pattern, fatigue index)
+- Causal hypotheses with appropriate hedging
+- Cross-run comparisons when they add value
+- Mistakes / learnings
+- What-to-do-next implications
+
+Strava description (later, separate) is tight, public, what-happened-only. Plan / future / orthogonal content stays in the coaching analysis.
+
+## Coaching Analysis Structure
+
+This is the default depth. A one-paragraph summary is not a coaching analysis.
+
+**Default sections** (omit any that don't apply, but make a deliberate choice — don't drop them by default):
+
+1. **Plan-vs-actual** — what was scheduled, what got run, where they aligned/diverged. Lead with this on planned runs.
+2. **Headline read** — one or two sentences capturing what the run actually was (not just classification — distance + intensity + terrain + context together).
+3. **Phase / structure breakdown** — when the run had phases (warmup, work, cooldown), laps with elevation, climbs, intervals, pace shifts: walk through them. Don't average over a story.
+4. **Derived metrics check** — go beyond avg pace + avg HR. Pull the metrics that disambiguate:
+   - **Efficiency factor (NGP / avg HR)** when comparing runs at similar HR — this catches "felt stronger" / "felt fade" stories the averages hide.
+   - **Pace coefficient of variation** across laps — high CV ≠ fade if it tracks elevation; low CV = clean rhythm.
+   - **Elevation-corrected pace (GAP)** vs raw pace when terrain shaped the effort.
+   - **hr_trend.pattern** (step_then_plateau / linear_drift / stable) — never characterize HR by endpoints alone.
+   - **cardiac_drift_pct** with confound check — drift on a run with stops is an artifact, not a signal.
+5. **Training-load context** — TRIMP, 7d distance, percentile vs 30 days, days since last run, where this sits in the week's plan. Without this, "easy 10K" reads the same regardless of whether it's run 1 or run 5 of a heavy week.
+6. **Cross-run comparison** — when it adds coaching value (see triggers below).
+7. **Causal hypotheses** — when the data shows a pattern (decoupling, fade, surge, drift), say what's likely happening and why, with hedging proportional to confound risk.
+8. **Mistakes / learnings** — only if the data + context support them. Don't invent lessons.
+9. **What-to-do-next** — implications for upcoming sessions when the run signals something the plan should respond to (rest, scale back, push). Skip when nothing actionable.
+
+**Format for chat:** structured for readability. Headers (`##`), sub-points, tables when comparing — the athlete reads this directly, not on a public feed. Stat lines and tables ARE allowed (and often clearer than prose). Regular hyphens (-), never em dashes.
+
+**Length:** as long as the run warrants. A clean honest Z2 with no signals = short. A daily double with cumulative load + a perceived bonk + plan implications = long. Don't pad, don't truncate.
+
+## When to Add Cross-Run Comparison
+
+Cross-run comparison is a capability you reach for when it adds coaching value, not a default step on every analysis.
+
+**Reach for it when:**
+- **Daily double / same-day pair** — morning vs afternoon. Often a "stronger second leg" or "fade in the second" story that EF + pace-CV reveal cleanly.
+- **Same workout type recently repeated** — last week's tempo at the same target, last month's long run on the same route, the previous attempt at this hill session. Progression check.
+- **Athlete reports a perceived difference** ("felt stronger today", "the second one felt heavier", "this was tougher than last time"). The data either backs the perception or contradicts it — both are useful.
+- **Outlier signal vs the athlete's recent baseline** — a Z2 run at unusually low HR for the pace, a tempo with notably high drift, etc. The "vs baseline" is itself a comparison.
+- **Plan-prescribed comparison** — back-to-back long runs (B2B), dress rehearsal vs race goal, etc.
+
+**Don't force it when:**
+- The run stands alone and tells a clear story on its own.
+- The candidate "comparison run" was weeks ago and conditions / fitness have shifted.
+- The comparison would just restate the per-run reads without new insight.
+
+**How to do it:**
+1. Pull the comparison run(s) via `query_activities` (recent runs of the same type / similar distance) or `get_run_analysis` (when you already know the activity_id).
+2. Build a side-by-side: distance, pace, GAP, avg HR, cardiac drift, zone split, elevation gain, **efficiency factor**, pace-CV, weather. Tables work well here.
+3. Identify what the numbers say vs the perception, especially when they diverge. The flip case ("athlete felt fade, EF says stronger") is one of the most coaching-valuable reads.
+4. Say what the comparison means for training (fitness moving up, rhythm question, recovery question, etc.).
+
 ## Plan Comparison — Do This First
 
 Before assessing effort quality, establish what the run was *supposed* to be:
@@ -24,7 +87,14 @@ Before assessing effort quality, establish what the run was *supposed* to be:
 
 ### Annotating Completion in the Plan
 
-**Timing:** annotate the plan only AFTER the analysis-reviewer has passed (or its findings have been addressed) and `save_run_analysis` has run. Per the New Run Analysis protocol, this happens right after step 5 (save) and before the Strava offer. **Never** annotate before the reviewer runs — the annotation captures the final analysis, not the draft. **Never** annotate during a triage turn that ends with a clarifying question — defer to the next turn after the athlete answers.
+**Timing:** annotate the plan exactly once per run. The trigger is the FIRST turn after posting the analysis where ANY of the following holds:
+
+1. **Athlete acknowledges** ("looks good", "ok", "thanks", "ye", "yep")
+2. **Athlete asks for Strava push** ("update strava", "push it", "post it") — annotate before invoking strava-writeback
+3. **Athlete pivots to an unrelated topic** (asks about another run, asks a training question, asks about the plan, etc.) — treat as implicit acknowledgment of the analysis
+4. **Athlete keeps iterating on the analysis itself** ("dig deeper", "redo", "compare to X", "what about Y") — DO NOT annotate yet; revise the analysis and wait for one of triggers 1-3
+
+Don't annotate in the same turn as the initial draft. Don't annotate during a triage turn that ends with a clarifying question. Once annotated, don't re-annotate on subsequent revisions of the same run's analysis.
 
 When the timing is right, update the plan row to mark the session as done:
 
@@ -187,17 +257,19 @@ If you would not stop and wait for the answer, you are not actually asking a que
 
 The athlete's reply arrives in the next turn. Then:
 
-1. **Acknowledge and update**: revise your interpretation where the answer changes it. A sentence of correction is enough — no full rewrite
-2. **Run the review step**: dispatch analysis-reviewer with the revised draft (per protocol step 6)
-3. **Save**: call save_run_analysis after review passes (per protocol step 7)
-4. **Pattern check**: if the answer reveals a recurring pattern (always drifts in afternoon runs, consistently pushes easy days too hard), save to memory with write_memory
-5. **Strava description**: if writing back to Strava, incorporate the context naturally — "the HR drift likely reflects a short night rather than a fitness concern"
+1. **Acknowledge and update**: revise your interpretation where the answer changes it. A sentence of correction is enough — no full rewrite.
+2. **Run the review step**: dispatch analysis-reviewer with the revised draft.
+3. **Save**: call save_run_analysis(detailed_analysis=...) after review passes.
+4. **Post the analysis in chat and stop.** Wait for the athlete's reaction before any Strava offer or further persistence.
+5. **Pattern check**: if the answer reveals a recurring pattern (always drifts in afternoon runs, consistently pushes easy days too hard), save to memory with write_memory once the conversation settles.
+6. **Strava description**: only when the athlete later asks to push. The strava-writeback skill produces a separate description from the saved coaching analysis.
 
 ### Multi-Run Batching
 
 When analyzing several runs at once (startup sync, weekly review):
 
-- Don't ask per-run questions for every activity — that becomes an interview
-- Pick at most 1-2 runs with the most coaching-consequential ambiguity
+- Don't ask per-run questions for every activity — that becomes an interview.
+- Pick at most 1-2 runs with the most coaching-consequential ambiguity.
 - If you ask, the question(s) are the last thing in the response — no reviews or saves happen this turn. The next turn (after the athlete answers) is where review + save run for all the analyzed drafts.
 - If no run has a genuinely ambiguous signal, skip the follow-up entirely and proceed straight to per-run review + save in this turn.
+- **Cross-run synthesis** is optional and judgment-based (see "When to Add Cross-Run Comparison" above). When the batched runs form a daily double, a B2B, or a same-week progression, a brief synthesis section after the per-run analyses is often valuable. When they're unrelated (different types, different days, no shared narrative), don't force it.
