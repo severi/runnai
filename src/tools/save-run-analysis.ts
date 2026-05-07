@@ -5,13 +5,14 @@ import { toolResult, toolError } from "../utils/format.js";
 
 export const saveRunAnalysisTool = tool(
   "save_run_analysis",
-  "Save a coaching analysis for a run. Stores the detailed analysis and optional Strava title. The Strava description is always identical to detailed_analysis (no separate condensed version) — the strava-writeback skill passes the same prose to strava_update_activity.",
+  "Save a coaching analysis for a run. `detailed_analysis` is the thorough private coaching read (depth, plan-vs-actual, training-load context, mistakes/learnings, what-to-do-next, cross-run comparisons if relevant). `strava_description` is the optional public-feed version — set it ONLY when pushing to Strava (typically via the strava-writeback skill); leave undefined to keep the existing strava_description. The two are stored separately and intentionally diverge.",
   {
     activity_id: z.number().describe("Strava activity ID"),
-    detailed_analysis: z.string().describe("Full coaching analysis (1-2 paragraphs). Also used verbatim as the Strava description."),
-    strava_title: z.string().optional().describe("Short activity title for Strava"),
+    detailed_analysis: z.string().optional().describe("Thorough private coaching analysis. Plan-aware, includes context, comparisons, and actionable takeaways. NOT for public consumption. Pass undefined to leave existing detailed_analysis untouched."),
+    strava_title: z.string().optional().describe("Short activity title for Strava. Pass undefined to leave existing title untouched."),
+    strava_description: z.string().optional().describe("Public-facing Strava description, derived from but distinct from detailed_analysis. Tight what-happened account, no plan/future/orthogonal content. Pass undefined to leave existing description untouched."),
   },
-  async ({ activity_id, detailed_analysis, strava_title }) => {
+  async ({ activity_id, detailed_analysis, strava_title, strava_description }) => {
     try {
       const db = getDb();
       const now = new Date().toISOString();
@@ -24,19 +25,41 @@ export const saveRunAnalysisTool = tool(
         return toolResult(`No analysis record for activity ${activity_id}. Run get_run_analysis first.`, true);
       }
 
-      // strava_description mirrors detailed_analysis to prevent divergence
-      // between what's saved locally and what's published to Strava.
+      if (detailed_analysis === undefined && strava_title === undefined && strava_description === undefined) {
+        return toolResult(`No fields provided for activity ${activity_id}. Pass at least one of detailed_analysis, strava_title, strava_description.`, true);
+      }
+
+      const sets: string[] = [];
+      const params: (string | number | null)[] = [];
+
+      if (detailed_analysis !== undefined) {
+        sets.push("detailed_analysis = ?");
+        params.push(detailed_analysis);
+      }
+      if (strava_title !== undefined) {
+        sets.push("strava_title = ?");
+        params.push(strava_title);
+      }
+      if (strava_description !== undefined) {
+        sets.push("strava_description = ?");
+        params.push(strava_description);
+      }
+      sets.push("analysis_generated_at = ?");
+      params.push(now);
+      params.push(activity_id);
+
       db.prepare(`
         UPDATE activity_analysis
-        SET detailed_analysis = ?, strava_title = ?, strava_description = ?, analysis_generated_at = ?
+        SET ${sets.join(", ")}
         WHERE activity_id = ?
-      `).run(detailed_analysis, strava_title ?? null, detailed_analysis, now, activity_id);
+      `).run(...params);
 
       return toolResult(JSON.stringify({
         activity_id,
         saved: true,
-        has_detailed_analysis: true,
-        has_strava_title: !!strava_title,
+        updated_detailed_analysis: detailed_analysis !== undefined,
+        updated_strava_title: strava_title !== undefined,
+        updated_strava_description: strava_description !== undefined,
         saved_at: now,
       }, null, 2));
     } catch (error) {

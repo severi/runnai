@@ -185,7 +185,7 @@ export const getRunAnalysisTool = tool(
         confounds: computeConfounds(activity_id, record.lap_summaries),
         detailed_analysis: record.detailed_analysis,
         strava_title: record.strava_title,
-        // strava_description is intentionally omitted — it's always a mirror of detailed_analysis.
+        strava_description: record.strava_description,
         analyzed_at: record.analyzed_at,
       };
 
