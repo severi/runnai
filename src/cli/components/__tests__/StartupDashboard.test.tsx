@@ -86,6 +86,20 @@ describe("StartupDashboard", () => {
     expect(output).toContain("2 new activities");
   });
 
+  test("renders backlog when up_to_date but unanalyzed runs remain", () => {
+    const ctx: StartupContext = {
+      ...baseCtx,
+      sync: {
+        status: "up_to_date",
+        message: "Already up to date.\n\nRuns awaiting analysis from prior sessions:\n- 2026-05-09: \"Morning Run\" (id: 18436408502) — 26.1km @ 6:21/km",
+        newRunIds: [18436408502],
+      },
+    };
+    const { lastFrame } = render(<StartupDashboard ctx={ctx} greeting={null} />);
+    const output = lastFrame()!;
+    expect(output).toContain("awaiting analysis");
+  });
+
   test("renders error state with auth hint", () => {
     const ctx: StartupContext = {
       ...baseCtx,

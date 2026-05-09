@@ -68,6 +68,12 @@ Cross-run comparison is a capability you reach for when it adds coaching value, 
 3. Identify what the numbers say vs the perception, especially when they diverge. The flip case ("athlete felt fade, EF says stronger") is one of the most coaching-valuable reads.
 4. Say what the comparison means for training (fitness moving up, rhythm question, recovery question, etc.).
 
+**Elevation gain — methodology gotcha:**
+The `total_elevation_gain` field on the raw `activities` row comes from Strava's per-activity DEM smoothing, which varies in intensity per upload. Two runs on the *exact same route* can report different API values (we've seen 275m vs 376m for what was clearly the same loop). Do NOT use that field for cross-run comparison.
+- For elevation in a comparison: read `elevation.gain_m` from `get_run_analysis` — that's the analyzer's stream-derived value (consistent algorithm across runs), or the raw field as a fallback when streams aren't available.
+- When the athlete says "this is the same route as X," trust the route knowledge. If the elevation numbers disagree by >20%, that's almost certainly a Strava-smoothing artifact, not a real terrain difference. Don't build a story around the discrepancy.
+- Altimeter readings also have ~5-10% noise across multi-month gaps (barometer drift, firmware changes). Small differences (<5%) between runs months apart are noise, not signal.
+
 ## Plan Comparison — Do This First
 
 Before assessing effort quality, establish what the run was *supposed* to be:

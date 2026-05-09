@@ -64,6 +64,10 @@ function SyncStatus({ sync }: { sync: StartupContext["sync"] }) {
   if (sync.status === "new_activities") {
     return <Text color="green">{"↓"} {sync.message}</Text>;
   }
+  if (sync.newRunIds.length > 0) {
+    const n = sync.newRunIds.length;
+    return <Text color="yellow">{"⚠"} Strava synced — {n} run{n === 1 ? "" : "s"} awaiting analysis</Text>;
+  }
   return <Text color="green" dimColor>{"✓"} Strava synced — up to date</Text>;
 }
 

@@ -102,6 +102,18 @@ describe("buildComplianceEntries", () => {
     const result = buildComplianceEntries([workouts[0]], activities, new Date(2026, 2, 15));
     expect(result[0].actual?.id).toBe(2);
     expect(result[0].actual?.name).toBe("Main run");
+    expect(result[0].extras).toHaveLength(1);
+    expect(result[0].extras[0].id).toBe(1);
+    expect(result[0].extras[0].name).toBe("Shakeout");
+  });
+
+  test("extras is empty when at most one run happens on the planned day", () => {
+    const activities: ActivityRow[] = [
+      makeActivity({ id: 1, distance: 9100, start_date_local: "2026-03-09T06:00:00", name: "Solo" }),
+    ];
+    const result = buildComplianceEntries([workouts[0]], activities, new Date(2026, 2, 15));
+    expect(result[0].actual?.id).toBe(1);
+    expect(result[0].extras).toHaveLength(0);
   });
 
   test("computes pace correctly from distance and moving_time", () => {
