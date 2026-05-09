@@ -424,6 +424,9 @@ export interface ComplianceEntry {
     weekNumber: number;
   };
   actual: ComplianceActivity | null;
+  // Additional same-day runs beyond `actual` (the "primary" longest run).
+  // Empty when 0 or 1 runs on the planned date. Ordered by start_date_local ascending.
+  extras: ComplianceActivity[];
   status: ComplianceStatus;
 }
 

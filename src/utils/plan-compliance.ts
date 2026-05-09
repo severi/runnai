@@ -73,6 +73,15 @@ function pickBestActivityForWorkout(rows: ActivityRow[]): ActivityRow | null {
   return rows.reduce((best, r) => (r.distance > best.distance ? r : best));
 }
 
+function splitPrimaryAndExtras(rows: ActivityRow[]): { primary: ActivityRow | null; extras: ActivityRow[] } {
+  const primary = pickBestActivityForWorkout(rows);
+  if (!primary) return { primary: null, extras: [] };
+  const extras = rows
+    .filter(r => r.id !== primary.id)
+    .sort((a, b) => a.start_date_local.localeCompare(b.start_date_local));
+  return { primary, extras };
+}
+
 function todayMs(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
@@ -107,8 +116,9 @@ export function buildComplianceEntries(
   return workouts.map(w => {
     const dateKey = w.date.slice(0, 10);
     const matches = byDate.get(dateKey) ?? [];
-    const best = pickBestActivityForWorkout(matches);
-    const actual = best ? toComplianceActivity(best) : null;
+    const { primary, extras } = splitPrimaryAndExtras(matches);
+    const actual = primary ? toComplianceActivity(primary) : null;
+    const extrasOut = extras.map(toComplianceActivity);
 
     let status: ComplianceEntry["status"];
     if (actual) {
@@ -127,6 +137,7 @@ export function buildComplianceEntries(
         weekNumber: w.weekNumber,
       },
       actual,
+      extras: extrasOut,
       status,
     };
   });
@@ -182,9 +193,11 @@ export async function getWeeklyPlanCompliance(
   const completed = entries.filter(e => e.status === "completed").length;
   const missed = entries.filter(e => e.status === "missed").length;
   const upcoming = entries.filter(e => e.status === "upcoming").length;
-  const completedKm = entries
-    .filter(e => e.actual)
-    .reduce((sum, e) => sum + (e.actual?.distance_km ?? 0), 0);
+  const completedKm = entries.reduce((sum, e) => {
+    const primaryKm = e.actual?.distance_km ?? 0;
+    const extrasKm = e.extras.reduce((s, x) => s + x.distance_km, 0);
+    return sum + primaryKm + extrasKm;
+  }, 0);
 
   return {
     weekNumber: week,

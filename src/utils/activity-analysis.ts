@@ -232,6 +232,26 @@ export function getRecentUnanalyzedActivityIds(days: number = 7): number[] {
   `).all(days) as { id: number }[]).map(r => r.id);
 }
 
+export interface RunMissingCoachingAnalysis {
+  id: number;
+  name: string;
+  start_date_local: string;
+  distance: number;
+  moving_time: number;
+}
+
+export function getRecentRunsMissingDetailedAnalysis(days: number = 7): RunMissingCoachingAnalysis[] {
+  return getDb().prepare(`
+    SELECT a.id, a.name, a.start_date_local, a.distance, a.moving_time
+    FROM activities a
+    LEFT JOIN activity_analysis aa ON a.id = aa.activity_id
+    WHERE a.type = 'Run' AND a.trainer = 0
+      AND a.start_date_local >= date('now', '-' || ? || ' days')
+      AND (aa.activity_id IS NULL OR aa.detailed_analysis IS NULL)
+    ORDER BY a.start_date_local DESC
+  `).all(days) as RunMissingCoachingAnalysis[];
+}
+
 export function computeTrainingContext(activityId: number): TrainingContext | null {
   const db = getDb();
   const activity = db.prepare(`

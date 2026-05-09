@@ -111,6 +111,27 @@ describe("formatNewRunsPrompt", () => {
   });
 });
 
+describe("formatCompactStatus backlog", () => {
+  test("shows awaiting-analysis count when up_to_date but newRunIds present", () => {
+    const ctx: StartupContext = {
+      sync: {
+        status: "up_to_date",
+        message: "Already up to date.\n\nRuns awaiting analysis from prior sessions:\n- 2026-05-09: \"Morning Run\" (id: 18436408502) — 26.1km @ 6:21/km",
+        newRunIds: [18436408502],
+      },
+      recentSummary: "",
+      planExcerpt: null,
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    const status = formatCompactStatus(ctx);
+    expect(status).toContain("awaiting analysis");
+    expect(status).toContain("1 run");
+  });
+});
+
 describe("formatCompactStatus", () => {
   test("formats no-op sync with races and plan", () => {
     const ctx: StartupContext = {
@@ -186,12 +207,23 @@ describe("formatCompactStatus", () => {
       raceCountdowns: [],
       weekCompliance: {
         weekNumber: 9,
-        summary: { completed: 2, total: 6, completedKm: 20, plannedKm: 70 },
+        planSlug: "test-plan",
+        summary: { completed: 2, missed: 0, upcoming: 4, total: 6, completedKm: 20, plannedKm: 70 },
         entries: [
-          { date: "2026-05-04", planned: { sessionName: "Hill", details: "" }, actual: { activityId: 1, distanceKm: 10 }, status: "completed" },
-          { date: "2026-05-09", planned: { sessionName: "Long Run", details: "" }, actual: null, status: "upcoming" },
+          {
+            planned: { date: "2026-05-04", sessionName: "Hill", details: "", weekNumber: 9 },
+            actual: { id: 1, name: "Hill", distance_km: 10, pace_sec_per_km: 320, run_type: "intervals", start_date_local: "2026-05-04T07:00:00" },
+            extras: [],
+            status: "completed",
+          },
+          {
+            planned: { date: "2026-05-09", sessionName: "Long Run", details: "", weekNumber: 9 },
+            actual: null,
+            extras: [],
+            status: "upcoming",
+          },
         ],
-      } as unknown as StartupContext["weekCompliance"],
+      },
       newRunPlanContext: [],
       fitnessDrift: null,
     };
@@ -206,29 +238,65 @@ describe("formatCompactStatus", () => {
     expect(result).not.toContain("upcoming:");
   });
 
-  test("preserves missed-session callout (only compliance bit not visible in table)", () => {
+  test("marks missed days inline with ✗ and surfaces actuals (incl. doubles) on a 'did:' sub-line", () => {
     const ctx: StartupContext = {
       sync: { status: "up_to_date", message: "Already up to date.", newRunIds: [] },
       recentSummary: "",
       planExcerpt: {
         name: "test-plan",
-        currentWeek: "## Week 9: Build 1\n\n| Day | Date | Session | Details |\n|---|---|---|---|\n| Mon | May 4 | Hill | 5x200m. |\n",
+        currentWeek: [
+          "## Week 9: Build 1",
+          "",
+          "| Day | Date | Session | Details |",
+          "|---|---|---|---|",
+          "| Mon | May 4 | Hill | 5x200m. |",
+          "| Tue | May 5 | Easy | 9km |",
+          "| Thu | May 7 | Easy + Strength | 8km easy |",
+        ].join("\n"),
         nextWeek: "",
       },
       raceCountdowns: [],
       weekCompliance: {
         weekNumber: 9,
-        summary: { completed: 1, total: 3, completedKm: 10, plannedKm: 50 },
+        planSlug: "test-plan",
+        summary: { completed: 2, missed: 1, upcoming: 0, total: 3, completedKm: 28.6, plannedKm: 50 },
         entries: [
-          { date: "2026-05-04", planned: { sessionName: "Hill", details: "" }, actual: { activityId: 1, distanceKm: 10 }, status: "completed" },
-          { date: "2026-05-05", planned: { sessionName: "Easy", details: "" }, actual: null, status: "missed" },
+          {
+            planned: { date: "2026-05-04", sessionName: "Hill", details: "", weekNumber: 9 },
+            actual: { id: 1, name: "Hill", distance_km: 10, pace_sec_per_km: 320, run_type: "intervals", start_date_local: "2026-05-04T07:00:00" },
+            extras: [],
+            status: "completed",
+          },
+          {
+            planned: { date: "2026-05-05", sessionName: "Easy", details: "", weekNumber: 9 },
+            actual: null,
+            extras: [],
+            status: "missed",
+          },
+          {
+            planned: { date: "2026-05-07", sessionName: "Easy + Strength", details: "", weekNumber: 9 },
+            actual: { id: 2, name: "Afternoon", distance_km: 9.3, pace_sec_per_km: 357, run_type: "easy", start_date_local: "2026-05-07T16:18:16Z" },
+            extras: [
+              { id: 3, name: "Morning", distance_km: 9.3, pace_sec_per_km: 385, run_type: "easy", start_date_local: "2026-05-07T08:48:49Z" },
+            ],
+            status: "completed",
+          },
         ],
-      } as unknown as StartupContext["weekCompliance"],
+      },
       newRunPlanContext: [],
       fitnessDrift: null,
     };
     const result = formatCompactStatus(ctx);
-    expect(result).toContain("missed: Easy");
+    // Inline status markers replace the legacy bottom "missed: ..." callout
+    expect(result).toMatch(/✓ Mon\s+Hill/);
+    expect(result).toMatch(/✗ Tue\s+Easy/);
+    expect(result).toMatch(/✓ Thu\s+Easy \+ Strength/);
+    // Doubles surfaced — both Thursday runs visible on the "did:" sub-line
+    expect(result).toMatch(/did: 9\.3km @ 5:57\/km · 9\.3km @ 6:25\/km/);
+    // Single run on Mon also gets a "did:" line
+    expect(result).toMatch(/did: 10km @ 5:20\/km/);
+    // The redundant bottom callout is gone now that ✗ shows inline
+    expect(result).not.toContain("missed:");
   });
 
   test("formats error state", () => {
