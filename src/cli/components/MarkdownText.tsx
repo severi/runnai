@@ -85,21 +85,25 @@ function renderToken(token: Token, key: number): React.ReactNode {
       const tableToken = token as Tokens.Table;
       const numCols = tableToken.header.length;
       if (numCols === 0) return null;
+      // Truncate (don't wrap) every cell so each row stays exactly 1 visual line.
+      // With wrap="wrap", a row's height was max(cellWraps), which made shorter
+      // cells render their text on the top line and pad the rest with spaces —
+      // visually a block of trailing whitespace under the short columns. That
+      // read as "lots of whitespace at the end of coach replies" when the table
+      // was the last element. Truncation eliminates the row-stretch entirely.
       return (
         <Box key={key} flexDirection="column" marginTop={1}>
           {/* Header row */}
           <Box flexDirection="row">
             {tableToken.header.map((cell, ci) => (
               <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
-                <Text bold color="cyan" wrap="wrap">
+                <Text bold color="cyan" wrap="truncate-end">
                   {renderInline(cell.tokens)}
                 </Text>
               </Box>
             ))}
           </Box>
-          {/* Separator — truncate prevents the long dash string from wrapping
-              to multiple lines when the column is narrower than the dash count,
-              which would inflate the row to 2-3 lines per separator. */}
+          {/* Separator */}
           <Box flexDirection="row">
             {tableToken.header.map((_, ci) => (
               <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
@@ -112,7 +116,7 @@ function renderToken(token: Token, key: number): React.ReactNode {
             <Box key={ri} flexDirection="row">
               {row.map((cell, ci) => (
                 <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
-                  <Text wrap="wrap">{renderInline(cell.tokens)}</Text>
+                  <Text wrap="truncate-end">{renderInline(cell.tokens)}</Text>
                 </Box>
               ))}
             </Box>
