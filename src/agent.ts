@@ -389,7 +389,8 @@ export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Optio
 
   return {
     cwd: PROJECT_ROOT,
-    model: "claude-opus-4-7",
+    model: "claude-opus-4-6",
+    betas: ["context-1m-2025-08-07"],
     effort: "high",
     systemPrompt,
     permissionMode: "default",
