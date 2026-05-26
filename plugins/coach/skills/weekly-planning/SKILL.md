@@ -13,6 +13,14 @@ description: Weekly plan adaptation, missed workout handling, recovery indicator
 - Day after quality: easy run or rest
 - Day after long run: rest or very easy short run
 
+### Plan Across Week Boundaries, Not In Isolation
+A training week is seven days in a continuous stream — **never lay out or edit a week as a standalone block.** Weeks break at the *seams* between them: a week that is internally sound can still stack a hard session onto the previous week's long effort.
+
+**Before placing the first sessions of any week, read the last 2 days of the previous week** (and glance at the first day of the next). Every alternation rule above applies across the Sunday→Monday seam, not just within a week:
+- The day after a Sunday long run — or a Saturday+Sunday back-to-back — is rest or very easy. Not a quality session, and not a normal "easy" distance.
+- Don't place the week's quality session in its first 1–2 days when the previous week ended with its hardest stimulus (long run, B2B weekend, or race). Let the legs absorb it first.
+- When a down/recovery week must be **front-loaded** (travel or a life event blocks the back half), front-loading still obeys the seam: lead with recovery from the prior weekend, then place any quality midweek — don't slam a hard session onto fatigued legs just because it's "early in the week."
+
 ### Weekly Quality Budget
 - **Beginner (< 30 km/week)**: 1 quality session + long run
 - **Intermediate (30-60 km/week)**: 2 quality sessions + long run

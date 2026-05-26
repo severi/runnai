@@ -41,6 +41,10 @@ Aim for the notebook to be mostly complete by the time the user is ready to fina
 
 After finalize, announce: `finalized vN → live plan now reflects vN. CHANGELOG +1.`
 
+## Check the seams before finalizing
+
+Revisions restructure weeks one at a time, so plans break at the *boundaries between separately-edited weeks* — the classic failure is a hard session early in one week landing right after the previous week's long run or B2B weekend. Before finalize, walk every modified week boundary: re-read each revised week's first 2 days against the previous week's last 2 days, and its last day against the next week's opener. The hard/easy and fatigue-carryover rules apply across these seams — see the `weekly-planning` skill, "Plan Across Week Boundaries, Not In Isolation."
+
 ## Discard
 
 When a revision is going nowhere or the user changes their mind, `manage_plan(action: "discard")` removes the draft. Confirm before calling: *"Discard the current draft? This deletes vN-draft permanently."*
