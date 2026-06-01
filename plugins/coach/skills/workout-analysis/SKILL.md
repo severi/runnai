@@ -46,6 +46,15 @@ This is the default depth. A one-paragraph summary is not a coaching analysis.
 
 **Length:** as long as the run warrants. A clean honest Z2 with no signals = short. A daily double with cumulative load + a perceived bonk + plan implications = long. Don't pad, don't truncate.
 
+**Write the final state, not your process.** The athlete reads only the finished analysis — never your earlier drafts, the reviewer's notes, or the analyzer's intermediate fields. So state the correct read directly; don't write it as a correction, a contrast against a claim the athlete never saw, or commentary on your own tooling. Two general failure modes to avoid:
+
+- **Revision scaffolding.** When the review step changes a draft, fold the correction in silently and state the conclusion outright. Don't narrate the edit ("honest version: …", "so not X — actually Y", "to be accurate", "named correctly"). If the athlete never saw the wrong version, contrasting against it just reads as you walking back something you never said.
+- **Tool/QA meta-commentary.** Don't surface or debunk the analyzer's raw output to the athlete (auto-detected "intervals" that are noise, confound flags you've dismissed, fields you chose not to trust). Resolve it internally and present only the right interpretation — "one steady continuous run", not "the analyzer flagged 11 intervals but that's a GPS artifact". State what was true, not what the data pipeline almost made you think.
+
+This is general: anything that only makes sense if the reader had seen your draft, your reviewer's feedback, or the raw tool fields does not belong in the athlete-facing read.
+
+**Make takeaways consistent with your own analysis.** A recommendation must not contradict a conclusion you reached elsewhere in the same read. If you've judged that a zone looks stale, or that elevated HR was a confound (cold start, heat, prior-day load) rather than effort, the takeaway has to honor that — don't prescribe running to the band you just called conservative, or coach pace discipline on a run whose HR you just explained away. And scale prescriptiveness to the run: a trivial recovery/shakeout effort warrants a directional nudge (keep it genuinely easy, run by feel/HR), not a rigid pace+HR target.
+
 ## When to Add Cross-Run Comparison
 
 Cross-run comparison is a capability you reach for when it adds coaching value, not a default step on every analysis.
