@@ -25,7 +25,7 @@ import { fetchActivityWeather } from "./activity-weather.js";
 import { loadHrZones, computeEasyPaceRef } from "./hr-zones.js";
 import { classifyRun, detectHillProfile } from "./run-classifier.js";
 import { generateTrainingPatterns } from "./training-patterns.js";
-import { toDateString, formatPace } from "./format.js";
+import { toDateString, formatPace, weekdayFromDateKey } from "./format.js";
 import { extractPlanWeeks, findCurrentWeekNumber, parsePlan } from "./plan-parser.js";
 import { findActivePlan, getWeeklyPlanCompliance } from "./plan-compliance.js";
 import { computeFitnessDrift } from "./fitness-drift.js";
@@ -533,17 +533,30 @@ export function formatNewRunsPrompt(ctx: StartupContext): string {
 
 ${ctx.sync.message}`;
 
-  // Pair each new run with its planned session so the LLM can compare
+  // Pair each new run with its planned session so the LLM can compare.
+  // Weekday is included so the agent never re-derives it (see date-handling rules).
   if (ctx.newRunPlanContext.length > 0) {
     const lines: string[] = [];
     for (const entry of ctx.newRunPlanContext) {
+      const weekday = weekdayFromDateKey(entry.date);
       if (entry.planned) {
-        lines.push(`- Run ${entry.runId} (${entry.date}, plan week ${entry.planned.weekNumber}) → Planned: **${entry.planned.sessionName}** — ${entry.planned.details}`);
+        lines.push(`- Run ${entry.runId} (${weekday} ${entry.date}, plan week ${entry.planned.weekNumber}) → Planned: **${entry.planned.sessionName}** — ${entry.planned.details}`);
       } else {
-        lines.push(`- Run ${entry.runId} (${entry.date}) → No planned session for this date (unplanned run or rest day)`);
+        lines.push(`- Run ${entry.runId} (${weekday} ${entry.date}) → No planned session for this date (unplanned run or rest day)`);
       }
     }
     prompt += `\n\n**Plan context — compare each run against what was scheduled:**\n${lines.join("\n")}`;
+  }
+
+  // Batch directive: when more than one run synced together, they are a connected
+  // set, not independent silos. Tell the agent to analyze them as a batch.
+  if (ctx.newRunPlanContext.length > 1) {
+    prompt += `\n\n**These ${ctx.newRunPlanContext.length} runs synced together — analyze them as one batch, not in isolation:**
+- Gather data for ALL of them first, then analyze in chronological (oldest-first) order.
+- Each run's read should be aware of the others in this batch: the run(s) before it (cumulative load, recovery state) and after it (what the day was setting up). A short shakeout reads differently when you know a long run followed the next day.
+- When you dispatch the reviewer for a run that references a sibling run in this batch, include that sibling's key data in the reviewer's prompt so the reference verifies instead of being flagged as unsupported.
+- After the per-run reads, add a brief **batch synthesis** when the runs form a related set (back-to-back days, a daily double, a weekend block): cumulative load across the batch and the through-line. Skip the synthesis only if the runs are genuinely unrelated.
+- Scope: use ONLY these synced runs plus the normal recent context the tools already provide. Do not pull or re-analyze the wider history.`;
   }
 
   // Surface fitness drift signal so the coach addresses it before run analysis

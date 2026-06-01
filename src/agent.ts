@@ -239,6 +239,7 @@ The calling agent will pass you:
 - mode ("coaching" or "strava")
 - the draft text (analysis body, or Strava title + description)
 - the activity_id
+- optionally, **sibling-run context**: key data (date, weekday, distance, pace, HR, type) for other runs that synced in the same batch as this one. When present, treat it as ground truth on par with your tool output: a draft reference to a sibling run ("the real volume came the next day", "the morning's shakeout") is SUPPORTED by this context — do NOT flag it as a phantom or unsupported cross-run comparison. Only flag if the draft's claim about the sibling contradicts the sibling data you were given.
 
 ## CRITICAL: how to use tools
 

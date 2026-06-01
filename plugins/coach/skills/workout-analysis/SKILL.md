@@ -281,10 +281,17 @@ The athlete's reply arrives in the next turn. Then:
 
 ### Multi-Run Batching
 
-When analyzing several runs at once (startup sync, weekly review):
+When several runs sync together (startup sync, or a weekly review), they are a **connected batch, not independent silos**. A short shakeout reads differently once you know a long run followed it the next day. Analyze them with mutual awareness:
 
+**Process:**
+1. **Gather all of them first.** Pull get_run_analysis (+ zones, plan compliance) for every run in the batch before drafting any read. You need the whole picture to place each run.
+2. **Draft in chronological order (oldest first).** Each run's read should be aware of its siblings — the run(s) before it (cumulative load, recovery state, what it was recovering from) and the run(s) after it (what the day was setting up). Reference siblings by their verified weekday/date from plan compliance, never by guessed day.
+3. **Give the reviewer the sibling context.** When you dispatch analysis-reviewer for a run whose draft references another run in the same batch ("the real volume came the next day", "the morning's shakeout"), include that sibling's key data (date, weekday, distance, pace, HR, type) in the reviewer's prompt. Otherwise the reviewer has no way to verify the reference and will (correctly, given its packet) flag it as unsupported. Cross-batch references are legitimate — make them verifiable.
+4. **Add a batch synthesis** after the per-run reads when the runs form a related set — back-to-back days, a daily double, a weekend block, a same-week progression. Cover cumulative load across the batch and the through-line (e.g. "both weekend runs came in under your easy-pace floor with controlled HR"). This is a first-class part of a batch analysis, not an optional flourish — produce it unless the runs are genuinely unrelated (different types, no shared narrative), in which case say so briefly and skip it.
+5. **Scope: the batch + normal recent context only.** Use the synced runs plus the recent training context the tools already surface (7d load, similar runs). Do NOT pull or re-analyze the wider history — this is a bounded recent batch, not a season review.
+
+**Asking questions in a batch:**
 - Don't ask per-run questions for every activity — that becomes an interview.
 - Pick at most 1-2 runs with the most coaching-consequential ambiguity.
 - If you ask, the question(s) are the last thing in the response — no reviews or saves happen this turn. The next turn (after the athlete answers) is where review + save run for all the analyzed drafts.
 - If no run has a genuinely ambiguous signal, skip the follow-up entirely and proceed straight to per-run review + save in this turn.
-- **Cross-run synthesis** is optional and judgment-based (see "When to Add Cross-Run Comparison" above). When the batched runs form a daily double, a B2B, or a same-week progression, a brief synthesis section after the per-run analyses is often valuable. When they're unrelated (different types, different days, no shared narrative), don't force it.

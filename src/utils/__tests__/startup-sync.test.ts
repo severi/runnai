@@ -109,6 +109,45 @@ describe("formatNewRunsPrompt", () => {
     expect(prompt).toContain("789");
     expect(prompt).toContain("Long Run");
   });
+
+  test("emits a batch directive and weekdays when more than one run synced", () => {
+    const ctx: StartupContext = {
+      sync: { status: "new_activities", message: "2 runs synced.", newRunIds: [1, 2] },
+      recentSummary: "",
+      planExcerpt: null,
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [
+        { runId: 1, date: "2026-05-30", planned: { sessionName: "Easy shakeout", details: "5-6km", weekNumber: 12 } },
+        { runId: 2, date: "2026-05-31", planned: { sessionName: "Easy", details: "13-15km", weekNumber: 12 } },
+      ],
+      fitnessDrift: null,
+    };
+    const prompt = formatNewRunsPrompt(ctx);
+    // Weekday derived from the date (Sat 05-30, Sun 05-31) so the agent never guesses it.
+    expect(prompt).toContain("Saturday 2026-05-30");
+    expect(prompt).toContain("Sunday 2026-05-31");
+    // Batch framing present for >1 run.
+    expect(prompt).toContain("analyze them as one batch");
+    expect(prompt).toMatch(/batch synthesis/i);
+  });
+
+  test("omits the batch directive for a single run", () => {
+    const ctx: StartupContext = {
+      sync: { status: "new_activities", message: "1 run synced.", newRunIds: [1] },
+      recentSummary: "",
+      planExcerpt: null,
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [
+        { runId: 1, date: "2026-05-31", planned: { sessionName: "Easy", details: "13km", weekNumber: 12 } },
+      ],
+      fitnessDrift: null,
+    };
+    const prompt = formatNewRunsPrompt(ctx);
+    expect(prompt).not.toContain("analyze them as one batch");
+    expect(prompt).toContain("Sunday 2026-05-31");
+  });
 });
 
 describe("formatCompactStatus backlog", () => {
