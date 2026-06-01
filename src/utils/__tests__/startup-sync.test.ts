@@ -211,16 +211,18 @@ describe("formatCompactStatus", () => {
         summary: { completed: 2, missed: 0, upcoming: 4, total: 6, completedKm: 20, plannedKm: 70 },
         entries: [
           {
-            planned: { date: "2026-05-04", sessionName: "Hill", details: "", weekNumber: 9 },
-            actual: { id: 1, name: "Hill", distance_km: 10, pace_sec_per_km: 320, run_type: "intervals", start_date_local: "2026-05-04T07:00:00" },
+            planned: { date: "2026-05-04", weekday: "Monday", sessionName: "Hill", details: "", weekNumber: 9 },
+            actual: { id: 1, name: "Hill", distance_km: 10, pace_sec_per_km: 320, run_type: "intervals", start_date_local: "2026-05-04T07:00:00", weekday: "Monday" },
             extras: [],
             status: "completed",
+            completedRunIndex: 1,
           },
           {
-            planned: { date: "2026-05-09", sessionName: "Long Run", details: "", weekNumber: 9 },
+            planned: { date: "2026-05-09", weekday: "Saturday", sessionName: "Long Run", details: "", weekNumber: 9 },
             actual: null,
             extras: [],
             status: "upcoming",
+            completedRunIndex: null,
           },
         ],
       },
@@ -262,31 +264,37 @@ describe("formatCompactStatus", () => {
         summary: { completed: 2, missed: 1, upcoming: 0, total: 3, completedKm: 28.6, plannedKm: 50 },
         entries: [
           {
-            planned: { date: "2026-05-04", sessionName: "Hill", details: "", weekNumber: 9 },
-            actual: { id: 1, name: "Hill", distance_km: 10, pace_sec_per_km: 320, run_type: "intervals", start_date_local: "2026-05-04T07:00:00" },
+            planned: { date: "2026-05-04", weekday: "Monday", sessionName: "Hill", details: "", weekNumber: 9 },
+            actual: { id: 1, name: "Hill", distance_km: 10, pace_sec_per_km: 320, run_type: "intervals", start_date_local: "2026-05-04T07:00:00", weekday: "Monday" },
             extras: [],
             status: "completed",
+            completedRunIndex: 1,
           },
           {
-            planned: { date: "2026-05-05", sessionName: "Easy", details: "", weekNumber: 9 },
+            planned: { date: "2026-05-05", weekday: "Tuesday", sessionName: "Easy", details: "", weekNumber: 9 },
             actual: null,
             extras: [],
             status: "missed",
+            completedRunIndex: null,
           },
           {
-            planned: { date: "2026-05-07", sessionName: "Easy + Strength", details: "", weekNumber: 9 },
-            actual: { id: 2, name: "Afternoon", distance_km: 9.3, pace_sec_per_km: 357, run_type: "easy", start_date_local: "2026-05-07T16:18:16Z" },
+            planned: { date: "2026-05-07", weekday: "Thursday", sessionName: "Easy + Strength", details: "", weekNumber: 9 },
+            actual: { id: 2, name: "Afternoon", distance_km: 9.3, pace_sec_per_km: 357, run_type: "easy", start_date_local: "2026-05-07T16:18:16Z", weekday: "Thursday" },
             extras: [
-              { id: 3, name: "Morning", distance_km: 9.3, pace_sec_per_km: 385, run_type: "easy", start_date_local: "2026-05-07T08:48:49Z" },
+              { id: 3, name: "Morning", distance_km: 9.3, pace_sec_per_km: 385, run_type: "easy", start_date_local: "2026-05-07T08:48:49Z", weekday: "Thursday" },
             ],
             status: "completed",
+            completedRunIndex: 2,
           },
         ],
       },
       newRunPlanContext: [],
       fitnessDrift: null,
     };
-    const result = formatCompactStatus(ctx);
+    // Pin "today" to a Saturday so none of the Mon/Tue/Thu rows get the → today
+    // marker — keeps the ✓/✗ status assertions deterministic regardless of the
+    // real wall-clock day the suite runs on.
+    const result = formatCompactStatus(ctx, new Date(2026, 4, 9));
     // Inline status markers replace the legacy bottom "missed: ..." callout
     expect(result).toMatch(/✓ Mon\s+Hill/);
     expect(result).toMatch(/✗ Tue\s+Easy/);

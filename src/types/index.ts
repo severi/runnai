@@ -414,11 +414,13 @@ export interface ComplianceActivity {
   pace_sec_per_km: number;
   run_type: string | null;
   start_date_local: string;
+  weekday: string;          // Full weekday name of start_date_local (e.g. "Saturday"). Authoritative — do not re-derive.
 }
 
 export interface ComplianceEntry {
   planned: {
     date: string;          // "YYYY-MM-DD"
+    weekday: string;       // Full weekday name of the planned date (e.g. "Tuesday"). Authoritative — do not re-derive.
     sessionName: string;
     details: string;
     weekNumber: number;
@@ -428,6 +430,9 @@ export interface ComplianceEntry {
   // Empty when 0 or 1 runs on the planned date. Ordered by start_date_local ascending.
   extras: ComplianceActivity[];
   status: ComplianceStatus;
+  // 1-based position among COMPLETED runs this week, in date order (null if not completed).
+  // Use this for "run N of the week" claims — never count plan rows or list positions.
+  completedRunIndex: number | null;
 }
 
 export interface WeeklyComplianceResult {

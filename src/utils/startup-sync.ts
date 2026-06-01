@@ -411,7 +411,7 @@ export function formatStartupGreeting(ctx: StartupContext): string {
   return parts.join("\n");
 }
 
-export function formatCompactStatus(ctx: StartupContext): string {
+export function formatCompactStatus(ctx: StartupContext, today: Date = new Date()): string {
   const sections: string[] = [];
 
   // Sync status
@@ -450,7 +450,7 @@ export function formatCompactStatus(ctx: StartupContext): string {
       weekTitle += ` · ${summary.completed}/${summary.total} done · ${kmSegment}`;
     }
     const weekBody = ctx.planExcerpt.currentWeek.split(/^###\s/m)[0];
-    const todayDow = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date().getDay()];
+    const todayDow = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][today.getDay()];
     const sessions = weekBody
       .split("\n")
       .filter(line => line.startsWith("|") && !line.startsWith("|--") && !line.match(/^\|\s*(Day|Date)\s*\|/i))
@@ -471,11 +471,9 @@ export function formatCompactStatus(ctx: StartupContext): string {
     // independently of whether the agent has annotated the markdown with ✅.
     const dayToEntry = new Map<string, NonNullable<typeof ctx.weekCompliance>["entries"][number]>();
     if (ctx.weekCompliance) {
-      const dowAbbr = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
       for (const e of ctx.weekCompliance.entries) {
-        const [y, m, d] = e.planned.date.slice(0, 10).split("-").map(Number);
-        if (!y || !m || !d) continue;
-        const day = dowAbbr[new Date(y, m - 1, d).getDay()];
+        // planned.weekday is the authoritative weekday (computed once at the source).
+        const day = e.planned.weekday.slice(0, 3).toLowerCase();
         if (day) dayToEntry.set(day, e);
       }
     }

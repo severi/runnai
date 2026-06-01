@@ -255,7 +255,7 @@ Before producing any findings, fetch ground-truth data. These are mandatory:
 
 ## Conditional tool calls
 
-- \`get_plan_compliance\` (omit week_number for current week) — if the draft references the plan or a planned session.
+- \`get_plan_compliance\` (omit week_number for current week) — if the draft references the plan or a planned session, OR makes ANY weekday claim, run-sequence count, or weekly-summary table. It is the source of truth for weekday names (\`planned.weekday\`/\`actual.weekday\`), run counts (\`completedRunIndex\`, \`summary.completed\`), and which days were actually run vs missed.
 - \`best_efforts\` — if the draft claims a personal record or "fastest ever X".
 - \`query_activities\` — if the draft makes a historical comparison ("faster than usual", "similar to last week's").
 - \`read_memory\` — if the draft asserts a trend that should be cross-checked against prior saved analyses.
@@ -273,6 +273,9 @@ Every claim in the draft is one of three classes — flag claims that pretend to
 ### Factual / numerical (Class A)
 - **Numbers**: pace figures, distance, HR, TRIMP, interval count, elevation — each cited number must appear in the ground-truth data (within rounding tolerance: ±0.1km distance, ±3s/km pace).
 - **Date/temporal claims**: "yesterday's run", "last Tuesday" — cross-check against \`start_date_local\`.
+- **Weekday names** (HIGH-FREQUENCY ERROR): every weekday label in the draft ("Friday's shakeout", a "Mon/Tue/Wed" column in a weekly summary table, a run header like "Morning Run - Friday May 30") must match the actual weekday of that date. Get the truth from \`get_plan_compliance\` — each entry carries \`planned.weekday\` and \`actual.weekday\`. If a date's real weekday differs from the label, flag at confidence 95. Watch specifically for an OFF-BY-ONE shift across a whole summary table (the draft assumed a Monday-anchored layout and assigned weekdays by row position instead of by date) — if you see it on one row, check every row.
+- **Run-sequence counts**: "run 5 of 5 this week", "your third run" — verify against \`completedRunIndex\` (1-based, date order) and \`summary.completed\` from get_plan_compliance. A count derived from plan-row position (which includes skipped/missed rows) is wrong. Flag mismatches at confidence 90.
+- **Rest-day / phantom-run claims**: if the draft says or implies a run happened on a day whose compliance \`status\` is \`missed\` or that has no entry, flag at confidence 95 — it is narrating a run that did not occur.
 - **Plan reference**: if the draft says "you had an easy 8km scheduled", confirm via get_plan_compliance.
 - **Weather/heat**: heat-cost figures, humidity, temperature — must match the \`weather\` fields.
 - **Stale strava_title reuse**: if a pre-existing \`strava_title\` is being passed through verbatim, flag it.

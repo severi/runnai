@@ -91,6 +91,15 @@ Before assessing effort quality, establish what the run was *supposed* to be:
    - If the day was meant to be rest and a run happened anyway, flag it
 5. **No plan match for this date?** Treat as unplanned — note it briefly and analyze on its own merits.
 
+### Dates, Weekdays, and Run Counts — Never Eyeball These
+
+Every weekday name, "run N of the week" count, and rest-day-vs-run-day claim MUST come from data, never from a plan row's position or your own mental calendar. This is a known failure mode — getting it wrong makes the entire analysis read as hallucinated even when the metrics are correct.
+
+- **Weekday names come from the data, not the plan order.** `get_plan_compliance` returns `planned.weekday` and `actual.weekday` (e.g. "Saturday") for every entry — use those verbatim. The Nth row of a plan is NOT the Nth day of the week; plans get reshuffled (rest days inserted, days moved), so a run dated 2026-05-30 is a *Saturday* regardless of where it sits in the list. If you ever need a weekday for a date that isn't in the compliance output, call `date_calc` — never compute it in your head.
+- **"Run N of the week" comes from `completedRunIndex`.** Each completed entry carries `completedRunIndex` (1-based, in true date order); `summary.completed` is the week's total. Cite "run 3 of 4 this week" only from those fields. Never count plan rows or list positions — a skipped session is still a row, so position ≠ run number.
+- **Rest day vs run day comes from `actual`/`status`, not the plan.** A day is a run day only if an activity exists for it (`status: "completed"`). A planned session with `actual: null` and a past date is `missed` — do NOT narrate it as a completed run. A day with no plan row and no activity is simply a rest day; never invent a run for it.
+- **Build the weekly summary table straight from the compliance entries.** One row per entry, weekday from `planned.weekday`, status from `status`. Do not assume a Monday-anchored Mon–Sun layout and back-fill weekday labels onto it.
+
 ### Annotating Completion in the Plan
 
 **Timing:** annotate the plan exactly once per run. The trigger is the FIRST turn after posting the analysis where ANY of the following holds:
