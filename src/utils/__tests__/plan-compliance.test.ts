@@ -137,4 +137,36 @@ describe("buildComplianceEntries", () => {
     expect(result[1].planned.details).toBe("12km total: 2km WU, 30min tempo, 2km CD.");
     expect(result[0].planned.date).toBe("2026-03-09");
   });
+
+  test("tags each entry with the actual weekday of its date (no off-by-one)", () => {
+    const result = buildComplianceEntries(workouts, [], new Date(2026, 2, 15));
+    // 2026-03-09 is a Monday, 03-10 Tuesday, 03-14 Saturday — by date, not plan position.
+    expect(result[0].planned.weekday).toBe("Monday");
+    expect(result[1].planned.weekday).toBe("Tuesday");
+    expect(result[2].planned.weekday).toBe("Saturday");
+  });
+
+  test("actual.weekday derives from the activity's local date, not a TZ-shifted parse", () => {
+    // A late-evening run stored with a trailing Z must still report its local weekday.
+    const activities: ActivityRow[] = [
+      makeActivity({ id: 1, start_date_local: "2026-03-14T23:30:00Z" }),
+    ];
+    const result = buildComplianceEntries([workouts[2]], activities, new Date(2026, 2, 15));
+    expect(result[0].actual?.weekday).toBe("Saturday");
+  });
+
+  test("completedRunIndex counts only completed runs in date order, skipping missed", () => {
+    // Middle workout (Tue Tempo) has no activity → missed; it must not consume an index.
+    const activities: ActivityRow[] = [
+      makeActivity({ id: 1, start_date_local: "2026-03-09T07:00:00" }),
+      makeActivity({ id: 3, start_date_local: "2026-03-14T08:15:00" }),
+    ];
+    const result = buildComplianceEntries(workouts, activities, new Date(2026, 2, 15));
+    expect(result[0].status).toBe("completed");
+    expect(result[0].completedRunIndex).toBe(1);
+    expect(result[1].status).toBe("missed");
+    expect(result[1].completedRunIndex).toBeNull();
+    expect(result[2].status).toBe("completed");
+    expect(result[2].completedRunIndex).toBe(2); // not 3 — the missed row is skipped
+  });
 });

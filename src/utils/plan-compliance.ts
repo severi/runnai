@@ -5,6 +5,7 @@ import { parsePlan, findCurrentWeekNumber, type ParsedWorkout } from "./plan-par
 import { getDb } from "./activities-db.js";
 import { listPlanSlugs, getPlanFile } from "./plan-paths.js";
 import { parseFrontmatter } from "./plan-frontmatter.js";
+import { weekdayFromDateKey } from "./format.js";
 import type { WeeklyComplianceResult, ComplianceEntry, ComplianceActivity } from "../types/index.js";
 
 export interface ActivePlan {
@@ -63,6 +64,7 @@ function toComplianceActivity(row: ActivityRow): ComplianceActivity {
     pace_sec_per_km: Math.round(paceSecPerKm),
     run_type: row.run_type,
     start_date_local: row.start_date_local,
+    weekday: weekdayFromDateKey(row.start_date_local),
   };
 }
 
@@ -113,6 +115,9 @@ export function buildComplianceEntries(
 
   const todayStartMs = todayMs(today);
 
+  // First pass: build entries with status. completedRunIndex is assigned in a
+  // second pass so it reflects true date order among completed runs.
+  let completedSoFar = 0;
   return workouts.map(w => {
     const dateKey = w.date.slice(0, 10);
     const matches = byDate.get(dateKey) ?? [];
@@ -129,9 +134,12 @@ export function buildComplianceEntries(
       status = "missed";
     }
 
+    const completedRunIndex = status === "completed" ? ++completedSoFar : null;
+
     return {
       planned: {
         date: dateKey,
+        weekday: weekdayFromDateKey(dateKey),
         sessionName: w.sessionName,
         details: w.details,
         weekNumber: w.weekNumber,
@@ -139,6 +147,7 @@ export function buildComplianceEntries(
       actual,
       extras: extrasOut,
       status,
+      completedRunIndex,
     };
   });
 }
