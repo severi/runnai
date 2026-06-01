@@ -389,8 +389,9 @@ export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Optio
 
   return {
     cwd: PROJECT_ROOT,
-    model: "claude-opus-4-6",
-    betas: ["context-1m-2025-08-07"],
+    model: "claude-opus-4-8",
+    // 1M context window is GA on Opus 4.8 (no context-1m beta header needed).
+    // thinking defaults to { type: "adaptive" } on Opus 4.6+ — left unset.
     effort: "high",
     systemPrompt,
     permissionMode: "default",
