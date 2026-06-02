@@ -15,6 +15,7 @@ import {
   attachReferenceTool,
   linkResearchTool,
   getPlanComplianceTool,
+  getGearTool,
   researchTool,
   saveResearchTool,
   saveRacePredictionTool,
@@ -64,6 +65,7 @@ export const coachMcpServer = createSdkMcpServer({
     attachReferenceTool,
     linkResearchTool,
     getPlanComplianceTool,
+    getGearTool,
     // Research
     researchTool,
     saveResearchTool,

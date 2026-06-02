@@ -10,6 +10,7 @@ export { planManagerTool, dateCalcTool, calculatorTool } from "./planning.js";
 export { attachReferenceTool } from "./references.js";
 export { linkResearchTool } from "./research-link.js";
 export { getPlanComplianceTool } from "./plan-compliance.js";
+export { getGearTool } from "./gear.js";
 export { researchTool, saveResearchTool } from "./research.js";
 export { saveRacePredictionTool, getPredictionHistoryTool } from "./analysis.js";
 export { generateAerobicChartTool } from "./aerobic-chart.js";
