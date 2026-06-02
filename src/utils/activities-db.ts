@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
 import { toDateString } from "./format.js";
-import type { StravaActivity, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult, SplitType } from "../types/index.js";
+import type { StravaActivity, StravaAthlete, GearWithUsage, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult, SplitType } from "../types/index.js";
 
 // --- Singleton connection ---
 
@@ -128,9 +128,25 @@ function runMigrations(db: Database): void {
   addColumn("activities", "run_type", "TEXT");
   addColumn("activities", "run_type_detail", "TEXT");
   addColumn("activities", "streams_fetched", "INTEGER DEFAULT 0");
+  addColumn("activities", "gear_id", "TEXT");
 
   // Index references the migrated `detail_fetched` column, so it must come AFTER addColumn.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gear ON activities(gear_id);`);
+
+  // Gear (shoes) — authoritative lifetime mileage from Strava, refreshed each sync.
+  // Per-run attribution lives on activities.gear_id; this table holds the
+  // Strava-side truth (which includes runs outside our sync window and manual entries).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gear (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      is_primary INTEGER DEFAULT 0,
+      distance REAL,
+      retired INTEGER DEFAULT 0,
+      synced_at TEXT
+    );
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_laps (
@@ -252,13 +268,13 @@ export function upsertActivities(activities: StravaActivity[]): void {
       distance, moving_time, elapsed_time, total_elevation_gain,
       average_speed, max_speed, average_heartrate, max_heartrate, suffer_score,
       average_cadence, workout_type, description, trainer,
-      start_latitude, start_longitude
+      start_latitude, start_longitude, gear_id
     ) VALUES (
       $id, $name, $type, $sport_type, $start_date, $start_date_local,
       $distance, $moving_time, $elapsed_time, $total_elevation_gain,
       $average_speed, $max_speed, $average_heartrate, $max_heartrate, $suffer_score,
       $average_cadence, $workout_type, $description, $trainer,
-      $start_latitude, $start_longitude
+      $start_latitude, $start_longitude, $gear_id
     )
   `);
 
@@ -286,11 +302,76 @@ export function upsertActivities(activities: StravaActivity[]): void {
         $trainer: activity.trainer ? 1 : 0,
         $start_latitude: activity.start_latlng?.[0] ?? null,
         $start_longitude: activity.start_latlng?.[1] ?? null,
+        $gear_id: activity.gear_id ?? null,
       });
     }
   });
 
   insertMany(activities);
+}
+
+/**
+ * Refresh the gear table from Strava's athlete shoes. Distance is Strava's
+ * authoritative lifetime figure (meters) — the source of truth for shoe mileage.
+ */
+export function upsertGear(shoes: StravaAthlete["shoes"]): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`
+    INSERT INTO gear (id, name, is_primary, distance, retired, synced_at)
+    VALUES ($id, $name, $is_primary, $distance, $retired, $synced_at)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      is_primary = excluded.is_primary,
+      distance = excluded.distance,
+      retired = excluded.retired,
+      synced_at = excluded.synced_at
+  `);
+  const tx = db.transaction((items: StravaAthlete["shoes"]) => {
+    for (const s of items) {
+      upsert.run({
+        $id: s.id,
+        $name: s.name,
+        $is_primary: s.primary ? 1 : 0,
+        $distance: s.distance,
+        $retired: s.retired ? 1 : 0,
+        $synced_at: now,
+      });
+    }
+  });
+  tx(shoes);
+}
+
+/**
+ * Gear with locally-derived usage. `distance_m` is Strava's authoritative
+ * lifetime total; the *_in_db fields reflect only runs we've synced and
+ * attributed via gear_id (a lower bound, fills in as new runs sync).
+ */
+export function getGearWithUsage(): GearWithUsage[] {
+  const rows = getDb().prepare(`
+    SELECT g.id, g.name, g.is_primary, g.distance, g.retired, g.synced_at,
+           COUNT(a.id) AS runs_in_db,
+           COALESCE(SUM(a.distance), 0) AS meters_in_db,
+           MAX(a.start_date_local) AS last_used
+    FROM gear g
+    LEFT JOIN activities a ON a.gear_id = g.id AND a.type = 'Run'
+    GROUP BY g.id
+    ORDER BY g.is_primary DESC, g.distance DESC
+  `).all() as Array<{
+    id: string; name: string; is_primary: number; distance: number; retired: number;
+    synced_at: string; runs_in_db: number; meters_in_db: number; last_used: string | null;
+  }>;
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    is_primary: !!r.is_primary,
+    distance_m: r.distance,
+    retired: !!r.retired,
+    synced_at: r.synced_at,
+    runs_in_db: r.runs_in_db,
+    km_in_db: Math.round((r.meters_in_db / 1000) * 10) / 10,
+    last_used: r.last_used,
+  }));
 }
 
 export function queryActivities(sql: string): unknown[] {

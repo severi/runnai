@@ -19,7 +19,25 @@ export interface StravaAthlete {
     name: string;
     primary: boolean;
     distance: number;
+    retired?: boolean;
   }>;
+}
+
+/** A pair of gear (shoes) as persisted in the local `gear` table. */
+export interface GearRecord {
+  id: string;            // Strava gear id, e.g. "g26927403"
+  name: string;
+  is_primary: boolean;
+  distance_m: number;    // Strava's authoritative lifetime distance, in meters
+  retired: boolean;
+  synced_at: string;
+}
+
+/** Gear plus locally-derived usage (from synced activities attributed via gear_id). */
+export interface GearWithUsage extends GearRecord {
+  runs_in_db: number;        // synced runs attributed to this gear
+  km_in_db: number;          // distance of those synced runs, km
+  last_used: string | null;  // start_date_local of the most recent attributed run
 }
 
 export interface StravaActivity {
@@ -43,6 +61,7 @@ export interface StravaActivity {
   description?: string;
   trainer?: boolean;
   start_latlng?: [number, number] | null;
+  gear_id?: string | null;
 }
 
 export interface SyncResult {

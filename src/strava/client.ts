@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { toDateString, formatPace } from "../utils/format.js";
 import { captureOAuthCallback } from "./oauth-server.js";
-import { upsertActivities, getLatestActivityDate } from "../utils/activities-db.js";
+import { upsertActivities, upsertGear, getLatestActivityDate } from "../utils/activities-db.js";
 import { generateRecentSummary } from "../utils/recent-summary.js";
 import type {
   StravaTokens,
@@ -359,6 +359,19 @@ export async function syncActivities(days: number = 30, afterDate?: string, incr
 
     await fs.mkdir(getStravaDataDir(), { recursive: true });
     upsertActivities(activities);
+
+    // Refresh gear (shoes) with Strava's authoritative lifetime mileage.
+    // Best-effort: a gear failure must not break activity sync.
+    try {
+      const athleteResp = await fetch("https://www.strava.com/api/v3/athlete", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (athleteResp.ok) {
+        const athlete = (await athleteResp.json()) as StravaAthlete;
+        if (athlete.shoes?.length) upsertGear(athlete.shoes);
+      }
+    } catch { /* gear sync is best-effort */ }
+
     await generateRecentSummary();
 
     const runs = activities.filter((a) => a.type === "Run" || a.sport_type === "Run");

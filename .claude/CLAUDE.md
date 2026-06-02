@@ -18,6 +18,7 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 - Memory: read_memory, write_memory, update_context, search_memory, save_session_summary
 - Planning: manage_plan, date_calc, calculator
 - Analysis: save_race_prediction, get_prediction_history
+- Gear: get_gear (shoe mileage — Strava-authoritative, never quote cached km)
 - Research: research, save_research
 
 ## Session Logs
