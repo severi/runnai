@@ -256,10 +256,11 @@ Before producing any findings, fetch ground-truth data. These are mandatory:
 
 ## Conditional tool calls
 
-- \`get_plan_compliance\` (omit week_number for current week) — if the draft references the plan or a planned session, OR makes ANY weekday claim, run-sequence count, or weekly-summary table. It is the source of truth for weekday names (\`planned.weekday\`/\`actual.weekday\`), run counts (\`completedRunIndex\`, \`summary.completed\`), and which days were actually run vs missed.
+- \`get_plan_compliance\` (omit week_number for current week) — if the draft references the plan or a planned session, OR makes ANY weekday claim, run-sequence count, relative day-count claim ("N days out/until/before/ago"), or weekly-summary table. It is the source of truth for weekday names (\`planned.weekday\`/\`actual.weekday\`), run counts (\`completedRunIndex\`, \`summary.completed\`), day distances (\`planned.daysFromToday\`), and which days were actually run vs missed.
 - \`best_efforts\` — if the draft claims a personal record or "fastest ever X".
 - \`query_activities\` — if the draft makes a historical comparison ("faster than usual", "similar to last week's").
 - \`read_memory\` — if the draft asserts a trend that should be cross-checked against prior saved analyses.
+- \`date_calc\` — if the draft makes ANY temporal-arithmetic claim ("N days/weeks out/until/since/ago/before/after"). Pass the earlier date as \`from_date\` and the later as \`target_date\`; the result carries the authoritative day/week gap and both weekday names. This covers endpoints outside the compliance week (races, illness, "weeks since the last long run") that \`get_plan_compliance\` cannot verify.
 
 ## Claim classification (read this first)
 
@@ -276,6 +277,7 @@ Every claim in the draft is one of three classes — flag claims that pretend to
 - **Date/temporal claims**: "yesterday's run", "last Tuesday" — cross-check against \`start_date_local\`.
 - **Weekday names** (HIGH-FREQUENCY ERROR): every weekday label in the draft ("Friday's shakeout", a "Mon/Tue/Wed" column in a weekly summary table, a run header like "Morning Run - Friday May 30") must match the actual weekday of that date. Get the truth from \`get_plan_compliance\` — each entry carries \`planned.weekday\` and \`actual.weekday\`. If a date's real weekday differs from the label, flag at confidence 95. Watch specifically for an OFF-BY-ONE shift across a whole summary table (the draft assumed a Monday-anchored layout and assigned weekdays by row position instead of by date) — if you see it on one row, check every row.
 - **Run-sequence counts**: "run 5 of 5 this week", "your third run" — verify against \`completedRunIndex\` (1-based, date order) and \`summary.completed\` from get_plan_compliance. A count derived from plan-row position (which includes skipped/missed rows) is wrong. Flag mismatches at confidence 90.
+- **Temporal-arithmetic claims** (HIGH-FREQUENCY ERROR): ANY relative-time statement — "two days out from the race", "three days before Saturday's 50km", "five days after the flu", "three weeks since your last long run", "the marathon is in 6 weeks". Never trust the draft's mental math, including your own. Resolve both endpoints to ISO dates from ground truth (\`start_date_local\`, compliance entries, memory, the plan), then verify with \`date_calc\` — pass the earlier event as \`from_date\` and the later as \`target_date\` and read \`days_difference\`/\`weeks_difference\`. For sessions inside the compliance week, the difference of their \`planned.daysFromToday\` values (0 = today, positive = future, negative = past) is equivalent. In a multi-run batch, check EVERY run's claim independently — the correct count for one sibling run is off-by-one for the next. Flag mismatches at confidence 90.
 - **Rest-day / phantom-run claims**: if the draft says or implies a run happened on a day whose compliance \`status\` is \`missed\` or that has no entry, flag at confidence 95 — it is narrating a run that did not occur.
 - **Plan reference**: if the draft says "you had an easy 8km scheduled", confirm via get_plan_compliance.
 - **Weather/heat**: heat-cost figures, humidity, temperature — must match the \`weather\` fields.
@@ -383,6 +385,7 @@ Today: ${toDateString()}`,
       "mcp__runnai__get_plan_compliance",
       "mcp__runnai__best_efforts",
       "mcp__runnai__calculator",
+      "mcp__runnai__date_calc",
     ],
     model: "opus",
   },

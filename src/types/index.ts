@@ -440,6 +440,10 @@ export interface ComplianceEntry {
   planned: {
     date: string;          // "YYYY-MM-DD"
     weekday: string;       // Full weekday name of the planned date (e.g. "Tuesday"). Authoritative — do not re-derive.
+    // Calendar days from today to this date (0 = today, positive = future, negative = past).
+    // Authoritative for any "N days out/until/ago" claim — the gap between two sessions is
+    // the difference of their values. Never derive day distances mentally.
+    daysFromToday: number;
     sessionName: string;
     details: string;
     weekNumber: number;

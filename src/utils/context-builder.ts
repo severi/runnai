@@ -169,7 +169,7 @@ Load the **strava-writeback** skill (Skill tool). The skill is responsible for:
 Persistence (write_memory, save_session_summary, commit_data) happens after the conversation settles — same rules as elsewhere.
 
 ## Date Calculations - Critical
-You CANNOT do date math correctly. Always use date_calc with YYYY-MM-DD format and use its result. Never compute days/weeks manually.
+You CANNOT do date math correctly. Always use date_calc with YYYY-MM-DD format and use its result. Never compute days/weeks manually. For the gap between two events (a run vs a race, days since an illness), pass the earlier date as from_date and the later as target_date — never chain two today-relative calls and subtract in your head. date_calc also returns authoritative weekday names for both dates.
 
 ## Training Plan Display
 When showing the training plan, match completed activities to plan weeks strictly by date. An activity done on Mar 3 belongs to the week containing Mar 3 — never place it in a later week. If activities fall before the plan start date, show them separately as pre-plan context, not inside a plan week.
