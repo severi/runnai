@@ -6,6 +6,7 @@ import { evaluate } from "mathjs";
 import { getDataDir } from "../utils/paths.js";
 import { sanitizeFilename, toDateString, toolResult, toolError } from "../utils/format.js";
 import { withDiffNote } from "../utils/data-git.js";
+import { computeDateDiff } from "../utils/date-calc.js";
 import {
   getPlanDir,
   getPlanFile,
@@ -314,41 +315,14 @@ export const planManagerTool = tool(
 
 export const dateCalcTool = tool(
   "date_calc",
-  "Calculate days and weeks between dates. Use for ANY date arithmetic.",
+  "Calculate calendar days and weeks between two dates, with authoritative weekday names for both. from_date defaults to today — pass it to measure the gap between any two events (a run vs an upcoming race, days since an illness, ...). Use for ANY date arithmetic or weekday lookup — never compute date deltas or weekdays mentally.",
   {
     target_date: z.string().describe("The target date in YYYY-MM-DD format"),
+    from_date: z.string().optional().describe("Reference date in YYYY-MM-DD format. Omit to use today."),
   },
-  async ({ target_date }) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const target = new Date(target_date);
-    target.setHours(0, 0, 0, 0);
-
-    if (isNaN(target.getTime())) {
-      return toolResult(JSON.stringify({ error: `Invalid date format: ${target_date}. Use YYYY-MM-DD.` }));
-    }
-
-    const diffMs = target.getTime() - today.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-    const diffWeeks = Math.round(diffDays / 7);
-
-    const result = {
-      today: toDateString(today),
-      target_date,
-      days_difference: diffDays,
-      weeks_difference: diffWeeks,
-      is_past: diffDays < 0,
-      is_future: diffDays > 0,
-      is_today: diffDays === 0,
-      human_readable: diffDays === 0
-        ? "Today"
-        : diffDays < 0
-          ? `${Math.abs(diffDays)} days ago (${Math.abs(diffWeeks)} weeks ago)`
-          : `${diffDays} days from now (${diffWeeks} weeks away)`,
-    };
-
-    return toolResult(JSON.stringify(result, null, 2));
+  async ({ target_date, from_date }) => {
+    const result = computeDateDiff(target_date, from_date);
+    return toolResult(JSON.stringify(result, null, 2), "error" in result);
   }
 );
 

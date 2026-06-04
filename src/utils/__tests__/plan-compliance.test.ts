@@ -155,6 +155,26 @@ describe("buildComplianceEntries", () => {
     expect(result[0].actual?.weekday).toBe("Saturday");
   });
 
+  test("tags each entry with daysFromToday relative to the reference date", () => {
+    // Today is Thu Mar 12: Mon Mar 9 ran 3 days ago, Tue Mar 10 ran 2 days ago,
+    // Sat Mar 14 is 2 days out — the exact "N days out" arithmetic the coach gets wrong.
+    const result = buildComplianceEntries(workouts, [], new Date(2026, 2, 12));
+    expect(result[0].planned.daysFromToday).toBe(-3);
+    expect(result[1].planned.daysFromToday).toBe(-2);
+    expect(result[2].planned.daysFromToday).toBe(2);
+  });
+
+  test("daysFromToday is 0 for today's planned session", () => {
+    const result = buildComplianceEntries([workouts[1]], [], new Date(2026, 2, 10));
+    expect(result[0].planned.daysFromToday).toBe(0);
+  });
+
+  test("daysFromToday ignores the time of day on the reference date", () => {
+    // Late evening on Mar 12 must still count Sat Mar 14 as 2 days out.
+    const result = buildComplianceEntries([workouts[2]], [], new Date(2026, 2, 12, 23, 45));
+    expect(result[0].planned.daysFromToday).toBe(2);
+  });
+
   test("completedRunIndex counts only completed runs in date order, skipping missed", () => {
     // Middle workout (Tue Tempo) has no activity → missed; it must not consume an index.
     const activities: ActivityRow[] = [

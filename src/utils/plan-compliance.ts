@@ -136,10 +136,14 @@ export function buildComplianceEntries(
 
     const completedRunIndex = status === "completed" ? ++completedSoFar : null;
 
+    // Both timestamps are local midnight; Math.round absorbs DST hour shifts.
+    const daysFromToday = Math.round((plannedDateMs(w) - todayStartMs) / 86_400_000);
+
     return {
       planned: {
         date: dateKey,
         weekday: weekdayFromDateKey(dateKey),
+        daysFromToday,
         sessionName: w.sessionName,
         details: w.details,
         weekNumber: w.weekNumber,
