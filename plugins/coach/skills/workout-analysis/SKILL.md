@@ -36,6 +36,7 @@ This is the default depth. A one-paragraph summary is not a coaching analysis.
    - **Elevation-corrected pace (GAP)** vs raw pace when terrain shaped the effort.
    - **hr_trend.pattern** (step_then_plateau / linear_drift / stable) — never characterize HR by endpoints alone.
    - **cardiac_drift_pct** with confound check — drift on a run with stops is an artifact, not a signal.
+   - **movement.split_driver** on any run with walk breaks — read this BEFORE narrating a split or fade (see the run-walk guardrail below). Raw `split_type`/`fatigue_index_pct` are walk-contaminated; `split_driver` says whether the running actually faded.
 5. **Training-load context** — TRIMP, 7d distance, percentile vs 30 days, days since last run, where this sits in the week's plan. Without this, "easy 10K" reads the same regardless of whether it's run 1 or run 5 of a heavy week.
 6. **Cross-run comparison** — when it adds coaching value (see triggers below).
 7. **Causal hypotheses** — when the data shows a pattern (decoupling, fade, surge, drift), say what's likely happening and why, with hedging proportional to confound risk.
@@ -151,6 +152,19 @@ When analyzing a completed run, consider:
 - Negative split (second half faster) is ideal
 - Watch for cardiac drift: HR increasing >10% at same pace indicates fatigue
 - Fueling: runs over 90 minutes should include some nutrition
+
+**Run-Walk Sessions (trail/ultra, or any run with deliberate walk breaks) — read this before narrating a split or fade**:
+
+Raw avg pace, `split_type`, and `fatigue_index_pct` fold walking into "pace", so on a run with walk breaks a back-half slowdown looks like a running fade when the running actually held and the athlete just walked more. The `movement` block disambiguates it deterministically — use it, don't eyeball per-km tables.
+
+- **Lead with `movement.split_driver`:**
+  - `"walking"` → moving pace fell but run-only pace held. Narrate as **"running held steady; the back half was slower because of more walking"**, NOT a fade. This is the expected shape of a walk-the-climbs ultra.
+  - `"mixed"` → running also faded materially (run-only fatigue ≥5%) on top of more walking. Name both.
+  - `"running"` → the slowdown (if any) is the running itself; walking wasn't the driver.
+- **Walking the climbs is planned and optimal, not a finding.** Above ~+15% grade walking is metabolically cheaper than running (Minetti). When the plan says "walk all uphills," `walks` tagged `terrain: "climb"` are execution-as-prescribed — don't flag them as slowdown.
+- **`pauses` are watch-stopped time, not movement.** A paused gap (e.g. toilet/refill) is never a walk and never slow running. Read pause locations from `movement.pauses`.
+- **Localize from the data, never infer.** Walk and pause locations come from `movement.walks`/`movement.pauses` (each has `at_km`). Do not guess where a walk or stop happened from lap pace.
+- **Reconcile with the athlete's report.** If they describe their walks (e.g. "one flat walk to swap bottles, rest were uphills"), it should match the tagged segments — confirm it does rather than contradicting it.
 
 **Tempo/Threshold Assessment**:
 - Pace should be sustainable for about 60 minutes in a race

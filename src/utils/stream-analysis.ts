@@ -8,8 +8,9 @@ import type {
   DetectedInterval,
   StreamAnalysisResult,
 } from "../types/index.js";
+import { computeMovementBreakdown } from "./gait.js";
 
-export const STREAM_ANALYSIS_VERSION = 4;
+export const STREAM_ANALYSIS_VERSION = 5;
 
 /** Lap boundary hint for phase detection. */
 export interface LapHint {
@@ -123,6 +124,13 @@ export function computeStreamAnalysis(
   const phases = detectPhases(smoothedEffortSpeed, smoothedSpeed, smoothedHr, hr, time, distance, altitude, easyPaceRef, manualLapBoundaries);
   const intervals = detectIntervals(phases, hr, time);
 
+  // Run/walk/pause decomposition. Uses raw (unsmoothed) speed so paused-watch
+  // time gaps are visible, and the raw cadence stream for gait classification.
+  const totalDist = distance[distance.length - 1] - distance[0];
+  const movement = totalDist >= 1000
+    ? computeMovementBreakdown(speed, time, distance, grade, cadence)
+    : null;
+
   return {
     hr_zones: hrZoneDist,
     cardiac_drift_pct: cardiacDrift,
@@ -135,6 +143,7 @@ export function computeStreamAnalysis(
     efficiency_factor: ef,
     phases,
     intervals,
+    movement,
     computed_at: new Date().toISOString(),
     stream_analysis_version: STREAM_ANALYSIS_VERSION,
   };

@@ -201,6 +201,7 @@ function runMigrations(db: Database): void {
       efficiency_factor REAL,
       phases TEXT,
       intervals TEXT,
+      movement TEXT,
       computed_at TEXT NOT NULL,
       stream_analysis_version INTEGER NOT NULL DEFAULT 1
     );
@@ -238,6 +239,7 @@ function runMigrations(db: Database): void {
   `);
 
   addColumn("activity_analysis", "detailed_analysis", "TEXT");
+  addColumn("activity_stream_analysis", "movement", "TEXT");
   addColumn("activity_analysis", "strava_title", "TEXT");
   addColumn("activity_analysis", "strava_description", "TEXT");
   addColumn("activity_analysis", "analysis_generated_at", "TEXT");
@@ -712,12 +714,12 @@ export function saveStreamAnalysis(activityId: number, result: StreamAnalysisRes
       activity_id, hr_zone1_s, hr_zone2_s, hr_zone3_s, hr_zone4_s, hr_zone5_s, hr_total_s,
       cardiac_drift_pct, pace_variability_cv, split_type, trimp,
       ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor,
-      phases, intervals, computed_at, stream_analysis_version
+      phases, intervals, movement, computed_at, stream_analysis_version
     ) VALUES (
       $activity_id, $z1, $z2, $z3, $z4, $z5, $zt,
       $cardiac_drift, $pace_cv, $split_type, $trimp,
       $ngp, $fatigue, $cadence_drift, $ef,
-      $phases, $intervals, $computed_at, $version
+      $phases, $intervals, $movement, $computed_at, $version
     )
   `).run({
     $activity_id: activityId,
@@ -737,6 +739,7 @@ export function saveStreamAnalysis(activityId: number, result: StreamAnalysisRes
     $ef: result.efficiency_factor,
     $phases: JSON.stringify(result.phases),
     $intervals: JSON.stringify(result.intervals),
+    $movement: result.movement ? JSON.stringify(result.movement) : null,
     $computed_at: result.computed_at,
     $version: result.stream_analysis_version,
   });
@@ -752,6 +755,7 @@ export function getStreamAnalysis(activityId: number): StreamAnalysisResult | nu
     split_type: SplitType | null; trimp: number | null; ngp_sec_per_km: number | null;
     fatigue_index_pct: number | null; cadence_drift_spm: number | null;
     efficiency_factor: number | null; phases: string; intervals: string;
+    movement: string | null;
     computed_at: string; stream_analysis_version: number;
   } | undefined;
   if (!row) return null;
@@ -774,6 +778,7 @@ export function getStreamAnalysis(activityId: number): StreamAnalysisResult | nu
     efficiency_factor: row.efficiency_factor,
     phases: JSON.parse(row.phases || "[]"),
     intervals: JSON.parse(row.intervals || "[]"),
+    movement: row.movement ? JSON.parse(row.movement) : null,
     computed_at: row.computed_at,
     stream_analysis_version: row.stream_analysis_version,
   };
