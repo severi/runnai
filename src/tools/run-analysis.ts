@@ -116,6 +116,32 @@ export const getRunAnalysisTool = tool(
         fatigue_index_pct: sa.fatigue_index_pct,
         cadence_drift_spm: sa.cadence_drift_spm,
         efficiency_factor: sa.efficiency_factor,
+        // Run/walk/pause decomposition. On run-walk sessions (trail/ultra, or
+        // any run with deliberate walk breaks), the raw split_type/fatigue above
+        // are walk-contaminated — read `movement.split_driver` FIRST. "walking"
+        // means moving pace fell but run-only pace held: report it as "running
+        // held steady, walking increased", NOT a running fade. Walk segments are
+        // already localized and tagged climb/flat; never infer walk locations.
+        movement: sa.movement ? {
+          run_min: Math.round(sa.movement.run_s / 60),
+          walk_min: Math.round(sa.movement.walk_s / 60),
+          pause_min: Math.round(sa.movement.pause_s / 60),
+          walk_pct_of_moving: sa.movement.walk_pct,
+          walk_share_by_half_pct: sa.movement.walk_share_by_half,
+          split_driver: sa.movement.split_driver,
+          run_only_split_type: sa.movement.run_only_split_type,
+          run_only_fatigue_index_pct: sa.movement.run_only_fatigue_index_pct,
+          walks: sa.movement.walks.map(w => ({
+            at_km: w.start_km,
+            duration_s: w.duration_s,
+            avg_grade_pct: w.avg_grade_pct,
+            terrain: w.terrain,
+          })),
+          pauses: sa.movement.pauses.map(p => ({
+            at_km: p.start_km,
+            duration_s: p.duration_s,
+          })),
+        } : null,
         phase_count: sa.phases.length,
         phases: sa.phases.map(p => ({
           phase: p.phase,

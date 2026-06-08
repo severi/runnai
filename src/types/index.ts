@@ -472,6 +472,50 @@ export interface WeeklyComplianceResult {
   };
 }
 
+/** A surfaced walk or paused-watch segment with its location. */
+export interface GaitSegment {
+  kind: "walk" | "pause";
+  /** Distance into the run where the segment starts (km). */
+  start_km: number;
+  duration_s: number;
+  /** Avg grade over the segment (%). Null for pauses or when grade is absent. */
+  avg_grade_pct: number | null;
+  /** "climb" when terrain-driven (avg grade >= 3%), "flat" otherwise. Null for pauses. */
+  terrain: "climb" | "flat" | null;
+}
+
+/**
+ * Run/walk/pause decomposition for a run, with run-only pacing metrics.
+ *
+ * Exists so a back-half slowdown caused by more walking (terrain, fuel stops)
+ * is not misread as a running fade. The headline check is `split_driver`:
+ * "walking" means moving pace fell but the running held steady.
+ */
+export interface MovementBreakdown {
+  run_s: number;
+  walk_s: number;
+  pause_s: number;
+  /** Walk time as a share of moving time (run+walk), percent. */
+  walk_pct: number;
+  /** Split type computed on running samples only (walks/pauses excluded). */
+  run_only_split_type: SplitType | null;
+  /** Fatigue index (% speed drop, last 25% vs first 75%) on running samples only. */
+  run_only_fatigue_index_pct: number | null;
+  /**
+   * What drove any back-half slowdown:
+   * - "running": no walk-driven slowdown (continuous run, or running itself faded with little walking)
+   * - "walking": moving pace fell but run-only pace held — slowdown is walk breaks, not a fade
+   * - "mixed": running faded AND walking grew
+   */
+  split_driver: "running" | "walking" | "mixed" | null;
+  /** Walk share (percent of moving time) in [first half, second half] by distance. */
+  walk_share_by_half: [number, number];
+  /** Walk segments (deliberate/terrain), >= 20s, tagged climb vs flat. */
+  walks: GaitSegment[];
+  /** Paused-watch gaps, >= 10s. Distinct from walking. */
+  pauses: GaitSegment[];
+}
+
 export interface StreamAnalysisResult {
   // Tier 1
   hr_zones: HrZoneDistribution | null;
@@ -487,6 +531,8 @@ export interface StreamAnalysisResult {
   // Tier 3
   phases: PhaseSegment[];
   intervals: DetectedInterval[];
+  /** Run/walk/pause decomposition. Null when run too short for segmentation. */
+  movement: MovementBreakdown | null;
 
   computed_at: string;
   stream_analysis_version: number;
