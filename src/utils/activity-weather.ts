@@ -1,5 +1,3 @@
-import { toDateString } from "./format.js";
-
 export const WEATHER_CODES: Record<number, string> = {
   0: "Clear sky",
   1: "Mainly clear",
@@ -54,9 +52,13 @@ export async function fetchActivityWeather(
   startDateLocal: string,
   movingTimeS: number
 ): Promise<ActivityWeather | null> {
-  const startDate = new Date(startDateLocal);
-  const date = toDateString(startDate);
-  const startHour = startDate.getHours();
+  // start_date_local is wall-clock local time, but Strava serializes it with a "Z"
+  // (e.g. "2026-06-21T14:07:56Z"). Parsing via new Date() reads it as UTC and any
+  // later .getHours() re-localizes to the *machine* timezone, shifting the weather
+  // window by the host's UTC offset. Open-Meteo's hourly series (timezone=auto) is
+  // in the run's local time, so we read the hour straight from the string instead.
+  const date = startDateLocal.slice(0, 10);
+  const startHour = Number(startDateLocal.slice(11, 13));
   const durationHours = Math.ceil(movingTimeS / 3600);
   const endHour = Math.min(startHour + durationHours, 23);
 
@@ -70,10 +72,12 @@ export async function fetchActivityWeather(
     const { hourly } = data;
     if (!hourly?.time?.length) return null;
 
-    // Extract hours matching the activity window
+    // Extract hours matching the activity window. hourly.time entries are local-time
+    // strings ("2026-06-21T14:00"); read the hour from the string, not via Date(),
+    // to stay in the run's timezone rather than the host's.
     const indices: number[] = [];
     for (let i = 0; i < hourly.time.length; i++) {
-      const hour = new Date(hourly.time[i]).getHours();
+      const hour = Number(hourly.time[i].slice(11, 13));
       if (hour >= startHour && hour <= endHour) {
         indices.push(i);
       }

@@ -2,6 +2,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { toDateString, toolResult, toolError } from "../utils/format.js";
 import { WEATHER_CODES } from "../utils/activity-weather.js";
+import { getActivityLocation } from "../utils/activities-db.js";
 
 interface GeocodingResult {
   results?: Array<{
@@ -52,17 +53,37 @@ const DAILY_PARAMS = "temperature_2m_max,temperature_2m_min,precipitation_sum,wi
 
 export const getWeatherTool = tool(
   "get_weather",
-  "Fetch weather data for a location and date range. Use for historical conditions on past runs or forecasts for upcoming training. Accepts either coordinates (latitude/longitude) or a city name.",
+  "Fetch weather data for a location and date range. Use for historical conditions on past runs or forecasts for upcoming training. To get the weather for a specific run, pass its activity_id — this uses the run's actual recorded coordinates (do NOT guess a city for a run you have an activity_id for). Otherwise accepts coordinates (latitude/longitude) or a city name.",
   {
+    activity_id: z.number().optional().describe("Activity ID — uses the run's recorded start coordinates. Preferred for weather on a specific run; overrides city/lat/lng"),
     latitude: z.number().optional().describe("Latitude (use with longitude, or provide city instead)"),
     longitude: z.number().optional().describe("Longitude (use with latitude, or provide city instead)"),
     city: z.string().optional().describe("City name for geocoding (e.g., 'Espoo', 'Vienna'). Used if lat/lng not provided"),
     start_date: z.string().describe("Start date in YYYY-MM-DD format"),
     end_date: z.string().optional().describe("End date in YYYY-MM-DD (defaults to start_date for single day)"),
   },
-  async ({ latitude, longitude, city, start_date, end_date }) => {
+  async ({ activity_id, latitude, longitude, city, start_date, end_date }) => {
     let lat = latitude;
     let lng = longitude;
+    let resolvedLabel: string | undefined;
+
+    // Activity coordinates take precedence — anchors to where the run actually was
+    // instead of relying on a guessed city.
+    if (activity_id !== undefined) {
+      const activity = getActivityLocation(activity_id);
+      if (!activity) {
+        return toolResult(`No activity found with id ${activity_id}`, true);
+      }
+      if (activity.start_latitude == null || activity.start_longitude == null) {
+        return toolResult(
+          `Activity ${activity_id} ("${activity.name}") has no recorded coordinates; provide a city or lat/lng instead`,
+          true
+        );
+      }
+      lat = activity.start_latitude;
+      lng = activity.start_longitude;
+      resolvedLabel = `${activity.name} (${lat.toFixed(2)}°N, ${lng.toFixed(2)}°E)`;
+    }
 
     // Geocode city if no coordinates
     if ((lat === undefined || lng === undefined) && city) {
@@ -117,7 +138,7 @@ export const getWeatherTool = tool(
       );
 
       const header = isFuture ? "Weather Forecast" : "Historical Weather";
-      const locationLabel = city || `${lat.toFixed(2)}°N, ${lng.toFixed(2)}°E`;
+      const locationLabel = resolvedLabel || city || `${lat.toFixed(2)}°N, ${lng.toFixed(2)}°E`;
       return toolResult(`${header} — ${locationLabel}\n${lines.join("\n")}`);
     } catch (error) {
       return toolError(error);

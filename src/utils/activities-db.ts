@@ -398,6 +398,22 @@ export function getExistingActivityIds(): Set<number> {
   return new Set(rows.map((r) => r.id));
 }
 
+export interface ActivityLocation {
+  id: number;
+  name: string;
+  start_date_local: string;
+  start_latitude: number | null;
+  start_longitude: number | null;
+}
+
+export function getActivityLocation(activityId: number): ActivityLocation | null {
+  const row = getDb().prepare(
+    `SELECT id, name, start_date_local, start_latitude, start_longitude
+     FROM activities WHERE id = ?`
+  ).get(activityId) as ActivityLocation | undefined;
+  return row ?? null;
+}
+
 // --- Best efforts ---
 
 export function upsertBestEffort(record: BestEffortRecord): void {
