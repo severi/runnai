@@ -25,9 +25,14 @@ export function detectHillProfile(
   const gainPerKm = totalDistanceM > 0 ? (totalGain / totalDistanceM) * 1000 : 0;
   const maxSegmentGain = Math.max(...lapsWithElev.map(l => l.elevation_gain ?? 0));
 
-  // Hill repeat detection: structured laps with alternating high-gain and high-loss laps
+  // Hill-repeat detection requires *manual* laps (one lap pressed per rep) AND concentrated
+  // climbing. On auto-laps (every ~1km) the per-lap gain/loss alternation is just rolling-terrain
+  // noise sampled per kilometre, not workout structure — otherwise a long run over rolling trails
+  // reads as "hill repeats" (e.g. a 32.8km Z2 long run, +376m / 11.5 m/km, became "2x reps").
+  // The gainPerKm gate excludes flat/rolling terrain that merely undulates; real hill sessions
+  // concentrate vertical into short reps.
   let hillRepeatCount: number | null = null;
-  if (lapsWithElev.length >= 4) {
+  if (!isAutoLap(laps) && lapsWithElev.length >= 4 && gainPerKm >= 20) {
     const climbLaps = lapsWithElev.filter(l => (l.elevation_gain ?? 0) > 25);
     const descendLaps = lapsWithElev.filter(l => (l.elevation_loss ?? 0) > 25);
     if (climbLaps.length >= 2 && descendLaps.length >= 2) {
@@ -124,8 +129,13 @@ function classifyByPaceAndHr(
   // Determine HR zone if available
   const hrZone = hr && hrZones ? getHrZone(hr, hrZones) : null;
 
-  // Slow pace + low HR → recovery or easy
+  // Slow pace + low HR → recovery or easy. Distance overrides: a long run held
+  // deliberately slow at Z2 has the same pace+HR signature as a recovery run, so
+  // without this guard a 32km Z2 long run reads as "recovery". Recovery runs are short.
   if (paceSecKm > easyPaceRef * 1.05) {
+    if (distKm >= 15) {
+      return { run_type: "long_run", run_type_detail: null, confidence: "medium" };
+    }
     if (hrZone && hrZone <= 2) {
       return { run_type: "recovery", run_type_detail: null, confidence: "medium" };
     }
