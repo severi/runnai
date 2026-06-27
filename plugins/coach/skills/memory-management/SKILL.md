@@ -1,6 +1,6 @@
 ---
 name: memory-management
-description: Teaches the agent how to manage its 3-tier memory system for progressive learning about the athlete
+description: Use when deciding what to remember about the athlete and where to store it (hot cache vs deep memory vs SQLite), when to promote or demote a fact, at session end, or before giving advice that depends on athlete history
 ---
 
 # Memory Management
@@ -129,3 +129,15 @@ Before a conversation ends:
 4. Write a session summary with `save_session_summary` (if not already saved during this session)
 
 **Critical:** Session summaries are the bridge between conversations. If a decision isn't in the plan file or a session summary, it doesn't exist for the next session. When in doubt, save.
+
+**Red flags — a decision is about to be lost:**
+- Ending a turn that changed the plan or a target without a `save_session_summary`
+- "I'll summarize everything at the very end" — the session may close first; save incrementally
+- "It was just a discussion" — if a decision was reached, it counts
+- Giving advice that leans on athlete history you haven't actually looked up
+
+| Rationalization | Reality |
+|---|---|
+| "I'll remember the context" | The next session starts blank. Only files persist. |
+| "Nothing important changed" | Schedule and target changes are the most-lost and most-costly. |
+| "I'll check memory if it comes up" | Check before advising, not after assuming. |

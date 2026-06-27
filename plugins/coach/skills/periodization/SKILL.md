@@ -1,6 +1,6 @@
 ---
 name: periodization
-description: Training phase design, progressive overload, mesocycle planning, tapering, and post-race recovery
+description: Use when designing or restructuring a training block — choosing phases (base, build, peak, taper), setting volume progression, scheduling recovery or down weeks, planning a taper, or sequencing post-race recovery
 ---
 
 # Periodization & Training Plan Design

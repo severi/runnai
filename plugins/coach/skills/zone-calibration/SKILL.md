@@ -1,6 +1,6 @@
 ---
 name: zone-calibration
-description: Detects and acts on training zone drift — when the athlete's actual capability has diverged from stored HR or pace zones, propose and persist updates with full audit trail
+description: Use when fitness drift is flagged at session start, when the athlete pushes back on a prescribed pace ("too slow", "feels easy"), when an easy run with stable Z2 HR looks "too fast", when a new lactate test lands, or when asked whether HR or pace zones still fit
 ---
 
 # Zone Calibration
@@ -101,3 +101,11 @@ The history file is append-only and is the canonical record of every zone change
 - ❌ Proposing a zone downgrade after one bad week. Declines require ≥20 samples / 21 days AND athlete confirmation of cause.
 - ❌ Calling `update_pace_zones` without explicit athlete confirmation. The athlete owns their plan.
 - ❌ Rewriting the plan file when zones change. The plan file no longer hardcodes paces. One zone update propagates everywhere via the resolver.
+
+**Violating the letter of these rules is violating their spirit.** The athlete owns their zones: "I'm confident the update is right" is not a substitute for their explicit yes, and "the data is close enough" is not a substitute for the sample/day thresholds.
+
+| Rationalization | Reality |
+|---|---|
+| "The drift is obvious, I'll just update" | Persist only after explicit athlete confirmation. |
+| "One great week proves they're faster" | High+improving needs ≥10 samples / 14 days; declines need ≥20 / 21. |
+| "I'll just note it in memory for now" | A memory note is not the fix — call `update_pace_zones`. |

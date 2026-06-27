@@ -1,6 +1,6 @@
 ---
 name: workout-analysis
-description: Post-run assessment framework, effort evaluation, pace zone analysis, and training distribution
+description: Use when analyzing a completed run or a batch of just-synced runs — assessing execution against the plan, effort, pacing, HR, drift, fade, and signals, and writing the private coaching analysis
 ---
 
 # Workout Analysis
@@ -56,6 +56,21 @@ This is general: anything that only makes sense if the reader had seen your draf
 
 **Make takeaways consistent with your own analysis.** A recommendation must not contradict a conclusion you reached elsewhere in the same read. If you've judged that a zone looks stale, or that elevated HR was a confound (cold start, heat, prior-day load) rather than effort, the takeaway has to honor that — don't prescribe running to the band you just called conservative, or coach pace discipline on a run whose HR you just explained away. And scale prescriptiveness to the run: a trivial recovery/shakeout effort warrants a directional nudge (keep it genuinely easy, run by feel/HR), not a rigid pace+HR target.
 
+## Evidence Gate — Cite the Metric Before the Claim
+
+Evidence before claims, always. Every characterization of a run must point to the field that proves it. If you can't name the metric, you can't make the claim — soften it to a hypothesis or drop it. This is the guard against the reads that look authoritative but are hallucinated.
+
+| Claim | Required evidence | NOT sufficient |
+|---|---|---|
+| "Faded in the back half" | `movement.split_driver` = `running` or `mixed` | A slower back-half average pace |
+| "Cardiac drift / ran out of gas" | `cardiac_drift_pct` elevated AND confounds clear | HR higher at the end |
+| "HR climbed through the run" | `hr_trend.pattern` = `linear_drift` | First-vs-last HR delta |
+| "Too fast for easy" | pace outside current `get_training_zones` AND HR above Z2 | A stored or plan pace string |
+| "New PR / best effort" | `best_efforts` or the PR record confirms | A fast-looking split |
+| "Fitness is up" | the drift signal (`get_fitness_drift`) | One good run |
+
+When the evidence isn't there, hedge it ("looks like X, but the data can't confirm it") — never assert it.
+
 ## When to Add Cross-Run Comparison
 
 Cross-run comparison is a capability you reach for when it adds coaching value, not a default step on every analysis.
@@ -110,6 +125,15 @@ Every weekday name, "run N of the week" count, and rest-day-vs-run-day claim MUS
 - **"Run N of the week" comes from `completedRunIndex`.** Each completed entry carries `completedRunIndex` (1-based, in true date order); `summary.completed` is the week's total. Cite "run 3 of 4 this week" only from those fields. Never count plan rows or list positions — a skipped session is still a row, so position ≠ run number.
 - **Rest day vs run day comes from `actual`/`status`, not the plan.** A day is a run day only if an activity exists for it (`status: "completed"`). A planned session with `actual: null` and a past date is `missed` — do NOT narrate it as a completed run. A day with no plan row and no activity is simply a rest day; never invent a run for it.
 - **Build the weekly summary table straight from the compliance entries.** One row per entry, weekday from `planned.weekday`, status from `status`. Do not assume a Monday-anchored Mon–Sun layout and back-fill weekday labels onto it.
+
+**Violating the letter of this rule is violating its spirit.** The weekday or day-count that "looks obviously right" is exactly the one that ships a hallucinated analysis. Before stating any weekday, "run N of the week", or "N days/weeks since/until", pull it from the data or `date_calc` — never from your own sense of the calendar.
+
+| Rationalization | Reality |
+|---|---|
+| "The plan row order makes the weekday obvious" | Plans get reshuffled — row N ≠ day N. Read `planned.weekday`. |
+| "I can just count the runs myself" | A skipped session is still a row. Use `completedRunIndex`. |
+| "It's clearly ~3 weeks since the race" | "Clearly" is how the off-by-one ships. Call `date_calc`. |
+| "I computed the day-count for the last run, I'll reuse it" | It's off by one for the next run in the batch. Recompute per run. |
 
 ### Annotating Completion in the Plan
 
@@ -257,28 +281,32 @@ When giving feedback:
 
 ## When to Ask Clarifying Questions
 
-The data answers most questions. Only ask when subjective context would materially change your coaching interpretation — not to be thorough, not to seem engaged, not on every run.
+The data answers most questions, and a hedged draft answers most of the rest. "Subjective context would change my read" is *not* a reason to ask — that is true of almost every run, and it is exactly the trap that turns analysis into an interview. Ask only when the data is structurally insufficient to draft at all (the two cases below); otherwise draft and hedge.
 
-### When to Ask
+### The test: can you draft without the answer?
 
-Ask when a signal is present but the cause is genuinely ambiguous:
+Ask **only when you cannot produce a meaningful, non-misleading draft without it.** Asking ends the response and saves no analysis (see "How to Ask"), so a hedged draft always beats a blocked turn. Two cases clear that bar — and only two. They mirror the triage gate in the system prompt's "New Run Analysis" protocol:
 
-- **Run classification is uncertain** and knowing the intended workout would change the coaching message (e.g., a borderline tempo/easy run calls for different advice depending on intent)
-- **Cardiac drift is elevated for the context** — high drift on a short, cool run without an obvious load explanation usually means something the data can't see. Check weather first; if heat explains it, don't ask
-- **Significant pace fade on a run that shouldn't have one** — fatigue index high on an easy or recovery run suggests something felt off (illness, poor sleep, accumulated fatigue)
-- **Positive splits on a tempo or threshold run** — could be intentional pacing, conditions (wind, terrain), or going out too hard. The answer changes the feedback
-- **Extended gap since last run** (7+ days) with no explanation in memory — the gap might be planned rest, travel, or a problem worth knowing about
-- **Unusually high training load** relative to recent baseline on a run that wasn't a race or planned peak effort — the athlete may not realize how hard it registered
-- **Linear HR drift on a long work phase** where cardiac drift is meaningfully elevated — hydration, heat, or fatigue context would shape the recommendation differently
+- **Unscheduled run** — intent is structurally unknowable, so plan-vs-actual (required depth) can't be written. Ask one question about intent.
+- **Confounds fire** — lap-derived metrics are untrustworthy, so Class B claims would be actively wrong. Ask one targeted question about the confound (or lean on `stream_analysis.phases`).
 
-### When NOT to Ask
+If you can write the read and hedge the gap, you draft. That is the whole rule.
 
-- The data tells the full story (clean intervals with consistent splits, comfortable Z2 run with stable HR, long run that went as planned)
-- You would ask only to confirm what you can already conclude
-- The athlete just told you something that answers it
+### Not a trigger: "this would change my score" / "I can't read it from the data"
+
+Class C uncertainty — illness, how the legs felt, sleep, whether an overshoot was deliberate, perceived effort — **cannot be derived from data and is not grounds to ask** on a scheduled run with clean confounds. It *feels* like it should be, because it genuinely affects the coaching read. But the Class C rule is to **hedge or omit**, not block. Write both branches:
+
+> "At 32.8km you went past even the uncapped 30km target. If the cold had cleared, this is a strong Z2 long run your body absorbed cleanly (drift 3.8%, HR mid-Z2). If you were still run-down and pushed through, flag it — but the physiology shows no cost either way."
+
+That delivers the analysis *and* surfaces the open question without halting the batch. The signals that used to justify a question here — elevated drift, unexplained fade, long gaps, high load — are all **draft-and-hedge**: name the hypothesis, hedge the cause, recommend accordingly. Don't stop for them.
+
+### Also don't ask when
+
+- The data tells the full story (clean intervals, comfortable Z2 run, long run that went as planned)
+- You'd ask only to confirm what you can already conclude
+- The athlete, memory, or plan context already answers it — check first
 - The run was a race — the result is the context
-- You already have the answer in memory — check before asking
-- You've already asked about a different run in the same session and the current signal isn't more significant
+- You've already asked about another run this session and this signal isn't more significant
 
 ### How to Ask
 

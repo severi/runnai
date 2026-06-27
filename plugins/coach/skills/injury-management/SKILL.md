@@ -1,6 +1,6 @@
 ---
 name: injury-management
-description: Common running injuries, red flags, load modification, cross-training, and return-to-running protocols
+description: Use when the athlete reports pain, an ache, a niggle, soreness, or an injury, asks about reducing load, cross-training, or returning to running after time off, or when a run flags an injury risk
 ---
 
 # Injury Management
