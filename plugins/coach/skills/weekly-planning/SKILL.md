@@ -1,6 +1,6 @@
 ---
 name: weekly-planning
-description: Weekly plan adaptation, missed workout handling, recovery indicators, life accommodations, hard/easy alternation
+description: Use when laying out or adjusting a single training week — handling a missed, skipped, or swapped workout, accommodating travel, illness, weather, or life stress, deciding whether to add recovery, or persisting a schedule change
 ---
 
 # Weekly Planning & Adaptation
@@ -128,6 +128,18 @@ Common modifications that need persisting:
 - Changing a workout's distance or intensity
 
 If you discuss a change but DON'T persist it, the next session will see the original plan and lose the decision entirely.
+
+**Red flags — STOP and persist before you reply:**
+- About to say "done" / "updated your plan" without having called `manage_plan`
+- "I'll save it at the end of the session" — the session may end before you do
+- "It's a small change, not worth a write" — small schedule changes are the ones that silently vanish
+- "We only talked about it, didn't finalize" — if the athlete agreed, it's final; persist it
+
+| Rationalization | Reality |
+|---|---|
+| "I'll batch the saves later" | Later may never come. Persist on agreement, in this turn. |
+| "The athlete will remember next time" | The next session won't. The plan file is the only memory. |
+| "Nothing structural changed" | A swapped or skipped day is the change most likely to be lost. |
 
 ## Pre-Race Week Modifications
 

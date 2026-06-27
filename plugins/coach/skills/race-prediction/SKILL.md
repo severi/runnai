@@ -1,9 +1,11 @@
 ---
 name: race-prediction
-description: Race time estimation using VDOT, Riegel formula, training-based methods, and prediction tracking
+description: Use when the athlete asks for a goal time, race-pace target, an equivalent time at another distance, or "what could I run", when judging whether fitness supports a target, or when tracking how predictions change over time
 ---
 
 # Race Prediction
+
+**Evidence gate:** never state a predicted time without naming the input it came from and its confidence level. A number without its basis is a guess dressed as data. Every prediction you surface carries "from [a 10K PR / recent threshold pace / VDOT]" and a confidence (high/medium/low), and the same basis goes into `save_race_prediction`.
 
 ## Estimation Methods
 

@@ -1,6 +1,6 @@
 ---
 name: test-report-analysis
-description: Extracts and stores physiological data from test reports (lactate tests, VO2max, metabolic panels, medical assessments)
+description: Use when the athlete shares a test or lab report — lactate/threshold test, VO2max or metabolic panel, blood work, body composition, or medical assessment — as an attached file or pasted data
 ---
 
 # Test Report Analysis

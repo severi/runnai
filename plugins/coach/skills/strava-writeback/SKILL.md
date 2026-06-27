@@ -1,6 +1,6 @@
 ---
 name: strava-writeback
-description: Derive a public Strava description from the saved coaching analysis, then push to Strava
+description: Use when the athlete asks to push, post, share, or update a run on Strava ("update strava", "push it", "post it") after the coaching analysis has been saved
 ---
 
 # Strava Write-Back
@@ -52,6 +52,8 @@ The athlete has explicitly asked to push to Strava ("update strava", "push it", 
 ## Strava Description Guide
 
 The description is what people see on a public Strava feed. It's a tight account of this run, not a coaching report. Write 1-2 paragraphs of plain prose; no headers, bullets, emoji, or stat lines. Regular hyphens (-), never em dashes.
+
+**"What goes in" is the contract — it defines the whole description.** Build the description only from these elements; if something isn't one of them, it doesn't belong, regardless of how interesting it was in the coaching analysis. The "What stays out" list below is not a set of exceptions to weigh — it just names the coaching-analysis content that most often leaks across. The output matches the recipe or it doesn't.
 
 ### What goes in
 
