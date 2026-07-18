@@ -510,6 +510,16 @@ export interface MovementBreakdown {
   split_driver: "running" | "walking" | "mixed" | null;
   /** Walk share (percent of moving time) in [first half, second half] by distance. */
   walk_share_by_half: [number, number];
+  /**
+   * Time-weighted avg HR over running samples only. On a run-walk session the
+   * whole-run avg HR is a compositional artifact (walking deflates it) — this
+   * is the number that describes the actual running effort. Null without HR.
+   */
+  run_avg_hr: number | null;
+  /** Time-weighted avg HR over walking samples only. Null without HR or walking. */
+  walk_avg_hr: number | null;
+  /** Run-only avg HR per distance half — exposes drift within the running itself. */
+  run_avg_hr_by_half: [number | null, number | null];
   /** Walk segments (deliberate/terrain), >= 20s, tagged climb vs flat. */
   walks: GaitSegment[];
   /** Paused-watch gaps, >= 10s. Distinct from walking. */
@@ -533,6 +543,12 @@ export interface StreamAnalysisResult {
   intervals: DetectedInterval[];
   /** Run/walk/pause decomposition. Null when run too short for segmentation. */
   movement: MovementBreakdown | null;
+  /**
+   * Elevation totals from the device altitude stream (smoothed + hysteresis).
+   * Consistent algorithm across runs — prefer over the API's DEM-smoothed
+   * total_elevation_gain, whose intensity varies per upload. Null without altitude.
+   */
+  elevation_stream: { gain_m: number; loss_m: number } | null;
 
   computed_at: string;
   stream_analysis_version: number;

@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   computeStreamAnalysis,
   computeSegmentHrTrend,
+  computeElevationTotals,
   distanceWindowSmooth,
   minettiGapFactor,
   detectManualLaps,
@@ -101,6 +102,53 @@ describe("distanceWindowSmooth", () => {
 
   test("single element returns itself", () => {
     expect(distanceWindowSmooth([42], [0], 100)).toEqual([42]);
+  });
+});
+
+// ─── computeElevationTotals ──────────────────────────────────────────────────
+// Sum-of-raw-deltas elevation gain is noise-inflated: ±1m GPS/baro jitter on a
+// flat run accumulates to hundreds of phantom meters over an ultra. Hysteresis
+// accumulation only commits movement once it exceeds a threshold from the last
+// committed reference, so jitter below the threshold contributes nothing.
+
+describe("computeElevationTotals", () => {
+  test("flat run with sub-threshold jitter → zero gain and loss", () => {
+    // ±1m oscillation around 100m over 1000 samples. Raw delta-summing would
+    // report ~500m of phantom climb; hysteresis must report 0.
+    const altitude = Array.from({ length: 1000 }, (_, i) => 100 + (i % 2));
+    const totals = computeElevationTotals(altitude);
+    expect(totals.gain_m).toBe(0);
+    expect(totals.loss_m).toBe(0);
+  });
+
+  test("clean monotonic climb is fully counted", () => {
+    // 0 → 200m steady climb.
+    const altitude = Array.from({ length: 401 }, (_, i) => i * 0.5);
+    const totals = computeElevationTotals(altitude);
+    expect(totals.gain_m).toBeGreaterThan(190);
+    expect(totals.loss_m).toBe(0);
+  });
+
+  test("rolling course counts both gain and loss", () => {
+    // Three 50m climbs and descents.
+    const altitude: number[] = [];
+    for (let hill = 0; hill < 3; hill++) {
+      for (let i = 0; i <= 100; i++) altitude.push(i * 0.5);
+      for (let i = 100; i >= 0; i--) altitude.push(i * 0.5);
+    }
+    const totals = computeElevationTotals(altitude);
+    expect(totals.gain_m).toBeGreaterThan(140);
+    expect(totals.gain_m).toBeLessThanOrEqual(150);
+    expect(totals.loss_m).toBeGreaterThan(140);
+    expect(totals.loss_m).toBeLessThanOrEqual(150);
+  });
+
+  test("climb with jitter riding on it ≈ net climb, not climb + jitter", () => {
+    // 100m climb with ±1m alternating noise on top.
+    const altitude = Array.from({ length: 1001 }, (_, i) => i * 0.1 + (i % 2));
+    const totals = computeElevationTotals(altitude);
+    expect(totals.gain_m).toBeGreaterThan(95);
+    expect(totals.gain_m).toBeLessThan(110);
   });
 });
 
@@ -704,6 +752,43 @@ describe("computeStreamAnalysis", () => {
   // ─── Full pipeline integration ─────────────────────────────────────────────
 
   describe("full pipeline", () => {
+    test("HR stream reaches movement breakdown (per-gait-state HR populated)", () => {
+      const streams = makeUniformRun({
+        durationS: 1200,
+        paceSecPerKm: 300,
+        hr: 160,
+        cadence: 180,
+        gradePct: 0,
+      });
+      const result = computeStreamAnalysis(streams, TEST_ZONES, 1200, 300);
+      expect(result.movement).not.toBeNull();
+      expect(result.movement!.run_avg_hr).toBe(160);
+    });
+
+    test("altitude stream produces stream-derived elevation totals", () => {
+      // 20-min run over a 60m climb then descent.
+      const n = 1201;
+      const speedMS = 1000 / 300;
+      const time: number[] = [], distance: number[] = [], altitude: number[] = [];
+      for (let i = 0; i < n; i++) {
+        time.push(i);
+        distance.push(i * speedMS);
+        altitude.push(i <= 600 ? i * 0.1 : 60 - (i - 600) * 0.1);
+      }
+      const streams: ActivityStream = { time, distance, altitude };
+      const result = computeStreamAnalysis(streams, null, 1200, 300);
+      expect(result.elevation_stream).not.toBeNull();
+      expect(result.elevation_stream!.gain_m).toBeGreaterThan(50);
+      expect(result.elevation_stream!.gain_m).toBeLessThanOrEqual(62);
+      expect(result.elevation_stream!.loss_m).toBeGreaterThan(50);
+    });
+
+    test("no altitude stream → elevation_stream null", () => {
+      const streams = makeUniformRun({ durationS: 1200, paceSecPerKm: 300 });
+      const result = computeStreamAnalysis(streams, null, 1200, 300);
+      expect(result.elevation_stream).toBeNull();
+    });
+
     test("complete run with all streams produces all metrics", () => {
       const streams = makeUniformRun({
         durationS: 1200,

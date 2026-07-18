@@ -5,6 +5,10 @@ description: Use when laying out or adjusting a single training week — handlin
 
 # Weekly Planning & Adaptation
 
+## Check the Knowledge Base First
+
+When the adaptation has non-obvious stakes — return from illness, injury accommodation, B2B long-run scheduling, heat-week adjustments, race-week changes — check cached research before deciding: `research(listTopics: true)`, pull matching topics, and ground the adaptation in what they say (per the system prompt's "Knowledge Base — Retrieve Before You Advise" norm). A missing load-bearing topic gets researched and saved *before* the schedule change, not after. Routine swaps (move an easy run a day) don't need this.
+
 ## Core Principles
 
 ### Hard/Easy Alternation

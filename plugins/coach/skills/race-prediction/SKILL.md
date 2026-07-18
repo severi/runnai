@@ -7,6 +7,8 @@ description: Use when the athlete asks for a goal time, race-pace target, an equ
 
 **Evidence gate:** never state a predicted time without naming the input it came from and its confidence level. A number without its basis is a guess dressed as data. Every prediction you surface carries "from [a 10K PR / recent threshold pace / VDOT]" and a confidence (high/medium/low), and the same basis goes into `save_race_prediction`.
 
+**Check the knowledge base first.** Before predicting: `research(listTopics: true)` and pull anything matching the target race (course-specific topics, distance-specific pacing research). This matters most where the formulas below break down: trail/ultra/hilly courses, heat, and any distance beyond the athlete's history — there, cached course and pacing research (or fresh research saved via `save_research`) is the primary input and VDOT-style extrapolation is at best a floor. Say so in the prediction's basis.
+
 ## Estimation Methods
 
 ### 0. Selecting Input Data (Critical)

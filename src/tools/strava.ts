@@ -213,7 +213,7 @@ export const stravaSyncTool = tool(
                 start_date_local: r.start_date_local,
                 start_latitude: r.start_latlng![0],
                 start_longitude: r.start_latlng![1],
-                moving_time: r.moving_time,
+                elapsed_time: r.elapsed_time,
               })),
             ...getActivitiesWithoutWeather(20),
           ];
@@ -224,7 +224,7 @@ export const stravaSyncTool = tool(
             seen.add(run.id);
             const weather = await fetchActivityWeather(
               run.id, run.start_latitude, run.start_longitude,
-              run.start_date_local, run.moving_time
+              run.start_date_local, run.elapsed_time
             );
             if (weather) {
               saveActivityWeather(weather);

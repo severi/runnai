@@ -16,7 +16,8 @@ Your approach:
 1. Read data/athlete/CONTEXT.md for athlete profile and goals
 2. Read recent fitness assessment from memory (search_memory for "fitness assessment")
 3. Read data/strava/recent-summary.md for current training volume
-4. Create a periodized plan with appropriate progression
+4. Retrieve cached science before designing: call research with listTopics: true and pull every topic matching the goal race (distance-specific training, taper, course/event research) and the athlete's constraints (hybrid/strength concurrency, heat, ultra durability). Ground phase and volume choices in those syntheses — do not design from generic templates when athlete-specific research exists. If a load-bearing topic is missing (e.g. the goal distance has never been researched), research it via WebSearch and save_research it BEFORE drafting, and link_research it to the plan.
+5. Create a periodized plan with appropriate progression
 
 Always consider:
 - Progressive overload (10% rule for mileage increases)
@@ -39,8 +40,11 @@ Today: ${toDateString()}`,
       "mcp__runnai__calculator",
       "mcp__runnai__query_activities",
       "mcp__runnai__read_memory",
+      "mcp__runnai__search_memory",
       "mcp__runnai__manage_plan",
       "mcp__runnai__attach_reference",
+      "mcp__runnai__research",
+      "mcp__runnai__save_research",
       "mcp__runnai__link_research",
       "mcp__runnai__commit_data",
       "mcp__runnai__export_to_intervals",
@@ -280,7 +284,8 @@ Every claim in the draft is one of three classes — flag claims that pretend to
 - **Temporal-arithmetic claims** (HIGH-FREQUENCY ERROR): ANY relative-time statement — "two days out from the race", "three days before Saturday's 50km", "five days after the flu", "three weeks since your last long run", "the marathon is in 6 weeks". Never trust the draft's mental math, including your own. Resolve both endpoints to ISO dates from ground truth (\`start_date_local\`, compliance entries, memory, the plan), then verify with \`date_calc\` — pass the earlier event as \`from_date\` and the later as \`target_date\` and read \`days_difference\`/\`weeks_difference\`. For sessions inside the compliance week, the difference of their \`planned.daysFromToday\` values (0 = today, positive = future, negative = past) is equivalent. In a multi-run batch, check EVERY run's claim independently — the correct count for one sibling run is off-by-one for the next. Flag mismatches at confidence 90.
 - **Rest-day / phantom-run claims**: if the draft says or implies a run happened on a day whose compliance \`status\` is \`missed\` or that has no entry, flag at confidence 95 — it is narrating a run that did not occur.
 - **Plan reference**: if the draft says "you had an easy 8km scheduled", confirm via get_plan_compliance.
-- **Weather/heat**: heat-cost figures, humidity, temperature — must match the \`weather\` fields.
+- **Weather/heat**: heat-cost figures, humidity, temperature — must match the \`weather\` fields. On a multi-hour activity (weather has an \`hourly\` profile / a min-max spread of several degrees), any single "it was N°C" claim must trace to the range or the hourly profile — a draft quoting \`temp_avg_c\` as "the temperature" of the day is a mischaracterization, flag at confidence 85. Timeline claims ("the heat peaked while you were at X km") must be consistent with the hourly timestamps.
+- **Elevation**: cited climb figures must match \`elevation.gain_m\`. If \`elevation.discrepancy_note\` is present, a draft quoting either source as the sole unqualified truth (without naming the discrepancy) — flag at confidence 80.
 - **Stale strava_title reuse**: if a pre-existing \`strava_title\` is being passed through verbatim, flag it.
 
 ### Heuristic (Class B) — check confounds first
@@ -289,6 +294,8 @@ Every claim in the draft is one of three classes — flag claims that pretend to
 - **Split claims**: "negative split" / "even splits" / "positive split" must match \`split_type\`. "Faded in final quarter" must be supported by \`fatigue_index_pct\`.
 - **Interval count**: prose saying "6x1km intervals" when \`interval_count == 4\` is wrong.
 - **Zone labels**: "Z2 run" → majority time in zone2_s per \`hr_zones\`. "Z3 work" → significant zone3_s.
+- **Run-walk HR (HIGH-FREQUENCY ERROR)**: when \`movement.walk_pct_of_moving\` is material (≥15%), the whole-run \`avg_heartrate\` blends walking and running and understates the running effort. Any effort or limiter claim built on the blended average ("avg HR only N → engine was cruising / cardio wasn't the limiter") — flag at confidence 90; the draft must use \`movement.run_avg_hr\` / \`walk_avg_hr\` for per-state effort claims.
+- **Cardiac drift as a verdict on long/hot runs**: on races or runs over ~4h (or with heat in the weather data), \`cardiac_drift_pct\` is confounded by core temp, dehydration, and glycogen. A draft citing it as a fitness verdict or to eliminate a limiter (rather than as a hedged directional signal) — flag at confidence 80.
 
 ### Interpretive (Class C) — flag bare assertions
 The draft must NOT assert Class C content as fact unless one of these supports is present:
@@ -303,6 +310,7 @@ Specific Class C terms to watch for:
 - **"felt [X]" / "you noticed [Y]"**: subjective state, only knowable to athlete. Flag unless quoted from athlete or memory.
 - **"ready for [X]" / "body signaling [Y]" / "responding well"**: subjective readiness claims. Flag unless backed by explicit athlete report.
 - **"run by feel" / "enjoyed the city" / "casual"** — atmospheric/intent labels. Flag if not athlete-provided.
+- **Prep-adherence claims (HIGH-FREQUENCY ERROR)**: "the sauna/heat prep paid off", "the strength block showed up", "gut training earned its keep" — the plan *prescribing* supporting work is NOT evidence it was *done*; non-run work leaves no activity data at all. Flag at confidence 90 unless the athlete confirmed doing the work (this session, memory, or a prior saved analysis). The same applies to unverified non-adherence scolding.
 
 **Do NOT flag** these as Class C — they are zone-inference shorthand (Class B):
 - "comfortably in Z2" / "comfortable aerobic effort" / "settled into Z2" / "easy effort" / "easy aerobic" — these are HR-data inferences when \`hr_zones\` data supports them. Only flag if the zone data contradicts (e.g., "comfortably in Z2" on a run that was 50% Z4).

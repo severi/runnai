@@ -10,7 +10,7 @@ import type {
 } from "../types/index.js";
 import { computeMovementBreakdown } from "./gait.js";
 
-export const STREAM_ANALYSIS_VERSION = 5;
+export const STREAM_ANALYSIS_VERSION = 6;
 
 /** Lap boundary hint for phase detection. */
 export interface LapHint {
@@ -128,7 +128,14 @@ export function computeStreamAnalysis(
   // time gaps are visible, and the raw cadence stream for gait classification.
   const totalDist = distance[distance.length - 1] - distance[0];
   const movement = totalDist >= 1000
-    ? computeMovementBreakdown(speed, time, distance, grade, cadence)
+    ? computeMovementBreakdown(speed, time, distance, grade, cadence, hr)
+    : null;
+
+  // Stream-derived elevation totals: device altitude (barometric when the
+  // watch has a sensor), distance-smoothed, hysteresis-accumulated. Consistent
+  // across runs, unlike Strava's per-upload DEM smoothing of the API field.
+  const elevationStream = altitude
+    ? computeElevationTotals(distanceWindowSmooth(altitude, distance, 30))
     : null;
 
   return {
@@ -144,6 +151,7 @@ export function computeStreamAnalysis(
     phases,
     intervals,
     movement,
+    elevation_stream: elevationStream,
     computed_at: new Date().toISOString(),
     stream_analysis_version: STREAM_ANALYSIS_VERSION,
   };
@@ -639,17 +647,43 @@ function detectPhases(
   return segments;
 }
 
+/** Altitude change (m) that must accumulate before it counts as real climb/descent. */
+const ELEVATION_HYSTERESIS_M = 2;
+
+/**
+ * Elevation gain/loss with hysteresis accumulation.
+ *
+ * Summing raw per-sample deltas inflates gain with GPS/baro jitter: ±1m noise
+ * on flat ground compounds to hundreds of phantom meters over a long run.
+ * Hysteresis only commits movement once the altitude has moved at least
+ * ELEVATION_HYSTERESIS_M from the last committed reference point, so
+ * sub-threshold oscillation contributes nothing while real climbs (which keep
+ * moving past the threshold) are counted in full.
+ */
+export function computeElevationTotals(
+  altitude: number[], startIdx = 0, endIdx = altitude.length - 1
+): { gain_m: number; loss_m: number } {
+  let gain = 0, loss = 0;
+  let ref = altitude[startIdx];
+  for (let i = startIdx + 1; i <= endIdx; i++) {
+    const delta = altitude[i] - ref;
+    if (delta >= ELEVATION_HYSTERESIS_M) {
+      gain += delta;
+      ref = altitude[i];
+    } else if (delta <= -ELEVATION_HYSTERESIS_M) {
+      loss += -delta;
+      ref = altitude[i];
+    }
+  }
+  return { gain_m: Math.round(gain), loss_m: Math.round(loss) };
+}
+
 /** Compute elevation gain and loss over a segment from smoothed altitude. */
 function computeSegmentElevation(
   altitude: number[], startIdx: number, endIdx: number
 ): { gain: number; loss: number } {
-  let gain = 0, loss = 0;
-  for (let i = startIdx + 1; i <= endIdx; i++) {
-    const delta = altitude[i] - altitude[i - 1];
-    if (delta > 0) gain += delta;
-    else loss += -delta;
-  }
-  return { gain, loss };
+  const totals = computeElevationTotals(altitude, startIdx, endIdx);
+  return { gain: totals.gain_m, loss: totals.loss_m };
 }
 
 /**
