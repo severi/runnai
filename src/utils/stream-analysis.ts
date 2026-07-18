@@ -10,7 +10,7 @@ import type {
 } from "../types/index.js";
 import { computeMovementBreakdown } from "./gait.js";
 
-export const STREAM_ANALYSIS_VERSION = 6;
+export const STREAM_ANALYSIS_VERSION = 7;
 
 /** Lap boundary hint for phase detection. */
 export interface LapHint {

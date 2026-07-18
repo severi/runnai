@@ -55,11 +55,13 @@ export function computeActivityAnalysis(
     peak_heartrate: l.max_heartrate,
   }));
 
-  // Elevation aggregates from laps
+  // Elevation aggregates. Prefer Strava's processed activity total: summing
+  // per-lap gains accumulates unsmoothed noise per lap (a 100km with ~100 laps
+  // reported 2,180m of lap-sum gain vs 1,352m activity total on the same
+  // upload). Lap sums are a fallback only.
   const hasLapElev = laps.some(l => l.elevation_gain !== null);
-  const elevGain = hasLapElev
-    ? laps.reduce((s, l) => s + (l.elevation_gain ?? 0), 0)
-    : activity.total_elevation_gain ?? null;
+  const elevGain = activity.total_elevation_gain
+    ?? (hasLapElev ? laps.reduce((s, l) => s + (l.elevation_gain ?? 0), 0) : null);
   const elevLoss = hasLapElev
     ? laps.reduce((s, l) => s + (l.elevation_loss ?? 0), 0)
     : null;

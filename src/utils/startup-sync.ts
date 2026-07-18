@@ -14,6 +14,7 @@ import {
   upsertActivityLaps,
   computeLapElevation,
   saveActivityWeather,
+  getActivitiesWithoutWeather,
 } from "./activities-db.js";
 import {
   computeActivityAnalysis,
@@ -286,6 +287,23 @@ export async function startupSync(): Promise<StartupContext> {
       message: error instanceof Error ? error.message : String(error),
       newRunIds: [],
     };
+  }
+
+  // 1a. Weather backfill. The in-sync fetch above only covers freshly-synced
+  // runs, so a run can sit without weather even when sync reports up-to-date
+  // (cleared rows for an analysis retry, runs synced before weather existed,
+  // legacy rows missing the min/max/hourly profile). Newest-first, best-effort.
+  try {
+    for (const run of getActivitiesWithoutWeather(10)) {
+      const weather = await fetchActivityWeather(
+        run.id, run.start_latitude, run.start_longitude,
+        run.start_date_local, run.elapsed_time
+      );
+      if (weather) saveActivityWeather(weather);
+      await new Promise(r => setTimeout(r, 50));
+    }
+  } catch {
+    // best-effort
   }
 
   // 1b. Backlog: runs from the last 7 days that lack a saved coaching analysis

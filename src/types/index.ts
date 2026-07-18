@@ -472,6 +472,15 @@ export interface WeeklyComplianceResult {
   };
 }
 
+/**
+ * Signed grade classification. Thresholds (%): descent < -1, flat -1..+1,
+ * gentle_up +1..+3, moderate_up +3..+6, steep_up > +6.
+ */
+export type GradeBand = "descent" | "flat" | "gentle_up" | "moderate_up" | "steep_up";
+
+/** Walk seconds accumulated per grade band (per-sample, not per-segment). */
+export type GradeBandSeconds = Record<GradeBand, number>;
+
 /** A surfaced walk or paused-watch segment with its location. */
 export interface GaitSegment {
   kind: "walk" | "pause";
@@ -480,8 +489,12 @@ export interface GaitSegment {
   duration_s: number;
   /** Avg grade over the segment (%). Null for pauses or when grade is absent. */
   avg_grade_pct: number | null;
-  /** "climb" when terrain-driven (avg grade >= 3%), "flat" otherwise. Null for pauses. */
-  terrain: "climb" | "flat" | null;
+  /**
+   * Signed grade band from the segment's avg grade. A binary climb/flat label
+   * hid gentle 1-3% climbs and downhills inside "flat" — bands keep them apart.
+   * Null for pauses or when grade is unavailable.
+   */
+  grade_band: GradeBand | null;
 }
 
 /**
@@ -520,6 +533,14 @@ export interface MovementBreakdown {
   walk_avg_hr: number | null;
   /** Run-only avg HR per distance half — exposes drift within the running itself. */
   run_avg_hr_by_half: [number | null, number | null];
+  /**
+   * Walk time per signed grade band, whole run — answers "how much of the
+   * walking was actually on climbs?" natively. Per-sample accumulation, so a
+   * walk spanning an up-then-down roller doesn't average away. Null without grade.
+   */
+  walk_grade_band_s: GradeBandSeconds | null;
+  /** Walk time per grade band in [first half, second half] by distance — walking spreading to flats/descents late is a fatigue/fuel fingerprint. */
+  walk_grade_band_s_by_half: [GradeBandSeconds, GradeBandSeconds] | null;
   /** Walk segments (deliberate/terrain), >= 20s, tagged climb vs flat. */
   walks: GaitSegment[];
   /** Paused-watch gaps, >= 10s. Distinct from walking. */

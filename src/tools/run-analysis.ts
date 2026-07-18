@@ -75,12 +75,20 @@ function computeConfounds(
   };
 }
 
+function bandsToMinutes(bands: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(bands)) out[k] = Math.round(v / 60);
+  return out;
+}
+
 /**
  * Elevation with a source-of-truth policy. The device stream (barometric when
- * the watch has a sensor, consistent smoothing) is primary; the lap/API value
- * (Strava DEM, smoothing intensity varies per upload) is reported alongside.
- * When the two disagree by more than 20%, the discrepancy is surfaced so the
- * analysis names it instead of silently picking a number.
+ * the watch has a sensor, consistent smoothing + hysteresis) is primary;
+ * Strava's reported activity total is shown alongside. When the two disagree
+ * by more than 20%, the discrepancy is surfaced so the analysis names it
+ * instead of silently picking a number — WITHOUT asserting a mechanism for
+ * Strava's figure (it varies: DEM-corrected for non-baro devices, otherwise
+ * server-side processing of the device data).
  */
 function buildElevationOutput(
   apiGainM: number | null,
@@ -97,12 +105,12 @@ function buildElevationOutput(
     source: stream ? "device-stream" : "strava-api",
   };
   if (stream && apiGainM != null) {
-    out.api_gain_m = Math.round(apiGainM);
+    out.strava_gain_m = Math.round(apiGainM);
     const base = Math.max(stream.gain_m, apiGainM);
     if (base > 0) {
       const discrepancyPct = Math.round((Math.abs(stream.gain_m - apiGainM) / base) * 100);
       if (discrepancyPct > 20) {
-        out.discrepancy_note = `device-stream gain (${stream.gain_m}m) and Strava API gain (${Math.round(apiGainM)}m) differ by ${discrepancyPct}% — the API value comes from per-upload DEM smoothing of varying intensity. Use the device-stream value for the terrain read, and name the discrepancy rather than silently picking one.`;
+        out.discrepancy_note = `device-stream gain (${stream.gain_m}m) and Strava's reported total (${Math.round(apiGainM)}m) differ by ${discrepancyPct}%. The stream value uses a consistent smoothing+hysteresis algorithm on the recorded altitude; Strava's figure comes from its own server-side processing, whose method varies by upload/device — do not assert a specific mechanism (DEM, barometer, noise) for the gap. Use the device-stream value for the terrain read and name the discrepancy rather than silently picking one.`;
       }
     }
   }
@@ -184,7 +192,7 @@ export const getRunAnalysisTool = tool(
         // are walk-contaminated — read `movement.split_driver` FIRST. "walking"
         // means moving pace fell but run-only pace held: report it as "running
         // held steady, walking increased", NOT a running fade. Walk segments are
-        // already localized and tagged climb/flat; never infer walk locations.
+        // already localized and banded by signed grade; never infer walk locations.
         movement: sa.movement ? {
           run_min: Math.round(sa.movement.run_s / 60),
           walk_min: Math.round(sa.movement.walk_s / 60),
@@ -198,6 +206,15 @@ export const getRunAnalysisTool = tool(
           run_avg_hr: sa.movement.run_avg_hr,
           walk_avg_hr: sa.movement.walk_avg_hr,
           run_avg_hr_by_half: sa.movement.run_avg_hr_by_half,
+          // Walk time per signed grade band (descent < -1% | flat ±1% |
+          // gentle_up 1-3% | moderate_up 3-6% | steep_up > 6%), whole run and
+          // by half. This answers "was the walking terrain-driven?" directly —
+          // and walking spreading to flats/descents in the second half is a
+          // fuel/fatigue fingerprint, not a terrain story.
+          walk_grade_band_min: sa.movement.walk_grade_band_s
+            ? bandsToMinutes(sa.movement.walk_grade_band_s) : null,
+          walk_grade_band_min_by_half: sa.movement.walk_grade_band_s_by_half
+            ? sa.movement.walk_grade_band_s_by_half.map(bandsToMinutes) : null,
           split_driver: sa.movement.split_driver,
           run_only_split_type: sa.movement.run_only_split_type,
           run_only_fatigue_index_pct: sa.movement.run_only_fatigue_index_pct,
@@ -205,7 +222,7 @@ export const getRunAnalysisTool = tool(
             at_km: w.start_km,
             duration_s: w.duration_s,
             avg_grade_pct: w.avg_grade_pct,
-            terrain: w.terrain,
+            grade_band: w.grade_band,
           })),
           pauses: sa.movement.pauses.map(p => ({
             at_km: p.start_km,
@@ -265,7 +282,13 @@ export const getRunAnalysisTool = tool(
           similar_runs_30d: record.similar_runs_30d,
         } : null,
         training_context: trainingContext,
-        weather: activityWeather ? buildWeatherOutput(activityWeather) : null,
+        // Never emit bare null for weather: a missing record must read as
+        // "go fetch it", not "there was no weather" — a race analysis without
+        // conditions data was drafted exactly that way once.
+        weather: activityWeather ? buildWeatherOutput(activityWeather) : {
+          missing: true,
+          note: "No stored weather for this run. Before drafting any read that touches conditions (heat, wind, rain — mandatory for races and multi-hour runs), fetch it: get_weather(activity_id, start_date=run date, granularity='hourly' for multi-hour activities).",
+        },
         stream_analysis: streamMetrics,
         confounds: computeConfounds(activity_id, record.lap_summaries),
         detailed_analysis: record.detailed_analysis,
