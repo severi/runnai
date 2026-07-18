@@ -128,9 +128,9 @@ describe("computeMovementBreakdown", () => {
     expect(m.walk_share_by_half[1]).toBeGreaterThan(m.walk_share_by_half[0]);
     // ...so the slowdown is attributed to walking, not a running fade.
     expect(m.split_driver).toBe("walking");
-    // And the walk segments are surfaced, tagged as climbs by grade.
+    // And the walk segments are surfaced, banded by grade (4% = moderate climb).
     expect(m.walks.length).toBeGreaterThan(0);
-    expect(m.walks.every(w => w.terrain === "climb")).toBe(true);
+    expect(m.walks.every(w => w.grade_band === "moderate_up")).toBe(true);
   });
 
   test("small run-only drift (<5%) with more walking → still walking, not mixed", () => {
@@ -184,6 +184,73 @@ describe("computeMovementBreakdown", () => {
     expect(m.walk_s).toBe(0);
     expect(m.walks.length).toBe(0);
     expect(m.split_driver).toBe("running");
+  });
+
+  // ─── Grade bands ───────────────────────────────────────────────────────────
+  // The RTTS follow-up failure: a binary climb/flat label with a 3% cutoff
+  // lumped 1-3% gentle climbs AND downhills into "flat", so "83 min walked on
+  // even ground" was wrong and the athlete caught it. Signed bands from
+  // per-sample grade make the walk-terrain distribution native data.
+
+  test("walk segments carry signed grade_band, not a binary label", () => {
+    const time: number[] = [], distance: number[] = [], cadence: number[] = [], grade: number[] = [];
+    let d = 0;
+    const push = (s: number, c: number, g: number) => { const t = time.length; time.push(t); d += s; distance.push(d); cadence.push(c); grade.push(g); };
+    // Running with four walk breaks on distinct grades: -4% descent, 0% flat,
+    // 2% gentle, 8% steep. Each walk 60s.
+    const walkGrades = [-4, 0, 2, 8];
+    for (const wg of walkGrades) {
+      for (let i = 0; i < 300; i++) push(3.3, 170, 0);
+      for (let i = 0; i < 60; i++) push(1.2, 120, wg);
+    }
+    for (let i = 0; i < 300; i++) push(3.3, 170, 0);
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence);
+
+    expect(m.walks.map(w => w.grade_band)).toEqual(["descent", "flat", "gentle_up", "steep_up"]);
+  });
+
+  test("walk time aggregates by grade band, whole run and by half", () => {
+    const time: number[] = [], distance: number[] = [], cadence: number[] = [], grade: number[] = [];
+    let d = 0;
+    const push = (s: number, c: number, g: number) => { const t = time.length; time.push(t); d += s; distance.push(d); cadence.push(c); grade.push(g); };
+    // H1: run + 120s walking on 5% climbs. H2 (same distance shape): run +
+    // 120s walking on 0% flat and 60s on -3% descents — the "walking spread to
+    // flats and downhills late" fingerprint.
+    for (let i = 0; i < 600; i++) push(3.3, 170, 0);
+    for (let i = 0; i < 120; i++) push(1.2, 120, 5);
+    for (let i = 0; i < 600; i++) push(3.3, 170, 0);
+    for (let i = 0; i < 120; i++) push(1.2, 120, 0);
+    for (let i = 0; i < 60; i++) push(1.2, 120, -3);
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence);
+
+    expect(m.walk_grade_band_s!.moderate_up).toBe(120);
+    expect(m.walk_grade_band_s!.flat).toBe(120);
+    expect(m.walk_grade_band_s!.descent).toBe(60);
+    expect(m.walk_grade_band_s!.gentle_up).toBe(0);
+    expect(m.walk_grade_band_s!.steep_up).toBe(0);
+    // By half: climbs-only early, flat+descent late.
+    expect(m.walk_grade_band_s_by_half![0].moderate_up).toBeGreaterThan(0);
+    expect(m.walk_grade_band_s_by_half![0].descent).toBe(0);
+    expect(m.walk_grade_band_s_by_half![1].descent).toBeGreaterThan(0);
+    expect(m.walk_grade_band_s_by_half![1].moderate_up).toBe(0);
+  });
+
+  test("no grade stream → null bands and null aggregates", () => {
+    const { time, distance, cadence } = makeWalkBreakSecondHalf();
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+
+    const m = computeMovementBreakdown(speed, time, distance, null, cadence);
+
+    expect(m.walks.every(w => w.grade_band === null)).toBe(true);
+    expect(m.walk_grade_band_s).toBeNull();
+    expect(m.walk_grade_band_s_by_half).toBeNull();
   });
 
   // ─── Per-gait-state HR ─────────────────────────────────────────────────────

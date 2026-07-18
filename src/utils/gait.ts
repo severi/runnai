@@ -14,7 +14,7 @@
  * fallback when cadence is absent.
  */
 
-import type { SplitType, MovementBreakdown, GaitSegment } from "../types/index.js";
+import type { SplitType, MovementBreakdown, GaitSegment, GradeBand, GradeBandSeconds } from "../types/index.js";
 
 export type Gait = "run" | "walk" | "pause";
 
@@ -22,8 +22,22 @@ export type Gait = "run" | "walk" | "pause";
 const MIN_WALK_SEGMENT_S = 20;
 /** Min duration (s) for a pause to be surfaced. */
 const MIN_PAUSE_SEGMENT_S = 10;
-/** Avg grade (%) at or above which a walk is terrain-driven (a climb). */
-const CLIMB_GRADE_PCT = 3.0;
+/**
+ * Signed grade banding. A binary climb/flat cutoff hid gentle 1-3% climbs and
+ * downhills inside "flat" (the RTTS "83 min walked on even ground" misread —
+ * recut with signed bands it was 63 min flat, 118 min uphill, 0 downhill).
+ */
+export function gradeToBand(gradePct: number): GradeBand {
+  if (gradePct < -1) return "descent";
+  if (gradePct <= 1) return "flat";
+  if (gradePct <= 3) return "gentle_up";
+  if (gradePct <= 6) return "moderate_up";
+  return "steep_up";
+}
+
+const emptyBands = (): GradeBandSeconds => ({
+  descent: 0, flat: 0, gentle_up: 0, moderate_up: 0, steep_up: 0,
+});
 
 /**
  * Normalize a cadence stream to true steps/min.
@@ -201,6 +215,28 @@ export function computeMovementBreakdown(
   };
   const walkShareByHalf: [number, number] = [walkShareHalf(0, midIdx), walkShareHalf(midIdx, n)];
 
+  // Walk time per signed grade band, accumulated per-sample so a walk segment
+  // spanning an up-then-down roller contributes to both bands instead of
+  // averaging to "flat".
+  let walkBands: GradeBandSeconds | null = null;
+  let walkBandsByHalf: [GradeBandSeconds, GradeBandSeconds] | null = null;
+  if (grade) {
+    walkBands = emptyBands();
+    walkBandsByHalf = [emptyBands(), emptyBands()];
+    for (let i = 1; i < n; i++) {
+      const dt = time[i] - time[i - 1];
+      if (dt <= 0 || gait[i] !== "walk" || grade[i] == null) continue;
+      const band = gradeToBand(grade[i]);
+      walkBands[band] += dt;
+      walkBandsByHalf[i < midIdx ? 0 : 1][band] += dt;
+    }
+    const roundBands = (b: GradeBandSeconds) => {
+      for (const k of Object.keys(b) as GradeBand[]) b[k] = Math.round(b[k]);
+    };
+    roundBands(walkBands);
+    walkBandsByHalf.forEach(roundBands);
+  }
+
   // Per-gait-state HR.
   const runAvgHr = hr ? avgHrWhere(hr, time, gait, 0, n, isRun) : null;
   const walkAvgHr = hr ? avgHrWhere(hr, time, gait, 0, n, g => g === "walk") : null;
@@ -252,7 +288,7 @@ export function computeMovementBreakdown(
           start_km: Math.round((distance[segStart - 1] / 1000) * 10) / 10,
           duration_s: Math.round(durS),
           avg_grade_pct: avgGrade,
-          terrain: avgGrade == null ? null : avgGrade >= CLIMB_GRADE_PCT ? "climb" : "flat",
+          grade_band: avgGrade == null ? null : gradeToBand(avgGrade),
         });
       } else if (kind === "pause" && durS >= MIN_PAUSE_SEGMENT_S) {
         pauses.push({
@@ -260,7 +296,7 @@ export function computeMovementBreakdown(
           start_km: Math.round((distance[segStart - 1] / 1000) * 10) / 10,
           duration_s: Math.round(durS),
           avg_grade_pct: null,
-          terrain: null,
+          grade_band: null,
         });
       }
       segStart = i;
@@ -279,6 +315,8 @@ export function computeMovementBreakdown(
     run_avg_hr: runAvgHr,
     walk_avg_hr: walkAvgHr,
     run_avg_hr_by_half: runHrByHalf,
+    walk_grade_band_s: walkBands,
+    walk_grade_band_s_by_half: walkBandsByHalf,
     walks,
     pauses,
   };
