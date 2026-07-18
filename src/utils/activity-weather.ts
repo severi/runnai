@@ -44,25 +44,42 @@ interface HourlyWeatherResponse {
 /**
  * Fetch hourly weather for an activity's time window from Open-Meteo archive API.
  * Returns null if the fetch fails or no data is available.
+ *
+ * The stored record keeps the window average AND the min/max + per-hour profile:
+ * on a multi-hour activity the average alone is a compositional artifact (a
+ * 17→30°C race day averages to a misleading "25°C").
+ *
+ * @param durationS - Activity duration in seconds. Pass ELAPSED time, not moving
+ *   time — conditions act on the athlete during stops too, and an ultra can have
+ *   hours of difference between the two.
  */
 export async function fetchActivityWeather(
   activityId: number,
   lat: number,
   lng: number,
   startDateLocal: string,
-  movingTimeS: number
+  durationS: number
 ): Promise<ActivityWeather | null> {
   // start_date_local is wall-clock local time, but Strava serializes it with a "Z"
   // (e.g. "2026-06-21T14:07:56Z"). Parsing via new Date() reads it as UTC and any
   // later .getHours() re-localizes to the *machine* timezone, shifting the weather
   // window by the host's UTC offset. Open-Meteo's hourly series (timezone=auto) is
-  // in the run's local time, so we read the hour straight from the string instead.
+  // in the run's local time, so we work on naive local timestamps throughout,
+  // using Date.UTC purely as timezone-free calendar arithmetic (for windows that
+  // cross midnight).
   const date = startDateLocal.slice(0, 10);
   const startHour = Number(startDateLocal.slice(11, 13));
-  const durationHours = Math.ceil(movingTimeS / 3600);
-  const endHour = Math.min(startHour + durationHours, 23);
+  const durationHours = Math.ceil(durationS / 3600);
 
-  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_gusts_10m,weather_code&start_date=${date}&end_date=${date}&timezone=auto`;
+  const [y, mo, d] = date.split("-").map(Number);
+  const startMs = Date.UTC(y, mo - 1, d, startHour);
+  const endMs = startMs + durationHours * 3_600_000;
+  const stamp = (ms: number) => new Date(ms).toISOString().slice(0, 16); // "YYYY-MM-DDTHH:00"
+  const startStamp = stamp(startMs);
+  const endStamp = stamp(endMs);
+  const endDate = endStamp.slice(0, 10);
+
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_gusts_10m,weather_code&start_date=${date}&end_date=${endDate}&timezone=auto`;
 
   try {
     const response = await fetch(url);
@@ -72,13 +89,12 @@ export async function fetchActivityWeather(
     const { hourly } = data;
     if (!hourly?.time?.length) return null;
 
-    // Extract hours matching the activity window. hourly.time entries are local-time
-    // strings ("2026-06-21T14:00"); read the hour from the string, not via Date(),
-    // to stay in the run's timezone rather than the host's.
+    // Extract hours inside the activity window. hourly.time entries are naive
+    // local-time ISO strings ("2026-06-21T14:00"), so lexicographic comparison
+    // is chronological — no Date parsing, no host-timezone contamination.
     const indices: number[] = [];
     for (let i = 0; i < hourly.time.length; i++) {
-      const hour = Number(hourly.time[i].slice(11, 13));
-      if (hour >= startHour && hour <= endHour) {
+      if (hourly.time[i] >= startStamp && hourly.time[i] <= endStamp) {
         indices.push(i);
       }
     }
@@ -103,16 +119,27 @@ export async function fetchActivityWeather(
     }
     const dominantCode = [...codeCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
+    const round1 = (v: number) => Math.round(v * 10) / 10;
+
     return {
       activity_id: activityId,
-      temp_c: Math.round(avg(temps) * 10) / 10,
-      feels_like_c: Math.round(avg(feelsLike) * 10) / 10,
+      temp_c: round1(avg(temps)),
+      temp_min_c: round1(Math.min(...temps)),
+      temp_max_c: round1(Math.max(...temps)),
+      feels_like_c: round1(avg(feelsLike)),
       humidity_pct: Math.round(avg(humidity)),
-      wind_speed_kmh: Math.round(avg(wind) * 10) / 10,
-      wind_gust_kmh: Math.round(Math.max(...gusts) * 10) / 10,
-      precipitation_mm: Math.round(precip.reduce((s, v) => s + v, 0) * 10) / 10,
+      wind_speed_kmh: round1(avg(wind)),
+      wind_gust_kmh: round1(Math.max(...gusts)),
+      precipitation_mm: round1(precip.reduce((s, v) => s + v, 0)),
       weather_code: dominantCode,
       weather_description: WEATHER_CODES[dominantCode] ?? `Code ${dominantCode}`,
+      hourly: indices.map((idx, j) => ({
+        time: hourly.time[idx],
+        temp_c: round1(temps[j]),
+        feels_like_c: round1(feelsLike[j]),
+        precipitation_mm: round1(precip[j]),
+        wind_speed_kmh: round1(wind[j]),
+      })),
       fetched_at: new Date().toISOString(),
     };
   } catch {

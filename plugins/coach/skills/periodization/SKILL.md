@@ -5,6 +5,10 @@ description: Use when designing or restructuring a training block — choosing p
 
 # Periodization & Training Plan Design
 
+## Check the Knowledge Base First
+
+Plan design is exactly where the knowledge base earns its keep. Before structuring a block: `research(listTopics: true)`, pull every topic matching the goal race (distance-specific training, taper duration/structure, course/event research), the athlete's constraints (hybrid/strength concurrency, time-crunched formats), and any special demands (heat, trail, ultra durability, gut training). Ground phase choices in those syntheses and cite the mechanism briefly. If the goal race's distance or a load-bearing constraint has no topic yet, research and `save_research` it *before* drafting the block — the templates below are generic defaults, and the athlete-specific evidence is what adapts them.
+
 ## Training Phases
 
 ### Base Phase (4-8 weeks)

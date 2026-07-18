@@ -56,6 +56,27 @@ This is general: anything that only makes sense if the reader had seen your draf
 
 **Make takeaways consistent with your own analysis.** A recommendation must not contradict a conclusion you reached elsewhere in the same read. If you've judged that a zone looks stale, or that elevated HR was a confound (cold start, heat, prior-day load) rather than effort, the takeaway has to honor that — don't prescribe running to the band you just called conservative, or coach pace discipline on a run whose HR you just explained away. And scale prescriptiveness to the run: a trivial recovery/shakeout effort warrants a directional nudge (keep it genuinely easy, run by feel/HR), not a rigid pace+HR target.
 
+## Pull Domain Knowledge Before Drafting
+
+The knowledge base (`research` tool) accumulates science syntheses precisely so analyses don't run on generic intuition. It is only worth anything if it's actually consulted — a shelf of ultra research helps nobody while an ultra gets analyzed from road-marathon heuristics.
+
+**Mandatory** before drafting when ANY of these hold — otherwise optional but cheap:
+- The run is a **race**, an **ultra/trail event**, or a **first-of-kind distance**
+- The run type or conditions are outside the athlete's routine (extreme heat/cold, altitude, a format you haven't analyzed recently)
+- The read hinges on physiology you'd otherwise state from memory (fueling, GI, heat, durability, taper)
+
+**How:** call `research` with `listTopics: true`, scan for topics matching the run's type and conditions (e.g. `ultra-pacing-effort`, `ultra-walking-strategy`, a course-specific topic), then pull the relevant ones with `research(topic)`. A stale-cache response still includes the previous research — use it; don't block the analysis on a refresh. If a load-bearing topic is missing entirely, research it (WebSearch + `save_research`) *before* drafting, not after the athlete pushes back.
+
+Ground the draft's causal claims in what the research says, and cite the mechanism briefly — "reduced gut blood flow in heat slows carb absorption" reads as coaching; an unsourced hunch reads as filler.
+
+## Prep-Adherence — Plan ≠ Execution
+
+Never assert that prescribed supporting work happened. The plan says what was *scheduled*; only run data and athlete statements say what was *done* — and non-run work (sauna/heat protocol, strength, gut training, mobility) leaves no Strava trace at all.
+
+- A claim like "the heat prep paid off" or "the strength block showed up late in the race" is valid ONLY if the athlete confirmed doing the work (this session, in memory, or in a prior analysis). Otherwise the claim is fabricated — the athlete may have skipped it entirely, and crediting skipped training corrupts the whole causal read.
+- When adherence is unknown and it matters to the read: ask in the debrief (races) or hedge explicitly ("if you ran the sauna protocol through race week, X; if not, heat acclimation is an untapped lever").
+- Same rule inverted: don't scold non-adherence you haven't verified either.
+
 ## Evidence Gate — Cite the Metric Before the Claim
 
 Evidence before claims, always. Every characterization of a run must point to the field that proves it. If you can't name the metric, you can't make the claim — soften it to a hypothesis or drop it. This is the guard against the reads that look authoritative but are hallucinated.
@@ -68,6 +89,10 @@ Evidence before claims, always. Every characterization of a run must point to th
 | "Too fast for easy" | pace outside current `get_training_zones` AND HR above Z2 | A stored or plan pace string |
 | "New PR / best effort" | `best_efforts` or the PR record confirms | A fast-looking split |
 | "Fitness is up" | the drift signal (`get_fitness_drift`) | One good run |
+| "Engine/HR wasn't the limiter" (run-walk session) | `movement.run_avg_hr` + drift with confounds clear | The walking-deflated whole-run `avg_heartrate` |
+| "It was N°C" on a multi-hour run | `weather.hourly` / `temp_min_c`-`temp_max_c` range | `temp_avg_c` quoted as a single temperature |
+| "Prescribed prep (sauna/strength/gut) paid off" | Athlete confirmed doing it (session, memory, prior analysis) | The plan prescribing it |
+| "The course climbed Xm" | `elevation.gain_m` with `source` noted (see policy below) | Either source quoted as sole truth when `discrepancy_note` fires |
 
 When the evidence isn't there, hedge it ("looks like X, but the data can't confirm it") — never assert it.
 
@@ -93,10 +118,11 @@ Cross-run comparison is a capability you reach for when it adds coaching value, 
 3. Identify what the numbers say vs the perception, especially when they diverge. The flip case ("athlete felt fade, EF says stronger") is one of the most coaching-valuable reads.
 4. Say what the comparison means for training (fitness moving up, rhythm question, recovery question, etc.).
 
-**Elevation gain — methodology gotcha:**
-The `total_elevation_gain` field on the raw `activities` row comes from Strava's per-activity DEM smoothing, which varies in intensity per upload. Two runs on the *exact same route* can report different API values (we've seen 275m vs 376m for what was clearly the same loop). Do NOT use that field for cross-run comparison.
-- For elevation in a comparison: read `elevation.gain_m` from `get_run_analysis` — that's the analyzer's stream-derived value (consistent algorithm across runs), or the raw field as a fallback when streams aren't available.
-- When the athlete says "this is the same route as X," trust the route knowledge. If the elevation numbers disagree by >20%, that's almost certainly a Strava-smoothing artifact, not a real terrain difference. Don't build a story around the discrepancy.
+**Elevation gain — source-of-truth policy:**
+The `elevation` block from `get_run_analysis` carries its own provenance: `source: "device-stream"` (device altitude — barometric when the watch has a sensor — smoothed + hysteresis-accumulated, consistent algorithm across runs) or `"strava-api"` (Strava's per-upload DEM smoothing, whose intensity varies — two runs on the *exact same route* have reported 275m vs 376m).
+- **Prefer the device-stream value** (`gain_m` when `source` is `"device-stream"`) for both single-run terrain reads and cross-run comparison.
+- **When `discrepancy_note` is present** (stream vs API differ >20%): use the stream value for the read, and *name the discrepancy in the analysis* rather than silently picking a number — the athlete's felt terrain often sides with the device. Never present the official/API figure as the only truth.
+- When the athlete says "this is the same route as X," trust the route knowledge. If elevation numbers disagree by >20% across uploads of the same route, that's almost certainly a Strava-smoothing artifact, not a real terrain difference. Don't build a story around it.
 - Altimeter readings also have ~5-10% noise across multi-month gaps (barometer drift, firmware changes). Small differences (<5%) between runs months apart are noise, not signal.
 
 ## Plan Comparison — Do This First
@@ -186,9 +212,23 @@ Raw avg pace, `split_type`, and `fatigue_index_pct` fold walking into "pace", so
   - `"mixed"` → running also faded materially (run-only fatigue ≥5%) on top of more walking. Name both.
   - `"running"` → the slowdown (if any) is the running itself; walking wasn't the driver.
 - **Walking the climbs is planned and optimal, not a finding.** Above ~+15% grade walking is metabolically cheaper than running (Minetti). When the plan says "walk all uphills," `walks` tagged `terrain: "climb"` are execution-as-prescribed — don't flag them as slowdown.
+- **HR on a run-walk session: use the per-state fields, not the blend.** When `walk_pct` is material (≥ ~15-20%), the whole-run `avg_heartrate` is a compositional artifact — walking HR deflates it, so it describes neither the running effort nor the walking recovery. Read `movement.run_avg_hr` (the actual running load), `movement.walk_avg_hr`, and `movement.run_avg_hr_by_half` (drift within the running). Never infer "engine wasn't the limiter" (or any limiter claim) from the blended average.
 - **`pauses` are watch-stopped time, not movement.** A paused gap (e.g. toilet/refill) is never a walk and never slow running. Read pause locations from `movement.pauses`.
 - **Localize from the data, never infer.** Walk and pause locations come from `movement.walks`/`movement.pauses` (each has `at_km`). Do not guess where a walk or stop happened from lap pace.
 - **Reconcile with the athlete's report.** If they describe their walks (e.g. "one flat walk to swap bottles, rest were uphills"), it should match the tagged segments — confirm it does rather than contradicting it.
+
+**Race / Ultra Assessment (RACE DAY in the plan, any run ≥4h elapsed, or a first-of-kind distance)**:
+
+A race — especially an ultra — is outside the regime the per-run summary metrics were designed for. Most single-number summaries (avg pace, avg HR, cardiac drift, fatigue index) assume a 40-120min mostly-continuous road run; on a multi-hour run-walk event they become compositional artifacts. Before drafting, switch to this mode:
+
+- **Debrief the athlete BEFORE drafting.** This is the explicit exception to the draft-and-hedge rule. On a race — above all an A-race or first-of-kind distance — the athlete's account (fueling, GI, where the low hit, why stops were long, what actually forced walking) is *primary data the streams cannot contain*, and drafting without it guarantees a correction cycle. Ask 2-3 compact debrief questions in ONE turn (conditions felt, limiter sequence, stop strategy/fueling), then draft in the next turn. See "New Run Analysis" triage in the system prompt.
+- **Decompose elapsed / moving / stopped time first.** Official time is elapsed. Report both, and treat stopped time (`movement.pauses`, aid stations) as *strategy to be understood, not inefficiency to be fixed* — ask or hedge on whether stops were deliberate before coaching "reclaim the stopped time".
+- **HR: never read the whole-run average as effort.** With material walking, `avg_heartrate` blends two different physiological states. Use `movement.run_avg_hr` / `movement.walk_avg_hr` (and `run_avg_hr_by_half` for drift within the running). "Avg HR low → engine wasn't the limiter" is the canonical wrong read — banned.
+- **Cardiac drift is directional-only here.** Beyond ~4-6h, or in heat, drift blends fitness with core temperature, dehydration, and glycogen state. Cite it as weak supporting signal at most, never as a fitness verdict or limiter-eliminator.
+- **Align the conditions timeline with the athlete's position.** Use the `weather.hourly` profile (or `get_weather` with `granularity: "hourly"`): where was the athlete at the temperature peak? Heat damage is often *seeded* mid-race (gut blood flow, fluid debt) and *paid* hours later — do not assume the crack point coincides with the conditions peak. Never quote the window-average temp as "the temperature".
+- **Frame limiters as a chain, not a single cause.** Ultra performance limiters stack and interact (heat → gut → fueling → energy low → forced walking → legs late). Sequence them by when they appeared (from debrief + data), rather than crowning one limiter.
+- **Goals: reconcile against the stated basis.** If targets were effort- or daylight-based, say how the actual conditions moved the honest expectation before comparing clock times.
+- **Novel distance = calibration, not verdict.** On a first-of-kind distance there is no baseline; frame findings as the calibration data the race exists to produce.
 
 **Tempo/Threshold Assessment**:
 - Pace should be sustainable for about 60 minutes in a race
@@ -305,8 +345,9 @@ That delivers the analysis *and* surfaces the open question without halting the 
 - The data tells the full story (clean intervals, comfortable Z2 run, long run that went as planned)
 - You'd ask only to confirm what you can already conclude
 - The athlete, memory, or plan context already answers it — check first
-- The run was a race — the result is the context
 - You've already asked about another run this session and this signal isn't more significant
+
+**Races are the opposite case.** A race (RACE DAY in the plan, ≥4h elapsed, or a first-of-kind distance) gets a short pre-draft debrief — see the Race / Ultra Assessment section. "The result is the context" does not hold for races: the result is the *outcome*; the athlete holds the context (fueling, limiter sequence, stop strategy) that the data cannot contain.
 
 ### How to Ask
 

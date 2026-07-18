@@ -113,6 +113,21 @@ function avgSpeedWhere(
   return count > 0 ? sum / count : null;
 }
 
+/** Time-weighted average HR over [start,end) for samples matching `keep`. Rounded. */
+function avgHrWhere(
+  hr: number[], time: number[], gait: Gait[], start: number, end: number,
+  keep: (g: Gait) => boolean,
+): number | null {
+  let sum = 0, count = 0;
+  for (let i = Math.max(1, start); i < end; i++) {
+    const dt = time[i] - time[i - 1];
+    if (dt <= 0 || dt > 30 || hr[i] <= 0 || !keep(gait[i])) continue;
+    sum += hr[i] * dt;
+    count += dt;
+  }
+  return count > 0 ? Math.round(sum / count) : null;
+}
+
 /** Index at which cumulative distance first reaches `fraction` of the total. */
 function distanceFractionIdx(distance: number[], fraction: number): number {
   const total = distance[distance.length - 1] - distance[0];
@@ -133,6 +148,8 @@ function distanceFractionIdx(distance: number[], fraction: number): number {
  * @param distance Per-sample cumulative distance (m).
  * @param grade    Per-sample grade (%) or null.
  * @param cadence  Raw cadence stream (per-leg or full) or null.
+ * @param hr       Per-sample HR (bpm) or null. Enables per-gait-state HR, so a
+ *                 walking-deflated whole-run average is never the only HR view.
  */
 export function computeMovementBreakdown(
   speed: number[],
@@ -140,6 +157,7 @@ export function computeMovementBreakdown(
   distance: number[],
   grade: number[] | null,
   cadence: number[] | null,
+  hr: number[] | null = null,
 ): MovementBreakdown {
   const gait = classifyGait(speed, time, cadence);
   const n = gait.length;
@@ -182,6 +200,13 @@ export function computeMovementBreakdown(
     return mv > 0 ? Math.round((w / mv) * 100) : 0;
   };
   const walkShareByHalf: [number, number] = [walkShareHalf(0, midIdx), walkShareHalf(midIdx, n)];
+
+  // Per-gait-state HR.
+  const runAvgHr = hr ? avgHrWhere(hr, time, gait, 0, n, isRun) : null;
+  const walkAvgHr = hr ? avgHrWhere(hr, time, gait, 0, n, g => g === "walk") : null;
+  const runHrByHalf: [number | null, number | null] = hr
+    ? [avgHrWhere(hr, time, gait, 0, midIdx, isRun), avgHrWhere(hr, time, gait, midIdx, n, isRun)]
+    : [null, null];
 
   // split_driver: what drove any back-half slowdown.
   //
@@ -251,6 +276,9 @@ export function computeMovementBreakdown(
     run_only_fatigue_index_pct: runOnlyFatigue,
     split_driver: splitDriver,
     walk_share_by_half: walkShareByHalf,
+    run_avg_hr: runAvgHr,
+    walk_avg_hr: walkAvgHr,
+    run_avg_hr_by_half: runHrByHalf,
     walks,
     pauses,
   };

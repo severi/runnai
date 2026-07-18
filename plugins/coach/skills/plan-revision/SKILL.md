@@ -18,6 +18,10 @@ Enter via `manage_plan(action: "revise")` when any of these are true:
 
 Always announce the transition: `entered revision mode → versions/vN-draft created`.
 
+## Retrieve before you synthesize
+
+On entering revision mode, before proposing structural changes: `research(listTopics: true)` and pull the cached topics bearing on the revision (the goal race, taper, the constraint driving the change). Record what you used under **Sources consulted** and `link_research` it to the draft. Fresh research (WebSearch + `save_research`) fills gaps — but check the shelf before re-deriving what a previous session already synthesized.
+
 ## Capture reasoning in real time
 
 `vN-draft/reasoning.md` has six sections. Append to them as decisions emerge — not at the end.

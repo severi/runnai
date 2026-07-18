@@ -248,7 +248,7 @@ export async function startupSync(): Promise<StartupContext> {
           try {
             const weather = await fetchActivityWeather(
               run.id, run.start_latlng[0], run.start_latlng[1],
-              run.start_date_local, run.moving_time
+              run.start_date_local, run.elapsed_time
             );
             if (weather) saveActivityWeather(weather);
           } catch {}

@@ -7,6 +7,7 @@ import {
   saveActivityAnalysis,
   computeTrainingContext,
 } from "../utils/activity-analysis.js";
+import type { ActivityWeather } from "../utils/activities-db.js";
 import { toolResult, toolError, formatPace } from "../utils/format.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { STREAM_ANALYSIS_VERSION } from "../utils/stream-analysis.js";
@@ -74,6 +75,68 @@ function computeConfounds(
   };
 }
 
+/**
+ * Elevation with a source-of-truth policy. The device stream (barometric when
+ * the watch has a sensor, consistent smoothing) is primary; the lap/API value
+ * (Strava DEM, smoothing intensity varies per upload) is reported alongside.
+ * When the two disagree by more than 20%, the discrepancy is surfaced so the
+ * analysis names it instead of silently picking a number.
+ */
+function buildElevationOutput(
+  apiGainM: number | null,
+  apiLossM: number | null,
+  sa: StreamAnalysisResult | null,
+): Record<string, unknown> | null {
+  const stream = sa?.elevation_stream ?? null;
+  if (stream == null && apiGainM == null) return null;
+
+  const gain = stream ? stream.gain_m : Math.round(apiGainM!);
+  const out: Record<string, unknown> = {
+    gain_m: gain,
+    loss_m: stream ? stream.loss_m : apiLossM != null ? Math.round(apiLossM) : null,
+    source: stream ? "device-stream" : "strava-api",
+  };
+  if (stream && apiGainM != null) {
+    out.api_gain_m = Math.round(apiGainM);
+    const base = Math.max(stream.gain_m, apiGainM);
+    if (base > 0) {
+      const discrepancyPct = Math.round((Math.abs(stream.gain_m - apiGainM) / base) * 100);
+      if (discrepancyPct > 20) {
+        out.discrepancy_note = `device-stream gain (${stream.gain_m}m) and Strava API gain (${Math.round(apiGainM)}m) differ by ${discrepancyPct}% — the API value comes from per-upload DEM smoothing of varying intensity. Use the device-stream value for the terrain read, and name the discrepancy rather than silently picking one.`;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Weather for the model. The window average is deliberately named temp_avg_c —
+ * on a multi-hour activity it blends morning cool with afternoon peak into a
+ * number that describes no moment of the run, so min/max and the hourly
+ * profile are surfaced alongside and an explicit note forbids quoting the
+ * average as "the temperature".
+ */
+function buildWeatherOutput(w: ActivityWeather): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    temp_avg_c: w.temp_c,
+    temp_min_c: w.temp_min_c,
+    temp_max_c: w.temp_max_c,
+    feels_like_avg_c: w.feels_like_c,
+    humidity_pct: w.humidity_pct,
+    wind_speed_kmh: w.wind_speed_kmh,
+    wind_gust_kmh: w.wind_gust_kmh,
+    precipitation_mm: w.precipitation_mm,
+    description: w.weather_description,
+  };
+  if (w.hourly && w.hourly.length > 0) {
+    out.hourly = w.hourly;
+    if (w.hourly.length > 3) {
+      out.note = `conditions evolved across this ${w.hourly.length}-hour window (${w.temp_min_c}°C to ${w.temp_max_c}°C) — temp_avg_c is a window average that describes no single moment. Narrate heat from the hourly profile (when the peak hit relative to the athlete's position), never quote the average as "the temperature". Temps are shaded-air at the start coordinates; full sun feels several degrees hotter.`;
+    }
+  }
+  return out;
+}
+
 export const getRunAnalysisTool = tool(
   "get_run_analysis",
   "Get pre-computed deterministic analysis for a specific run. Returns classification, metrics, stream analysis (HR zones, cardiac drift, phases, intervals), and lap summaries. If not yet analyzed, computes analysis on demand. Use this to get structured data for writing Strava descriptions or answering questions about a run.",
@@ -128,6 +191,13 @@ export const getRunAnalysisTool = tool(
           pause_min: Math.round(sa.movement.pause_s / 60),
           walk_pct_of_moving: sa.movement.walk_pct,
           walk_share_by_half_pct: sa.movement.walk_share_by_half,
+          // On a run-walk session the top-level avg_heartrate blends two
+          // different states and understates the running effort — run_avg_hr
+          // is the number that describes the actual running load. Never infer
+          // "low avg HR → engine wasn't the limiter" when walk_pct is material.
+          run_avg_hr: sa.movement.run_avg_hr,
+          walk_avg_hr: sa.movement.walk_avg_hr,
+          run_avg_hr_by_half: sa.movement.run_avg_hr_by_half,
           split_driver: sa.movement.split_driver,
           run_only_split_type: sa.movement.run_only_split_type,
           run_only_fatigue_index_pct: sa.movement.run_only_fatigue_index_pct,
@@ -185,10 +255,7 @@ export const getRunAnalysisTool = tool(
         pace: formatPace(record.pace_sec_per_km),
         grade_adjusted_pace: record.grade_adjusted_pace_sec_per_km
           ? formatPace(record.grade_adjusted_pace_sec_per_km) : null,
-        elevation: record.elevation_gain_m != null ? {
-          gain_m: Math.round(record.elevation_gain_m),
-          loss_m: record.elevation_loss_m != null ? Math.round(record.elevation_loss_m) : null,
-        } : null,
+        elevation: buildElevationOutput(record.elevation_gain_m, record.elevation_loss_m, sa),
         avg_heartrate: record.avg_heartrate ? Math.round(record.avg_heartrate) : null,
         lap_count: record.lap_summaries.length,
         lap_summaries: record.lap_summaries,
@@ -198,15 +265,7 @@ export const getRunAnalysisTool = tool(
           similar_runs_30d: record.similar_runs_30d,
         } : null,
         training_context: trainingContext,
-        weather: activityWeather ? {
-          temp_c: activityWeather.temp_c,
-          feels_like_c: activityWeather.feels_like_c,
-          humidity_pct: activityWeather.humidity_pct,
-          wind_speed_kmh: activityWeather.wind_speed_kmh,
-          wind_gust_kmh: activityWeather.wind_gust_kmh,
-          precipitation_mm: activityWeather.precipitation_mm,
-          description: activityWeather.weather_description,
-        } : null,
+        weather: activityWeather ? buildWeatherOutput(activityWeather) : null,
         stream_analysis: streamMetrics,
         confounds: computeConfounds(activity_id, record.lap_summaries),
         detailed_analysis: record.detailed_analysis,

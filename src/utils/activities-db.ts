@@ -202,6 +202,7 @@ function runMigrations(db: Database): void {
       phases TEXT,
       intervals TEXT,
       movement TEXT,
+      elevation_stream TEXT,
       computed_at TEXT NOT NULL,
       stream_analysis_version INTEGER NOT NULL DEFAULT 1
     );
@@ -240,6 +241,7 @@ function runMigrations(db: Database): void {
 
   addColumn("activity_analysis", "detailed_analysis", "TEXT");
   addColumn("activity_stream_analysis", "movement", "TEXT");
+  addColumn("activity_stream_analysis", "elevation_stream", "TEXT");
   addColumn("activity_analysis", "strava_title", "TEXT");
   addColumn("activity_analysis", "strava_description", "TEXT");
   addColumn("activity_analysis", "analysis_generated_at", "TEXT");
@@ -248,6 +250,8 @@ function runMigrations(db: Database): void {
     CREATE TABLE IF NOT EXISTS activity_weather (
       activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
       temp_c REAL,
+      temp_min_c REAL,
+      temp_max_c REAL,
       feels_like_c REAL,
       humidity_pct REAL,
       wind_speed_kmh REAL,
@@ -255,9 +259,15 @@ function runMigrations(db: Database): void {
       precipitation_mm REAL,
       weather_code INTEGER,
       weather_description TEXT,
+      hourly TEXT,
       fetched_at TEXT NOT NULL
     );
   `);
+
+  // Legacy activity_weather tables predate the min/max/hourly profile columns.
+  addColumn("activity_weather", "temp_min_c", "REAL");
+  addColumn("activity_weather", "temp_max_c", "REAL");
+  addColumn("activity_weather", "hourly", "TEXT");
 }
 
 // --- Activity CRUD ---
@@ -730,12 +740,12 @@ export function saveStreamAnalysis(activityId: number, result: StreamAnalysisRes
       activity_id, hr_zone1_s, hr_zone2_s, hr_zone3_s, hr_zone4_s, hr_zone5_s, hr_total_s,
       cardiac_drift_pct, pace_variability_cv, split_type, trimp,
       ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor,
-      phases, intervals, movement, computed_at, stream_analysis_version
+      phases, intervals, movement, elevation_stream, computed_at, stream_analysis_version
     ) VALUES (
       $activity_id, $z1, $z2, $z3, $z4, $z5, $zt,
       $cardiac_drift, $pace_cv, $split_type, $trimp,
       $ngp, $fatigue, $cadence_drift, $ef,
-      $phases, $intervals, $movement, $computed_at, $version
+      $phases, $intervals, $movement, $elevation_stream, $computed_at, $version
     )
   `).run({
     $activity_id: activityId,
@@ -756,6 +766,7 @@ export function saveStreamAnalysis(activityId: number, result: StreamAnalysisRes
     $phases: JSON.stringify(result.phases),
     $intervals: JSON.stringify(result.intervals),
     $movement: result.movement ? JSON.stringify(result.movement) : null,
+    $elevation_stream: result.elevation_stream ? JSON.stringify(result.elevation_stream) : null,
     $computed_at: result.computed_at,
     $version: result.stream_analysis_version,
   });
@@ -772,6 +783,7 @@ export function getStreamAnalysis(activityId: number): StreamAnalysisResult | nu
     fatigue_index_pct: number | null; cadence_drift_spm: number | null;
     efficiency_factor: number | null; phases: string; intervals: string;
     movement: string | null;
+    elevation_stream: string | null;
     computed_at: string; stream_analysis_version: number;
   } | undefined;
   if (!row) return null;
@@ -795,6 +807,7 @@ export function getStreamAnalysis(activityId: number): StreamAnalysisResult | nu
     phases: JSON.parse(row.phases || "[]"),
     intervals: JSON.parse(row.intervals || "[]"),
     movement: row.movement ? JSON.parse(row.movement) : null,
+    elevation_stream: row.elevation_stream ? JSON.parse(row.elevation_stream) : null,
     computed_at: row.computed_at,
     stream_analysis_version: row.stream_analysis_version,
   };
@@ -813,9 +826,21 @@ export function getActivitiesWithoutStreamAnalysis(limit: number = 50): number[]
 
 // --- Weather ---
 
+/** One hour of a stored activity-weather profile. `time` is naive local ISO ("2026-07-11T14:00"). */
+export interface ActivityWeatherHour {
+  time: string;
+  temp_c: number;
+  feels_like_c: number;
+  precipitation_mm: number;
+  wind_speed_kmh: number;
+}
+
 export interface ActivityWeather {
   activity_id: number;
+  /** Window AVERAGE. On a multi-hour activity this is a compositional artifact — use min/max/hourly. */
   temp_c: number | null;
+  temp_min_c: number | null;
+  temp_max_c: number | null;
   feels_like_c: number | null;
   humidity_pct: number | null;
   wind_speed_kmh: number | null;
@@ -823,38 +848,43 @@ export interface ActivityWeather {
   precipitation_mm: number | null;
   weather_code: number | null;
   weather_description: string | null;
+  /** Per-hour profile across the activity window. Null on legacy rows. */
+  hourly: ActivityWeatherHour[] | null;
   fetched_at: string;
 }
 
 export function saveActivityWeather(weather: ActivityWeather): void {
   getDb().prepare(`
     INSERT OR REPLACE INTO activity_weather (
-      activity_id, temp_c, feels_like_c, humidity_pct,
+      activity_id, temp_c, temp_min_c, temp_max_c, feels_like_c, humidity_pct,
       wind_speed_kmh, wind_gust_kmh, precipitation_mm,
-      weather_code, weather_description, fetched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      weather_code, weather_description, hourly, fetched_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    weather.activity_id, weather.temp_c, weather.feels_like_c, weather.humidity_pct,
+    weather.activity_id, weather.temp_c, weather.temp_min_c, weather.temp_max_c,
+    weather.feels_like_c, weather.humidity_pct,
     weather.wind_speed_kmh, weather.wind_gust_kmh, weather.precipitation_mm,
-    weather.weather_code, weather.weather_description, weather.fetched_at
+    weather.weather_code, weather.weather_description,
+    weather.hourly ? JSON.stringify(weather.hourly) : null, weather.fetched_at
   );
 }
 
 export function getActivityWeather(activityId: number): ActivityWeather | null {
   const row = getDb().prepare(
     "SELECT * FROM activity_weather WHERE activity_id = ?"
-  ).get(activityId) as ActivityWeather | undefined;
-  return row ?? null;
+  ).get(activityId) as (Omit<ActivityWeather, "hourly"> & { hourly: string | null }) | undefined;
+  if (!row) return null;
+  return { ...row, hourly: row.hourly ? JSON.parse(row.hourly) : null };
 }
 
-export function getActivitiesWithoutWeather(limit: number = 50): { id: number; start_date_local: string; start_latitude: number; start_longitude: number; moving_time: number }[] {
+export function getActivitiesWithoutWeather(limit: number = 50): { id: number; start_date_local: string; start_latitude: number; start_longitude: number; elapsed_time: number }[] {
   return getDb().prepare(`
-    SELECT a.id, a.start_date_local, a.start_latitude, a.start_longitude, a.moving_time
+    SELECT a.id, a.start_date_local, a.start_latitude, a.start_longitude, a.elapsed_time
     FROM activities a
     LEFT JOIN activity_weather w ON a.id = w.activity_id
     WHERE a.type = 'Run' AND a.trainer = 0
       AND a.start_latitude IS NOT NULL AND a.start_longitude IS NOT NULL
-      AND w.activity_id IS NULL
+      AND (w.activity_id IS NULL OR w.temp_min_c IS NULL)
     ORDER BY a.start_date_local DESC LIMIT ?
-  `).all(limit) as { id: number; start_date_local: string; start_latitude: number; start_longitude: number; moving_time: number }[];
+  `).all(limit) as { id: number; start_date_local: string; start_latitude: number; start_longitude: number; elapsed_time: number }[];
 }

@@ -185,4 +185,67 @@ describe("computeMovementBreakdown", () => {
     expect(m.walks.length).toBe(0);
     expect(m.split_driver).toBe("running");
   });
+
+  // ─── Per-gait-state HR ─────────────────────────────────────────────────────
+  // The RTTS 100km failure: whole-run avg HR 128 was 65% walking (HR ~110-135)
+  // blended with 35% running (HR 143-153). Reading 128 as "the effort" produced
+  // "engine was never troubled → legs were the limiter". Per-state HR makes the
+  // compositional artifact visible in the data itself.
+
+  test("run-walk session: run_avg_hr and walk_avg_hr separate the two states", () => {
+    const { time, distance, cadence, grade } = makeWalkBreakSecondHalf();
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+    // HR 150 while running (cadence 170), 115 while walking (cadence 120).
+    const hr = cadence.map(c => (c >= 140 ? 150 : 115));
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, hr);
+
+    expect(m.run_avg_hr).toBe(150);
+    expect(m.walk_avg_hr).toBe(115);
+    // Run-only HR per half exposes drift within the running itself.
+    expect(m.run_avg_hr_by_half).toEqual([150, 150]);
+  });
+
+  test("run-only HR by half surfaces running-HR drift a blended average hides", () => {
+    const { time, distance, cadence, grade } = makeWalkBreakSecondHalf();
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+    const midT = time[time.length - 1] / 2;
+    // Running HR 145 in H1, 155 in H2; walking always 115.
+    const hr = cadence.map((c, i) => (c >= 140 ? (time[i] <= midT ? 145 : 155) : 115));
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, hr);
+
+    // Halves split by distance, so the exact H2 value blends a little H1 —
+    // assert the drift direction and magnitude, not an exact figure.
+    expect(m.run_avg_hr_by_half[0]).toBe(145);
+    expect(m.run_avg_hr_by_half[1]!).toBeGreaterThan(150);
+  });
+
+  test("no HR stream → HR fields null", () => {
+    const { time, distance, cadence, grade } = makeWalkBreakSecondHalf();
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, null);
+
+    expect(m.run_avg_hr).toBeNull();
+    expect(m.walk_avg_hr).toBeNull();
+    expect(m.run_avg_hr_by_half).toEqual([null, null]);
+  });
+
+  test("continuous run with no walking → walk_avg_hr null, run_avg_hr set", () => {
+    const time: number[] = [], distance: number[] = [], cadence: number[] = [], grade: number[] = [];
+    let d = 0;
+    for (let i = 0; i < 1800; i++) { time.push(i); d += 3.0; distance.push(d); cadence.push(170); grade.push(0); }
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+    const hr = time.map(() => 142);
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, hr);
+
+    expect(m.run_avg_hr).toBe(142);
+    expect(m.walk_avg_hr).toBeNull();
+  });
 });
