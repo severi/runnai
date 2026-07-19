@@ -1,5 +1,6 @@
 import { spawnSync } from "child_process";
 import { getDataDir } from "./paths.js";
+import { logEvent } from "./logger.js";
 
 let _repoReady = false;
 let _gitAvailable: boolean | null = null;
@@ -192,14 +193,35 @@ export function registerCrashHandlers(): void {
   // SIGINT from outside (kill -INT) — Ink handles Ctrl+C via useInput in raw mode
   process.on("SIGINT", () => handler("SIGINT"));
 
+  // Capture the crash in the session JSONL *before* exiting. Without this, crashes
+  // only hit stderr and leave no trace in logs/<id>.jsonl — a session that dies before
+  // the SDK reports its id stays under its temp- name with no error event, making
+  // intermittent SDK-internal rejections (e.g. subprocess teardown) impossible to diagnose.
+  const logFatal = (kind: string, reason: unknown) => {
+    const err = reason instanceof Error ? reason : undefined;
+    try {
+      logEvent("system", {
+        subtype: "error",
+        fatal: true,
+        kind,
+        message: err ? err.message : String(reason),
+        stack: err?.stack,
+      });
+    } catch {
+      // logging must never mask the original crash
+    }
+  };
+
   process.on("uncaughtException", (err) => {
     console.error("Uncaught exception:", err);
+    logFatal("uncaughtException", err);
     commitOnCrash("uncaught exception: auto-backup");
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     console.error("Unhandled rejection:", reason);
+    logFatal("unhandledRejection", reason);
     commitOnCrash("unhandled rejection: auto-backup");
     process.exit(1);
   });
