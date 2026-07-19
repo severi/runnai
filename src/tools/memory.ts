@@ -5,6 +5,7 @@ import * as path from "path";
 import { getDataDir } from "../utils/paths.js";
 import { toDateString, toolResult, toolError } from "../utils/format.js";
 import { withDiffNote } from "../utils/data-git.js";
+import { replaceContextSection, looksLikePartialContext, countContextSections } from "../utils/context-md.js";
 
 function getMemoryDir(): string {
   return path.join(getDataDir(), "memory");
@@ -78,19 +79,44 @@ export const writeMemoryTool = tool(
 
 export const updateContextTool = tool(
   "update_context",
-  "Update the hot cache (data/athlete/CONTEXT.md). This is always loaded into the system prompt, so keep it concise (<100 lines).",
+  "Update the hot cache (data/athlete/CONTEXT.md). Preferred: pass `section` to replace ONE `## Section` block, preserving the rest. WITHOUT `section`, `content` REPLACES THE ENTIRE FILE — only do that with the complete updated file. Always in the system prompt; keep it under 100 lines.",
   {
-    content: z.string().describe("New CONTEXT.md content (must be under 100 lines)"),
+    content: z.string().describe("The section's new body (when `section` is given), or the COMPLETE new CONTEXT.md (when omitted — everything not in `content` is erased)"),
+    section: z.string().optional().describe("Heading of the `## Section` to replace (e.g. 'Current Training Plan'). All other sections are preserved."),
   },
-  async ({ content }) => {
+  async ({ content, section }) => {
     try {
-      const lines = content.split("\n").length;
+      let existing = "";
+      try {
+        existing = await fs.readFile(getContextFile(), "utf-8");
+      } catch {
+        // No existing file — any write is a full write
+      }
+
+      let next = content;
+      if (section) {
+        const res = replaceContextSection(existing, section, content);
+        if (!res.ok) {
+          return toolResult(`Error: ${res.error}`, true);
+        }
+        next = res.result;
+      } else if (existing && looksLikePartialContext(existing, content)) {
+        // The exact failure that wiped the hot cache once: a single section's
+        // body sent as a full-file replace. Refuse instead of erasing.
+        return toolResult(
+          `Error: content has ${countContextSections(content)} \`## \` section(s) but the existing CONTEXT.md has ${countContextSections(existing)} — writing this would ERASE the rest of the file. Pass section: "<heading>" to update one section, or provide the complete updated file.`,
+          true,
+        );
+      }
+
+      const lines = next.split("\n").length;
       if (lines > 100) {
         return toolResult(`Error: CONTEXT.md must be under 100 lines (got ${lines}). Move details to deep memory files.`, true);
       }
 
-      await fs.writeFile(getContextFile(), content);
-      return toolResult(await withDiffNote(`Updated CONTEXT.md (${lines} lines). Changes will be reflected in the next message.`));
+      await fs.writeFile(getContextFile(), next);
+      const what = section ? `section "${section}", now ${lines} lines total` : `${lines} lines`;
+      return toolResult(await withDiffNote(`Updated CONTEXT.md (${what}). Changes will be reflected in the next message.`));
     } catch (error) {
       return toolError(error);
     }
