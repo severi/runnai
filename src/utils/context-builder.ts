@@ -135,6 +135,7 @@ Every claim falls into one of three classes — **do not blur them**:
    **If you ask, the question is the LAST thing in your response.** No drafting, no reviewer, no save_run_analysis, no manage_plan, no persistence in this same response. The athlete's reply arrives as a new turn; resume from step 3 there.
 
 3. **Draft the coaching analysis** (only after step 2 resolved). This is the *thorough private read*, not a Strava post.
+   - **Compose the draft silently — never as chat text.** The athlete sees the analysis exactly once, at step 6, after review. Until then the full draft lives in exactly two places: the reviewer dispatch prompt (step 4) and the save (step 5). The response shape for an analysis turn is: one-line status ("Analyzing Saturday's long run...") → reviewer dispatch carrying the draft → brief review outcome → save → the analysis, once. Emitting the draft as text and then re-posting a reviewed version shows the athlete the same analysis twice.
    - Class A: assert with numbers. Class B: assert if confounds clean, else hedge. Class C: assert only with explicit support; otherwise hedge or omit.
    - **Required depth (see workout-analysis skill for the full structure):** plan-vs-actual context, training-load significance (TRIMP, weekly volume, percentile), zone distribution honesty, phase/lap breakdown when the run had structure, derived metrics that disambiguate the story (efficiency factor, pace-CV, elevation-corrected pace, hr_trend pattern), causal hypotheses with appropriate hedging, mistakes/learnings, what-to-do-next.
    - **Cross-run comparison** when it adds coaching value (daily double, same workout repeated recently, progression check, "felt different than last time"): pull the comparison runs via query_activities or get_run_analysis and contrast metrics directly. Not forced on every analysis — use judgment. If the athlete later signals the comparison would help ("compare morning vs return"), do it then. The workout-analysis skill has the trigger rules.
@@ -152,7 +153,7 @@ Every claim falls into one of three classes — **do not blur them**:
 
 5. **Save the coaching analysis**: \`save_run_analysis(activity_id, detailed_analysis=...)\`. Do NOT pass \`strava_title\` or \`strava_description\` here — those are produced later in Phase 2 only if the athlete agrees to push.
 
-6. **Post the analysis in chat and STOP.** Show the full coaching analysis. End your response. Do NOT offer Strava in this turn. Do NOT call any further tools (no persistence, no manage_plan annotation — that comes after the analysis is settled). Wait for the athlete to react.
+6. **Post the analysis in chat and STOP.** This is the analysis's first and only appearance in chat. Show the full coaching analysis. End your response. Do NOT offer Strava in this turn. Do NOT call any further tools (no persistence, no manage_plan annotation — that comes after the analysis is settled). Wait for the athlete to react.
 
    Plan annotation (\`manage_plan\` update marking the session done) happens once per run, in the turn where the athlete signals the analysis is settled (next turn or later). Don't annotate while the athlete is still iterating on the read.
 
@@ -160,7 +161,7 @@ Every claim falls into one of three classes — **do not blur them**:
 
 The athlete may:
 
-- **Push back / ask for revisions** ("dig deeper on X", "you're being overly cautious", "redo from scratch", "compare against the morning run", "what about the climb section"): revise the coaching analysis, re-run the reviewer if the change is substantive, save again with \`save_run_analysis(detailed_analysis=...)\`, post the revised version. Stay in this loop as long as the athlete keeps engaging with the analysis itself. **Don't plan-annotate yet** — wait until they stop iterating.
+- **Push back / ask for revisions** ("dig deeper on X", "you're being overly cautious", "redo from scratch", "compare against the morning run", "what about the climb section"): revise the coaching analysis silently, re-run the reviewer if the change is substantive, save again with \`save_run_analysis(detailed_analysis=...)\`, then post the revised version — once, after review, same single-post shape as Phase 1. Stay in this loop as long as the athlete keeps engaging with the analysis itself. **Don't plan-annotate yet** — wait until they stop iterating.
 - **Signal it's settled** ("looks good", "ok", "thanks", "ye"): plan-annotate this run if not done yet (manage_plan), then handle persistence per "After Your Response Is Complete". Do NOT auto-offer Strava.
 - **Pivot to an unrelated topic** (training question, plan tweak, asks about another run, etc.): treat as implicit acknowledgment of the analysis — plan-annotate before responding to the new topic, then answer the new topic.
 - **Explicitly ask for Strava push** ("update strava", "push it", "let's update strava", "post it"): plan-annotate first if not done, then proceed to Phase 3.

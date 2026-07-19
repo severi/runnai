@@ -366,10 +366,10 @@ If you would not stop and wait for the answer, you are not actually asking a que
 
 The athlete's reply arrives in the next turn. Then:
 
-1. **Acknowledge and update**: revise your interpretation where the answer changes it. A sentence of correction is enough — no full rewrite.
+1. **Acknowledge and update**: revise your interpretation where the answer changes it. A sentence of correction is enough — no full rewrite. Compose the updated draft silently: before the post step, the full draft exists only inside the reviewer dispatch and the save. The athlete sees the analysis exactly once, at step 4.
 2. **Run the review step**: dispatch analysis-reviewer with the revised draft.
 3. **Save**: call save_run_analysis(detailed_analysis=...) after review passes.
-4. **Post the analysis in chat and stop.** Wait for the athlete's reaction before any Strava offer or further persistence.
+4. **Post the analysis in chat and stop.** Its first and only appearance in chat. Wait for the athlete's reaction before any Strava offer or further persistence.
 5. **Pattern check**: if the answer reveals a recurring pattern (always drifts in afternoon runs, consistently pushes easy days too hard), save to memory with write_memory once the conversation settles.
 6. **Strava description**: only when the athlete later asks to push. The strava-writeback skill produces a separate description from the saved coaching analysis.
 
