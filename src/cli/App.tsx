@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Box, Text, Static, useInput, useApp } from "ink";
+import { Box, Text, useInput, useApp } from "ink";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { query, startup, type SDKUserMessage, type Query, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
@@ -10,7 +10,7 @@ import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../
 import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGreeting } from "../utils/startup-sync.js";
 import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
-import { ChatBubble } from "./components/ChatBubble.js";
+import { MessageLog, type MessageItem } from "./components/MessageLog.js";
 import { ChatInputArea } from "./components/ChatInputArea.js";
 import { ContextBar } from "./components/ContextBar.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
@@ -27,11 +27,6 @@ function getTimeGreeting(): string {
   if (hour < 12) return "Good morning!";
   if (hour < 17) return "Good afternoon!";
   return "Good evening!";
-}
-
-interface MessageItem {
-  id: number;
-  message: Message;
 }
 
 // Event-driven only — NO clock-driven animation. The live region must not
@@ -85,44 +80,6 @@ function StreamingTail({ text }: { text: string }) {
       </Box>
     </Box>
   );
-}
-
-function ToolActivityLine({ content }: { content: string }) {
-  const [label, timeStr] = content.split("|||");
-  const isError = label.startsWith("✗");
-  return (
-    <Box>
-      <Text color={isError ? "red" : "gray"} dimColor={!isError}>  {label}</Text>
-      <Text color="gray" dimColor> {timeStr}</Text>
-    </Box>
-  );
-}
-
-function renderMessage(item: MessageItem) {
-  const { role, content } = item.message;
-  switch (role) {
-    case "user":
-    case "assistant":
-      return <ChatBubble role={role}>{content}</ChatBubble>;
-    case "thinking":
-      return (
-        <Box marginLeft={1}>
-          <Text dimColor wrap="wrap">{content}</Text>
-        </Box>
-      );
-    case "tool_activity":
-      return <ToolActivityLine content={content} />;
-    case "status":
-      return <Text color="gray">{content}</Text>;
-    case "system":
-      return (
-        <Box marginBottom={1}>
-          <Text color="yellow">{content}</Text>
-        </Box>
-      );
-    default:
-      return null;
-  }
 }
 
 export default function App() {
@@ -561,13 +518,7 @@ export default function App() {
       )}
 
       {/* Committed messages — persisted in scrollback */}
-      <Static items={committed}>
-        {(item) => (
-          <Box key={item.id} flexDirection="column">
-            {renderMessage(item)}
-          </Box>
-        )}
-      </Static>
+      <MessageLog items={committed} />
 
       {/* Live streaming preview — a height-bounded tail, NOT the full text.
           The full reply would make the live region taller than the viewport and
