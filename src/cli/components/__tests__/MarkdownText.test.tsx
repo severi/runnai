@@ -45,6 +45,20 @@ describe("MarkdownText", () => {
     expect(out).not.toContain("| Day |");
   });
 
+  test("does not truncate wide prose cells — full text stays readable", () => {
+    // Regression: equal-width truncate dropped the right side of long cells,
+    // so a rationalization-style table became unreadable. Wrapping must keep
+    // every word, including the tail of the widest cell.
+    const md = `| Rationalization | Reality |
+|---|---|
+| "It's a small change" | small schedule changes are the ones that silently vanish |
+`;
+    const { lastFrame } = render(<MarkdownText>{md}</MarkdownText>);
+    const out = lastFrame()!;
+    // The tail of the wide cell must survive (truncation cut this off before).
+    expect(out).toContain("silently vanish");
+  });
+
   test("renders links with OSC 8 hyperlink escape so terminals can open them", () => {
     const md = "See [Precision Hydration](https://www.precisionhydration.com/x) for fueling.";
     const { lastFrame } = render(<MarkdownText>{md}</MarkdownText>);

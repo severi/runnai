@@ -85,19 +85,28 @@ function renderToken(token: Token, key: number): React.ReactNode {
       const tableToken = token as Tokens.Table;
       const numCols = tableToken.header.length;
       if (numCols === 0) return null;
-      // Truncate (don't wrap) every cell so each row stays exactly 1 visual line.
-      // With wrap="wrap", a row's height was max(cellWraps), which made shorter
-      // cells render their text on the top line and pad the rest with spaces —
-      // visually a block of trailing whitespace under the short columns. That
-      // read as "lots of whitespace at the end of coach replies" when the table
-      // was the last element. Truncation eliminates the row-stretch entirely.
+      // Wrap (don't truncate) every cell so wide prose cells stay fully readable.
+      // Truncation was silently dropping the right side of long cells (e.g. the
+      // "Reality" column of a rationalization table), making them unreadable.
+      // To avoid the row-height whitespace that plain equal-width wrapping causes,
+      // weight each column's flexGrow by its widest cell: long columns get more
+      // width and wrap less, short columns get less, so rows stay near-uniform
+      // height. flexBasis=0 keeps the layout overflow-proof at any terminal width.
+      const colWeights = tableToken.header.map((cell, ci) => {
+        let max = (cell.text ?? "").length;
+        for (const row of tableToken.rows) {
+          const len = (row[ci]?.text ?? "").length;
+          if (len > max) max = len;
+        }
+        return Math.max(max, 3);
+      });
       return (
         <Box key={key} flexDirection="column" marginTop={1}>
           {/* Header row */}
           <Box flexDirection="row">
             {tableToken.header.map((cell, ci) => (
-              <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
-                <Text bold color="cyan" wrap="truncate-end">
+              <Box key={ci} flexGrow={colWeights[ci]} flexBasis={0} paddingRight={2}>
+                <Text bold color="cyan" wrap="wrap">
                   {renderInline(cell.tokens)}
                 </Text>
               </Box>
@@ -106,7 +115,7 @@ function renderToken(token: Token, key: number): React.ReactNode {
           {/* Separator */}
           <Box flexDirection="row">
             {tableToken.header.map((_, ci) => (
-              <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
+              <Box key={ci} flexGrow={colWeights[ci]} flexBasis={0} paddingRight={2}>
                 <Text dimColor wrap="truncate">{"─".repeat(80)}</Text>
               </Box>
             ))}
@@ -115,8 +124,8 @@ function renderToken(token: Token, key: number): React.ReactNode {
           {tableToken.rows.map((row, ri) => (
             <Box key={ri} flexDirection="row">
               {row.map((cell, ci) => (
-                <Box key={ci} flexGrow={1} flexBasis={0} paddingRight={2}>
-                  <Text wrap="truncate-end">{renderInline(cell.tokens)}</Text>
+                <Box key={ci} flexGrow={colWeights[ci]} flexBasis={0} paddingRight={2}>
+                  <Text wrap="wrap">{renderInline(cell.tokens)}</Text>
                 </Box>
               ))}
             </Box>

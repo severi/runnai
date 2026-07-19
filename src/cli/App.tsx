@@ -133,7 +133,10 @@ export default function App() {
   const turnQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Extracted hooks
-  const elapsed = useElapsedTimer(isProcessing);
+  // Freeze the timer while a question prompt is up: its 1Hz tick would re-render
+  // the live region every second and snap the terminal viewport back to the
+  // bottom, so the user can't scroll up to re-read the coach's lead-in text.
+  const elapsed = useElapsedTimer(isProcessing && !pendingQuestion);
   const toolTracker = useToolTracker();
 
   const addMessage = useCallback((role: Message["role"], content: string, direct = false) => {
@@ -157,6 +160,14 @@ export default function App() {
       return [];
     });
   }, []);
+
+  // When a question prompt appears, push the coach's lead-in text (currently in
+  // the live `dynamic` region) into Static scrollback. Static content isn't
+  // redrawn on re-render, so the user can scroll up to re-read it while answering
+  // — and it stays put even as the form re-renders on each arrow keypress.
+  useEffect(() => {
+    if (pendingQuestion) commitDynamic();
+  }, [pendingQuestion, commitDynamic]);
 
   // Initialize persistent subprocess on mount
   useEffect(() => {
