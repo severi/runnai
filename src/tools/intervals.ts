@@ -1,8 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import * as fs from "fs/promises";
-import * as path from "path";
-import { getDataDir } from "../utils/paths.js";
+import { getPlanFile } from "../utils/plan-paths.js";
 import { sanitizeFilename, toolResult, toolError } from "../utils/format.js";
 import { parsePlan } from "../utils/plan-parser.js";
 import type { IntervalsEvent } from "../intervals/client.js";
@@ -25,7 +24,7 @@ export const exportToIntervalsTool = tool(
   async ({ planName, dryRun = false, weekFilter }) => {
     try {
       const planSlug = sanitizeFilename(planName);
-      const filePath = path.join(getDataDir(), "plans", `${planSlug}.md`);
+      const filePath = getPlanFile(planSlug);
 
       let content: string;
       try {
@@ -261,7 +260,7 @@ export const reconcileIntervalsPlanTool = tool(
 
       // Load + parse current plan
       const planSlug = sanitizeFilename(planName);
-      const filePath = path.join(getDataDir(), "plans", `${planSlug}.md`);
+      const filePath = getPlanFile(planSlug);
       let content: string;
       try {
         content = await fs.readFile(filePath, "utf-8");
