@@ -15,12 +15,10 @@ import { ChatInputArea } from "./components/ChatInputArea.js";
 import { ContextBar } from "./components/ContextBar.js";
 import { QuestionPrompt, type AskQuestion } from "./components/QuestionPrompt.js";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import { useElapsedTimer } from "./hooks/useElapsedTimer.js";
 import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
 import { isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
 import { handleSdkMessage, setLastUserUuid, resetTurn, type MessageHandlerState, type ContextUsage } from "./handleSdkMessage.js";
 import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
-import { formatElapsed } from "./format.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
 
@@ -36,27 +34,55 @@ interface MessageItem {
   message: Message;
 }
 
-const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-function ActiveToolsBar({ tools, elapsed }: { tools: ActiveTool[]; elapsed: number }) {
+// Event-driven only — NO clock-driven animation. The live region must not
+// change frames on a timer: Ink writes to stdout whenever a frame changes, and
+// any stdout write makes the terminal snap its viewport to the bottom, which
+// made it impossible to scroll up and read while the agent was thinking or a
+// tool was running. This bar updates only on real events (tool start/finish,
+// progress summaries); each tool's duration is shown on its completion line.
+function ActiveToolsBar({ tools }: { tools: ActiveTool[] }) {
   if (tools.length === 0) return null;
 
   return (
     <Box flexDirection="column">
-      {tools.map((tool) => {
-        const toolElapsed = Math.floor((Date.now() - tool.startTime) / 1000);
-        const frame = spinnerFrames[(elapsed + tool.index) % spinnerFrames.length];
-        return (
-          <Box key={tool.id} flexDirection="column">
-            <Text color="cyan" dimColor>  {frame} [{tool.index}] {tool.name}{tool.keyArg ? `: ${tool.keyArg}` : ""} ({formatElapsed(toolElapsed)})</Text>
-            {tool.summary && (
-              <Box marginLeft={5}>
-                <Text color="gray" dimColor italic>{tool.summary}</Text>
-              </Box>
-            )}
-          </Box>
-        );
-      })}
+      {tools.map((tool) => (
+        <Box key={tool.id} flexDirection="column">
+          <Text color="cyan" dimColor>  ⏺ [{tool.index}] {tool.name}{tool.keyArg ? `: ${tool.keyArg}` : ""}</Text>
+          {tool.summary && (
+            <Box marginLeft={5}>
+              <Text color="gray" dimColor italic>{tool.summary}</Text>
+            </Box>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+// Height-bounded live preview of the streaming reply. The live region must
+// always fit the terminal viewport (Ink erases/redraws it with cursor moves
+// that can't reach above the visible screen), so we show only a dim tail of
+// the in-flight text. The full formatted reply lands in Static on flush.
+const STREAM_TAIL_CHARS = 600;
+const STREAM_TAIL_LINES = 8;
+
+function StreamingTail({ text }: { text: string }) {
+  let tail = text.length > STREAM_TAIL_CHARS ? text.slice(-STREAM_TAIL_CHARS) : text;
+  if (tail !== text) {
+    // Start at a line boundary so we don't render a sliced word/markdown fragment
+    const nl = tail.indexOf("\n");
+    if (nl !== -1 && nl < STREAM_TAIL_CHARS / 2) tail = tail.slice(nl + 1);
+  }
+  const lines = tail.split("\n");
+  const clipped = tail !== text || lines.length > STREAM_TAIL_LINES;
+  const shown = lines.slice(-STREAM_TAIL_LINES).join("\n");
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text bold color="green">Coach</Text>
+      <Box marginLeft={1} flexDirection="column">
+        {clipped && <Text dimColor>…</Text>}
+        <Text dimColor wrap="wrap">{shown}</Text>
+      </Box>
     </Box>
   );
 }
@@ -102,10 +128,17 @@ function renderMessage(item: MessageItem) {
 export default function App() {
   const { exit } = useApp();
 
-  // Two-tier rendering: committed (Static, scrollback) + dynamic (live, below Static).
+  // Single-homed rendering: every finalized message goes straight into <Static>
+  // (scrollback) and never renders in the live region. Messages are immutable
+  // once created, so there is nothing to "move" later — and moving is exactly
+  // what broke: Static renders at full terminal width while the live region
+  // renders inside the padded root box, so the same message wrapped to a
+  // different height in each region and the erase/redraw math at the commit
+  // frame left stray blank lines in scrollback (worst with tables, the most
+  // wrap-sensitive content). The live region holds only small transient UI:
+  // streaming tail, tools bar, question form, input.
   // `input` state lives in <ChatInputArea> so keystrokes don't re-render this tree.
   const [committed, setCommitted] = useState<MessageItem[]>([]);
-  const [dynamic, setDynamic] = useState<MessageItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [debugMessages, setDebugMessages] = useState<Message[]>([]);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
@@ -133,41 +166,16 @@ export default function App() {
   const turnQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Extracted hooks
-  // Freeze the timer while a question prompt is up: its 1Hz tick would re-render
-  // the live region every second and snap the terminal viewport back to the
-  // bottom, so the user can't scroll up to re-read the coach's lead-in text.
-  const elapsed = useElapsedTimer(isProcessing && !pendingQuestion);
   const toolTracker = useToolTracker();
 
-  const addMessage = useCallback((role: Message["role"], content: string, direct = false) => {
+  const addMessage = useCallback((role: Message["role"], content: string) => {
     if (role === "tool" || role === "debug" || role === "error") {
       setDebugMessages((prev) => [...prev.slice(-100), { role, content }]);
       return;
     }
     const item: MessageItem = { id: nextIdRef.current++, message: { role, content } };
-    if (direct) {
-      setCommitted((prev) => [...prev, item]);
-    } else {
-      setDynamic((prev) => [...prev, item]);
-    }
+    setCommitted((prev) => [...prev, item]);
   }, []);
-
-  const commitDynamic = useCallback(() => {
-    setDynamic((prev) => {
-      if (prev.length > 0) {
-        setCommitted((c) => [...c, ...prev]);
-      }
-      return [];
-    });
-  }, []);
-
-  // When a question prompt appears, push the coach's lead-in text (currently in
-  // the live `dynamic` region) into Static scrollback. Static content isn't
-  // redrawn on re-render, so the user can scroll up to re-read it while answering
-  // — and it stays put even as the form re-renders on each arrow keypress.
-  useEffect(() => {
-    if (pendingQuestion) commitDynamic();
-  }, [pendingQuestion, commitDynamic]);
 
   // Initialize persistent subprocess on mount
   useEffect(() => {
@@ -219,7 +227,7 @@ export default function App() {
 
       if (!needsOnboarding) {
         setShowWelcome(false);
-        addMessage("assistant", getTimeGreeting() + " Let me check your training...", true);
+        addMessage("assistant", getTimeGreeting() + " Let me check your training...");
         ctx = await startupSync();
       }
 
@@ -248,12 +256,12 @@ export default function App() {
       } else if (ctx!.fitnessDrift?.should_prompt) {
         // No new runs but fitness drift detected — coach must surface it proactively
         const status = formatCompactStatus(ctx!);
-        addMessage("assistant", status + "\n\nFitness drift detected — checking your zones...", true);
+        addMessage("assistant", status + "\n\nFitness drift detected — checking your zones...");
         firstPrompt = formatStartupGreeting(ctx!);
       } else {
         // No new runs and no drift — static guidance + background LLM warmup
         const status = formatCompactStatus(ctx!);
-        addMessage("assistant", status + "\n\nWhat would you like to work on? Try: \"analyze my last run\", \"what's today's workout?\", or type / for commands", true);
+        addMessage("assistant", status + "\n\nWhat would you like to work on? Try: \"analyze my last run\", \"what's today's workout?\", or type / for commands");
         firstPrompt = "[Session start — no new activities. Respond only: ready]";
         greetingIsBackground = true;
       }
@@ -334,7 +342,7 @@ export default function App() {
       setShowWelcome(false);
 
       if (needsOnboarding) {
-        addMessage("system", "Welcome! Let me help you get started...\n", true);
+        addMessage("system", "Welcome! Let me help you get started...\n");
       }
 
       if (greetingIsBackground) {
@@ -447,7 +455,6 @@ export default function App() {
     // we just receive the final command/text.
     if (isProcessing || sessionEnded || !value.trim()) return;
 
-    commitDynamic();
     setShowWelcome(false);
 
     if (isSlashCommand(value)) {
@@ -509,7 +516,7 @@ export default function App() {
         const context: CommandContext = {
           print: (text) => addMessage("system", text),
           streamResponse,
-          getMessages: () => [...committed, ...dynamic].map((i) => i.message),
+          getMessages: () => committed.map((i) => i.message),
           getQuery: () => queryRef.current,
         };
 
@@ -530,11 +537,9 @@ export default function App() {
   }, [
     isProcessing,
     sessionEnded,
-    commitDynamic,
     addMessage,
     verbose,
     committed,
-    dynamic,
     exit,
   ]);
 
@@ -564,17 +569,11 @@ export default function App() {
         )}
       </Static>
 
-      {/* Dynamic items — stays here until next user interaction commits to Static */}
-      {dynamic.map((item) => (
-        <Box key={item.id} flexDirection="column">
-          {renderMessage(item)}
-        </Box>
-      ))}
-
-      {/* Live streaming message */}
-      {streamingText && (
-        <ChatBubble role="assistant">{streamingText}</ChatBubble>
-      )}
+      {/* Live streaming preview — a height-bounded tail, NOT the full text.
+          The full reply would make the live region taller than the viewport and
+          recreate the erase/redraw artifacts; the complete formatted reply is
+          committed to Static the moment the text block finishes. */}
+      {streamingText && <StreamingTail text={streamingText} />}
 
       {/* AskUserQuestion interactive prompt */}
       {pendingQuestion && (
@@ -608,7 +607,7 @@ export default function App() {
 
       {/* Active tools progress — hidden during question prompt */}
       {isProcessing && !pendingQuestion && (
-        <ActiveToolsBar tools={toolTracker.activeTools} elapsed={elapsed} />
+        <ActiveToolsBar tools={toolTracker.activeTools} />
       )}
 
       {/* Debug panel */}
@@ -636,7 +635,6 @@ export default function App() {
         sessionEnded={sessionEnded}
         showWelcome={showWelcome}
         verbose={verbose}
-        elapsed={elapsed}
         onSubmit={handleSubmit}
         onExit={handleExit}
       />

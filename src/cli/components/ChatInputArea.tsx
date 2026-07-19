@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { TextInput } from "./TextInput.js";
 import { useCommandSuggestions } from "../hooks/useCommandSuggestions.js";
-import { formatElapsed } from "../format.js";
 
 export interface ChatInputAreaProps {
   /** True while the agent is processing a turn — input is hidden, "Thinking..." is shown. */
@@ -15,8 +14,6 @@ export interface ChatInputAreaProps {
   showWelcome: boolean;
   /** Verbose debug mode is on — affects the footer hint wording. */
   verbose: boolean;
-  /** Seconds elapsed since processing started. 0 when not processing. */
-  elapsed: number;
   /** Called when the user submits a non-empty message (slash-command-resolved). */
   onSubmit: (value: string) => void | Promise<void>;
   /** Called when the user presses Ctrl+C with empty input. */
@@ -34,7 +31,6 @@ export function ChatInputArea({
   sessionEnded,
   showWelcome,
   verbose,
-  elapsed,
   onSubmit,
   onExit,
 }: ChatInputAreaProps) {
@@ -116,8 +112,11 @@ export function ChatInputArea({
         {sessionEnded ? (
           <Text color="red">Session ended. Restart the app to continue.</Text>
         ) : isProcessing ? (
+          // Static text — deliberately no ticking seconds counter. A 1Hz text
+          // change re-renders the live region every second; each stdout write
+          // snaps the terminal to the bottom, killing scroll-up while thinking.
           <Text dimColor>
-            Thinking...{elapsed > 0 ? ` (${formatElapsed(elapsed)})` : ""} · Esc to cancel
+            Thinking... · Esc to cancel
           </Text>
         ) : (
           <TextInput
