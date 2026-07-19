@@ -65,6 +65,14 @@ export async function startCLI(): Promise<void> {
     console.log(`Session log: ${relative}`);
   }
 
+  // Scroll policy hint (xterm/rxvt mode 1010): ask the emulator NOT to jump
+  // to the bottom when output arrives — so a user who has scrolled up stays
+  // put while the coach streams, and the viewport still follows naturally
+  // when they're already at the bottom. The follow/stay decision lives in
+  // the emulator (apps can't query scroll position); this just requests the
+  // right policy. Unsupported terminals ignore it harmlessly.
+  process.stdout.write("\x1b[?1010l");
+
   const { waitUntilExit } = render(<App />, {
     // Ink 6.5+: only update changed lines, reduces flickering
     patchConsole: false,
@@ -76,5 +84,7 @@ export async function startCLI(): Promise<void> {
     kittyKeyboard: { mode: "enabled", flags: ["disambiguateEscapeCodes"] },
   });
   await waitUntilExit();
+  // Restore default scroll-on-output policy for the user's shell session
+  process.stdout.write("\x1b[?1010h");
   await commitOnClose("session end: auto-backup");
 }

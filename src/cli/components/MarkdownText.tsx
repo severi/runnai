@@ -88,10 +88,18 @@ function renderToken(token: Token, key: number): React.ReactNode {
       // Wrap (don't truncate) every cell so wide prose cells stay fully readable.
       // Truncation was silently dropping the right side of long cells (e.g. the
       // "Reality" column of a rationalization table), making them unreadable.
-      // To avoid the row-height whitespace that plain equal-width wrapping causes,
-      // weight each column's flexGrow by its widest cell: long columns get more
+      // Weight each column's flexGrow by its widest cell: long columns get more
       // width and wrap less, short columns get less, so rows stay near-uniform
       // height. flexBasis=0 keeps the layout overflow-proof at any terminal width.
+      //
+      // HISTORY — do not reintroduce truncation: the "stray blank lines after
+      // replies with tables" bug that once motivated truncate-end (43fca4e) was
+      // never caused by wrapping. It was App.tsx moving messages from the live
+      // region into <Static> on the next user input: Static renders at full
+      // terminal width while the live region renders inside the padded root box,
+      // so the same table re-wrapped to a different height and the erase/redraw
+      // math at the move frame leaked blank lines. Messages are now single-homed
+      // in Static (never moved), so table height is free to vary.
       const colWeights = tableToken.header.map((cell, ci) => {
         let max = (cell.text ?? "").length;
         for (const row of tableToken.rows) {
