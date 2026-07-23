@@ -79,7 +79,9 @@ export async function startCLI(): Promise<void> {
   // right policy. Unsupported terminals ignore it harmlessly.
   process.stdout.write("\x1b[?1010l");
 
-  const { waitUntilExit } = render(<App />, {
+  const resume = process.argv.includes("--resume");
+
+  const { waitUntilExit } = render(<App resume={resume} />, {
     // Ink 6.5+: only update changed lines, reduces flickering
     patchConsole: false,
     exitOnCtrlC: false, // We handle Ctrl+C ourselves (interrupt during processing, exit when idle)

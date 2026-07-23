@@ -5,7 +5,7 @@ import type { Message } from "./commands.js";
 import type { ExchangeUsage } from "../utils/usage-tracker.js";
 import { recordExchange, formatExchangeLine } from "../utils/usage-tracker.js";
 import { logEvent, setLogSessionId } from "../utils/logger.js";
-import { setSessionId } from "../utils/session.js";
+import { setSessionId, persistSessionId } from "../utils/session.js";
 
 let turnStartTime: number | null = null;
 let lastUserUuid: string | null = null;
@@ -64,6 +64,7 @@ export function handleSdkMessage(
         if (sys.session_id) {
           setLogSessionId(sys.session_id);
           setSessionId(sys.session_id);
+          persistSessionId(sys.session_id);
         }
         addMessage("debug", `Model: ${sys.model}`);
       } else if (sys.subtype === "status") {

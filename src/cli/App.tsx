@@ -5,7 +5,8 @@ import * as path from "path";
 import { query, startup, type SDKUserMessage, type Query, type WarmQuery } from "@anthropic-ai/claude-agent-sdk";
 import { createAgentOptions } from "../agent.js";
 import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
-import { getCurrentSessionId } from "../utils/session.js";
+import { getCurrentSessionId, setSessionId, loadPersistedSessionId } from "../utils/session.js";
+import { appendChatMessage, loadChatHistory, resetChatHistory } from "../utils/chat-history.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
 import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGreeting } from "../utils/startup-sync.js";
 import { logEvent } from "../utils/logger.js";
@@ -82,7 +83,7 @@ function StreamingTail({ text }: { text: string }) {
   );
 }
 
-export default function App() {
+export default function App({ resume = false }: { resume?: boolean }) {
   const { exit } = useApp();
 
   // Single-homed rendering: every finalized message goes straight into <Static>
@@ -130,6 +131,8 @@ export default function App() {
       setDebugMessages((prev) => [...prev.slice(-100), { role, content }]);
       return;
     }
+    // Persist the visible transcript so --resume can replay it
+    if (role === "user" || role === "assistant") appendChatMessage(role, content);
     const item: MessageItem = { id: nextIdRef.current++, message: { role, content } };
     setCommitted((prev) => [...prev, item]);
   }, []);
@@ -162,6 +165,30 @@ export default function App() {
           setPendingQuestion(questions);
         });
       };
+
+      // Resume: seed the session ID BEFORE createAgentOptions() — that's where
+      // the SDK `resume:` option reads it. The subprocess reloads the actual
+      // conversation state; we only replay the visible transcript.
+      if (resume) {
+        const prevId = await loadPersistedSessionId();
+        if (prevId) {
+          setSessionId(prevId);
+          const history = await loadChatHistory();
+          if (history.length > 0) {
+            setCommitted((prev) => [
+              ...prev,
+              ...history.map((m): MessageItem => ({ id: nextIdRef.current++, message: m })),
+            ]);
+          }
+          setShowWelcome(false);
+          addMessage("system", `Resumed previous session (${history.length} earlier messages).`);
+        } else {
+          addMessage("system", "No previous session found — starting fresh.");
+        }
+      } else {
+        // Fresh session — the transcript on disk must match the live SDK session
+        await resetChatHistory();
+      }
 
       // Check onboarding status early — needed to decide startup path
       let needsOnboarding = false;
