@@ -1,8 +1,10 @@
 import chalk from "chalk";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { spawn } from "child_process";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { getSessionUsage, formatTokens } from "../utils/usage-tracker.js";
+import { getAuthStatus, extractLoginUrl } from "../utils/claude-auth.js";
 import { PROJECT_ROOT } from "../utils/paths.js";
 
 const COMMANDS_DIR = path.join(PROJECT_ROOT, "plugins/coach/commands");
@@ -116,6 +118,74 @@ export const commands: Command[] = [
       } catch (err) {
         ctx.print(chalk.red(`Failed to fetch context usage: ${err instanceof Error ? err.message : err}`));
       }
+    },
+  },
+  {
+    name: "login",
+    description: "Log in to your Anthropic account",
+    usage: "/login",
+    handler: async (_args, ctx) => {
+      const status = await getAuthStatus();
+      if (status?.loggedIn) {
+        ctx.print(`Already logged in${status.email ? ` as ${status.email}` : ""}.`);
+        return;
+      }
+
+      const child = spawn("claude", ["auth", "login"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let exited = false;
+      let exitCode: number | null = null;
+      let spawnFailed = false;
+      let urlPrinted = false;
+
+      const onOutput = (chunk: Buffer) => {
+        if (urlPrinted) return;
+        const url = extractLoginUrl(chunk.toString());
+        if (url) {
+          urlPrinted = true;
+          ctx.print(`A browser window should open. If it doesn't, visit:\n${url}`);
+        }
+      };
+      child.stdout?.on("data", onOutput);
+      child.stderr?.on("data", onOutput);
+      child.on("error", () => {
+        spawnFailed = true;
+        exited = true;
+      });
+      child.on("exit", (code) => {
+        exited = true;
+        exitCode = code;
+      });
+
+      ctx.print("Starting login…");
+
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const deadline = Date.now() + 180_000;
+      while (Date.now() < deadline) {
+        await sleep(2000);
+        if (spawnFailed) {
+          ctx.print(
+            chalk.red("Could not run `claude` — is Claude Code installed?\n") +
+            "Install it, run `claude auth login` once, then restart the coach."
+          );
+          return;
+        }
+        const s = await getAuthStatus();
+        if (s?.loggedIn) {
+          if (!exited) child.kill();
+          ctx.print(chalk.green(`✓ Logged in${s.email ? ` as ${s.email}` : ""}.`) + " You can keep chatting.");
+          return;
+        }
+        if (exited && exitCode !== 0) break;
+      }
+
+      if (!exited) child.kill();
+      ctx.print(
+        chalk.yellow("Login didn't complete.") +
+        " Run `claude auth login` in a separate terminal, then send a message here to retry."
+      );
     },
   },
   {
