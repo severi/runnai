@@ -6,6 +6,7 @@ import { execSync } from "child_process";
 import { PROJECT_ROOT, getDataDir } from "../utils/paths.js";
 import { getLogPath, logEvent } from "../utils/logger.js";
 import { ensureDataRepo, registerCrashHandlers, commitOnClose } from "../utils/data-git.js";
+import { getAuthStatus } from "../utils/claude-auth.js";
 import * as os from "os";
 import App from "./App.js";
 
@@ -33,16 +34,21 @@ function isClaudeInstalled(): boolean {
 }
 
 export async function startCLI(): Promise<void> {
-  // Auth: API key (pay-per-token) or Claude account via `claude login` (Pro/Max subscription)
+  // Auth: API key (pay-per-token) or Claude account via `claude auth login` (Pro/Max subscription)
   if (process.env.ANTHROPIC_API_KEY) {
     console.log("Auth: API key");
   } else if (isClaudeInstalled()) {
-    console.log("Auth: Claude account");
+    const status = await getAuthStatus();
+    if (status?.loggedIn) {
+      console.log(`Auth: Claude account${status.email ? ` (${status.email})` : ""}`);
+    } else {
+      console.log("Not logged in — type /login in the session to authenticate.");
+    }
   } else {
     console.error(
       "No authentication found. Either:\n" +
       "  1. Set ANTHROPIC_API_KEY in .env (API billing)\n" +
-      "  2. Install Claude Code and run `claude login` (Pro/Max subscription)"
+      "  2. Install Claude Code and run `claude auth login` (Pro/Max subscription)"
     );
     process.exit(1);
   }
