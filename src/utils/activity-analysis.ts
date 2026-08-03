@@ -1,9 +1,17 @@
 import { getDb, saveStreamAnalysis, getActivityStreams, getActivityLaps } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
 import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
-import { computeStreamAnalysis } from "./stream-analysis.js";
+import { computeStreamAnalysis, minettiGapFactor } from "./stream-analysis.js";
 
-const CURRENT_ANALYSIS_VERSION = 3;
+/**
+ * Bump when the shape or math of a stored `activity_analysis` row changes, so
+ * already-analyzed runs recompute instead of serving a stale record. Callers
+ * must compare a loaded record's `analysis_version` against this — see
+ * `get_run_analysis`. (Until v4 this constant was written on every record and
+ * read by nobody: only `stream_analysis_version` gated recompute, so a record
+ * whose *lap* fields changed was served stale forever.)
+ */
+export const CURRENT_ANALYSIS_VERSION = 4;
 
 export function computeActivityAnalysis(
   activityId: number,
@@ -44,16 +52,31 @@ export function computeActivityAnalysis(
     laps, hrZones, easyPaceRef, hillProfile
   );
 
-  // Lap summaries
-  const lapSummaries: LapSummary[] = laps.map(l => ({
-    lap_index: l.lap_index,
-    distance_m: l.distance,
-    pace_sec_per_km: l.distance > 0 ? (l.moving_time / l.distance) * 1000 : 0,
-    elevation_gain: l.elevation_gain,
-    elevation_loss: l.elevation_loss,
-    avg_heartrate: l.average_heartrate,
-    peak_heartrate: l.max_heartrate,
-  }));
+  // Lap summaries. Net elevation, net grade and grade-adjusted pace are carried
+  // per lap so the terrain *shape* of a run is readable without hand-arithmetic
+  // over gain/loss pairs — whole-run totals hide it entirely (a run can net +93m
+  // over 14.6km while opening 20m downhill and closing 22m uphill).
+  const lapSummaries: LapSummary[] = laps.map(l => {
+    const pace = l.distance > 0 ? (l.moving_time / l.distance) * 1000 : 0;
+    const net = l.elevation_gain != null && l.elevation_loss != null
+      ? Math.round((l.elevation_gain - l.elevation_loss) * 10) / 10
+      : null;
+    const gradePct = net != null && l.distance > 0
+      ? Math.round((net / l.distance) * 1000) / 10
+      : null;
+    return {
+      lap_index: l.lap_index,
+      distance_m: l.distance,
+      pace_sec_per_km: pace,
+      elevation_gain: l.elevation_gain,
+      elevation_loss: l.elevation_loss,
+      net_elevation_m: net,
+      avg_grade_pct: gradePct,
+      grade_adjusted_pace_sec_per_km: computeLapGap(grades, l, pace),
+      avg_heartrate: l.average_heartrate,
+      peak_heartrate: l.max_heartrate,
+    };
+  });
 
   // Elevation aggregates. Prefer Strava's processed activity total: summing
   // per-lap gains accumulates unsmoothed noise per lap (a 100km with ~100 laps
@@ -142,6 +165,36 @@ export function computeActivityAnalysis(
   return { analysis, streamAnalysis };
 }
 
+/**
+ * Minetti grade-adjusted pace for a single lap, from the lap's slice of the
+ * grade stream. Averages the *cost factor* rather than the grade — Minetti is a
+ * fifth-order polynomial, so averaging grade first understates rolling terrain
+ * (a lap that climbs 3% then descends 3% averages to 0% grade but is not free).
+ * Returns null when the lap has no usable grade samples.
+ */
+export function computeLapGap(
+  grades: number[] | null,
+  lap: Pick<ActivityLapRecord, "start_index" | "end_index">,
+  rawPaceSecPerKm: number
+): number | null {
+  if (!grades || grades.length === 0 || rawPaceSecPerKm <= 0) return null;
+  const start = Math.max(0, lap.start_index);
+  const end = Math.min(grades.length - 1, lap.end_index);
+  if (!(end > start)) return null;
+
+  let sum = 0, count = 0;
+  for (let i = start; i <= end; i++) {
+    const g = grades[i];
+    if (g == null || !Number.isFinite(g)) continue;
+    sum += minettiGapFactor(g);
+    count++;
+  }
+  if (count === 0) return null;
+  const factor = sum / count;
+  if (factor <= 0) return null;
+  return Math.round((rawPaceSecPerKm / factor) * 10) / 10;
+}
+
 function computeGradeAdjustedPace(
   grades: number[] | null,
   movingTimeS: number,
@@ -154,6 +207,18 @@ function computeGradeAdjustedPace(
   return Math.round((rawPaceSecPerKm / adjustmentFactor) * 10) / 10;
 }
 
+/**
+ * Upsert a computed analysis record.
+ *
+ * The written prose (detailed_analysis, strava_title, strava_description,
+ * prose_summary) is COALESCEd against whatever is already stored, because this
+ * is an INSERT OR REPLACE and `computeActivityAnalysis` always returns those
+ * fields as null — it computes metrics, it has no idea what the coach wrote.
+ * Without the coalesce, any recompute silently destroys the athlete-facing
+ * analysis, and recomputes fire on their own whenever STREAM_ANALYSIS_VERSION or
+ * CURRENT_ANALYSIS_VERSION is bumped. `save_run_analysis` writes prose through a
+ * targeted UPDATE, so nothing legitimately clears these by passing null.
+ */
 export function saveActivityAnalysis(record: ActivityAnalysisRecord): void {
   getDb().prepare(`
     INSERT OR REPLACE INTO activity_analysis (
@@ -171,8 +236,12 @@ export function saveActivityAnalysis(record: ActivityAnalysisRecord): void {
       $elevation_gain_m, $elevation_loss_m, $grade_adjusted_pace_sec_per_km,
       $avg_heartrate, $max_heartrate, $lap_summaries,
       $similar_runs_7d, $similar_runs_30d, $avg_pace_similar_30d, $pace_vs_similar_delta,
-      $prose_summary, $prose_generated_at,
-      $detailed_analysis, $strava_title, $strava_description, $analysis_generated_at,
+      COALESCE($prose_summary, (SELECT prose_summary FROM activity_analysis WHERE activity_id = $activity_id)),
+      COALESCE($prose_generated_at, (SELECT prose_generated_at FROM activity_analysis WHERE activity_id = $activity_id)),
+      COALESCE($detailed_analysis, (SELECT detailed_analysis FROM activity_analysis WHERE activity_id = $activity_id)),
+      COALESCE($strava_title, (SELECT strava_title FROM activity_analysis WHERE activity_id = $activity_id)),
+      COALESCE($strava_description, (SELECT strava_description FROM activity_analysis WHERE activity_id = $activity_id)),
+      COALESCE($analysis_generated_at, (SELECT analysis_generated_at FROM activity_analysis WHERE activity_id = $activity_id)),
       $analyzed_at, $analysis_version
     )
   `).run({

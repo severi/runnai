@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { normalizeCadence, classifyGait, computeMovementBreakdown } from "../gait.js";
+import { minettiGapFactor } from "../stream-analysis.js";
 
 // ─── normalizeCadence ────────────────────────────────────────────────────────
 // Strava stores cadence per-leg (~half true steps/min) for foot sports.
@@ -173,7 +174,9 @@ describe("computeMovementBreakdown", () => {
     expect(m.split_driver).toBe("mixed");
   });
 
-  test("steady continuous run: no walks, driver=running", () => {
+  test("steady continuous run: no walks, nothing slowed → driver=none", () => {
+    // Was asserting driver="running" — that was the bug, not the spec. A walk-free
+    // run used to short-circuit to "running" whether or not it slowed at all.
     const time: number[] = [], distance: number[] = [], cadence: number[] = [], grade: number[] = [];
     let d = 0;
     for (let i = 0; i < 1800; i++) { time.push(i); d += 3.0; distance.push(d); cadence.push(170); grade.push(0); }
@@ -183,7 +186,7 @@ describe("computeMovementBreakdown", () => {
     const m = computeMovementBreakdown(speed, time, distance, grade, cadence);
     expect(m.walk_s).toBe(0);
     expect(m.walks.length).toBe(0);
-    expect(m.split_driver).toBe("running");
+    expect(m.split_driver).toBe("none");
   });
 
   // ─── Grade bands ───────────────────────────────────────────────────────────
@@ -314,5 +317,111 @@ describe("computeMovementBreakdown", () => {
 
     expect(m.run_avg_hr).toBe(142);
     expect(m.walk_avg_hr).toBeNull();
+  });
+});
+
+// ─── Grade contamination of run-only split/fatigue ───────────────────────────
+// The Aug 2 2026 failure (activity 19569913259, 14.6km, zero walking): the
+// whole-run split_type/fatigue_index are Minetti-adjusted and read "even" /
+// 0.6%, but run_only_split_type/run_only_fatigue_index_pct were computed on RAW
+// speed and read "positive" / 5.3%. The 5.3% was the closing climb (laps 13-15
+// net +11/+6/+5m after an opening two laps at net -10m each), not a fade. The
+// reviewer trusted the raw twin and a "mild late pace fade" was written into
+// the athlete's analysis. Run-only metrics must use the same grade-adjusted
+// effort speed the whole-run metrics use.
+
+/**
+ * Continuous run at constant *effort*: downhill opening, flat middle, uphill
+ * close. Raw speed tracks the grade; grade-adjusted effort speed is flat.
+ */
+function makeDownhillStartUphillFinish() {
+  const time: number[] = [], distance: number[] = [], cadence: number[] = [],
+        grade: number[] = [], effortSpeed: number[] = [];
+  let d = 0;
+  const EFFORT_MS = 3.2; // constant grade-adjusted effort throughout
+  const push = (g: number) => {
+    const raw = EFFORT_MS / minettiGapFactor(g);
+    time.push(time.length); d += raw; distance.push(d);
+    cadence.push(170); grade.push(g); effortSpeed.push(EFFORT_MS);
+  };
+  for (let i = 0; i < 600; i++) push(-3);  // downhill open
+  for (let i = 0; i < 1800; i++) push(0);  // flat middle
+  for (let i = 0; i < 600; i++) push(3);   // uphill close
+  const speed = [0];
+  for (let i = 1; i < time.length; i++) {
+    speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+  }
+  effortSpeed[0] = 0;
+  return { time, distance, cadence, grade, speed, effortSpeed };
+}
+
+describe("computeMovementBreakdown — grade adjustment", () => {
+  test("constant effort over downhill start / uphill finish is NOT a fade", () => {
+    const { time, distance, cadence, grade, speed, effortSpeed } = makeDownhillStartUphillFinish();
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, null, effortSpeed);
+
+    expect(m.walk_pct).toBe(0);
+    expect(m.run_only_split_type).toBe("even");
+    expect(Math.abs(m.run_only_fatigue_index_pct ?? 0)).toBeLessThan(5);
+  });
+
+  test("raw speed on the same run would read as a fade (documents the bug)", () => {
+    const { time, distance, cadence, grade, speed } = makeDownhillStartUphillFinish();
+
+    // No effort speed supplied → falls back to raw, which the terrain distorts.
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, null, null);
+
+    expect(m.run_only_split_type).toBe("positive");
+    expect(m.run_only_fatigue_index_pct ?? 0).toBeGreaterThan(5);
+  });
+
+  test("a real fade at constant grade is still caught", () => {
+    const time: number[] = [], distance: number[] = [], cadence: number[] = [],
+          grade: number[] = [], effortSpeed: number[] = [];
+    let d = 0;
+    const push = (s: number) => {
+      time.push(time.length); d += s; distance.push(d);
+      cadence.push(170); grade.push(0); effortSpeed.push(s);
+    };
+    for (let i = 0; i < 2400; i++) push(3.33);
+    for (let i = 0; i < 600; i++) push(2.90); // ~13% slower, flat ground
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) {
+      speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+    }
+    effortSpeed[0] = 0;
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, null, effortSpeed);
+
+    expect(m.run_only_fatigue_index_pct ?? 0).toBeGreaterThanOrEqual(5);
+    expect(m.split_driver).toBe("running");
+  });
+});
+
+// ─── split_driver must not rubber-stamp fade claims ──────────────────────────
+// The second half of the Aug 2 failure: `walkPct < 2` short-circuited to
+// split_driver="running" on ANY run without walk breaks, regardless of whether
+// anything slowed. SKILL.md lists split_driver==="running" as the evidence
+// required to claim "faded in the back half" — so the check green-lit the claim
+// by construction. "none" is the honest answer when nothing slowed.
+
+describe("split_driver", () => {
+  test("steady continuous run with no slowdown → 'none', not 'running'", () => {
+    const time: number[] = [], distance: number[] = [], cadence: number[] = [], grade: number[] = [];
+    let d = 0;
+    for (let i = 0; i < 1800; i++) { time.push(i); d += 3.0; distance.push(d); cadence.push(170); grade.push(0); }
+    const speed = [0];
+    for (let i = 1; i < time.length; i++) speed.push((distance[i] - distance[i - 1]) / (time[i] - time[i - 1]));
+
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, null, speed);
+
+    expect(m.split_driver).toBe("none");
+  });
+
+  test("terrain-shaped run with constant effort → 'none'", () => {
+    const { time, distance, cadence, grade, speed, effortSpeed } = makeDownhillStartUphillFinish();
+    const m = computeMovementBreakdown(speed, time, distance, grade, cadence, null, effortSpeed);
+    expect(m.split_driver).toBe("none");
   });
 });

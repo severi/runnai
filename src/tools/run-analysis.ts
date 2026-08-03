@@ -6,6 +6,7 @@ import {
   computeActivityAnalysis,
   saveActivityAnalysis,
   computeTrainingContext,
+  CURRENT_ANALYSIS_VERSION,
 } from "../utils/activity-analysis.js";
 import type { ActivityWeather } from "../utils/activities-db.js";
 import { toolResult, toolError, formatPace } from "../utils/format.js";
@@ -156,11 +157,17 @@ export const getRunAnalysisTool = tool(
       let record = getActivityAnalysis(activity_id);
       let sa: StreamAnalysisResult | null = getStreamAnalysis(activity_id);
 
-      // Recompute if missing OR if cached stream analysis is from an older
-      // version (so peak HR fields and other version-bumped derivatives appear
-      // without manual migration).
+      // Recompute if missing OR if either cached layer is from an older version,
+      // so version-bumped derivatives appear without manual migration. Both
+      // versions must be checked: the stream and the record change independently
+      // (per-lap net elevation / grade-adjusted pace live on the record, peak HR
+      // and the movement block live on the stream), and for a long time only the
+      // stream was gated — which left record-only additions invisible on every
+      // already-analyzed run. Prose survives recompute via the coalesce in
+      // saveActivityAnalysis.
       const streamStale = sa != null && sa.stream_analysis_version < STREAM_ANALYSIS_VERSION;
-      if (!record || streamStale) {
+      const recordStale = record != null && (record.analysis_version ?? 0) < CURRENT_ANALYSIS_VERSION;
+      if (!record || streamStale || recordStale) {
         const zones = await loadHrZones();
         const hrZones = zones.confirmed ? zones : null;
         const easyPaceRef = computeEasyPaceRef();
@@ -169,7 +176,13 @@ export const getRunAnalysisTool = tool(
           return toolResult(`No data found for activity ${activity_id}. Run strava_sync first.`, true);
         }
         saveActivityAnalysis(result.analysis);
-        record = result.analysis;
+        // Re-read rather than serving `result.analysis` directly: the computed
+        // record carries detailed_analysis/strava_* as null (it only knows
+        // metrics), and the stored row is where the coalesced prose actually
+        // lives. Serving the in-memory copy made a recomputed run report "no
+        // analysis yet" while its analysis sat safely in the DB — an invitation
+        // to redraft over work that already existed.
+        record = getActivityAnalysis(activity_id) ?? result.analysis;
         if (result.streamAnalysis) sa = result.streamAnalysis;
       }
 
@@ -191,8 +204,17 @@ export const getRunAnalysisTool = tool(
         // any run with deliberate walk breaks), the raw split_type/fatigue above
         // are walk-contaminated — read `movement.split_driver` FIRST. "walking"
         // means moving pace fell but run-only pace held: report it as "running
-        // held steady, walking increased", NOT a running fade. Walk segments are
-        // already localized and banded by signed grade; never infer walk locations.
+        // held steady, walking increased", NOT a running fade. "none" means
+        // nothing slowed on either view — there is no fade to narrate, and
+        // "running" only rules walking out as the cause, it never establishes
+        // that a fade occurred. Walk segments are already localized and banded
+        // by signed grade; never infer walk locations.
+        //
+        // Every pacing metric here is Minetti grade-adjusted, matching
+        // split_type/fatigue_index_pct above. So when these read "even" and the
+        // raw per-km table looks like a fade, the terrain is the explanation —
+        // check lap net_elevation_m / grade_adjusted_pace_sec_per_km, don't
+        // narrate the raw column.
         movement: sa.movement ? {
           run_min: Math.round(sa.movement.run_s / 60),
           walk_min: Math.round(sa.movement.walk_s / 60),

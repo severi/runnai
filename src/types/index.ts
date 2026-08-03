@@ -310,6 +310,21 @@ export interface LapSummary {
   pace_sec_per_km: number;
   elevation_gain: number | null;
   elevation_loss: number | null;
+  /**
+   * gain - loss. Recovering the terrain shape of a run used to mean subtracting
+   * fifteen pairs of numbers by hand, so in practice nobody did it and the whole
+   * run got read off the totals — which is how a 14.6km run that opened net -20m
+   * and closed net +22m was filed as flat-and-fading (activity 19569913259).
+   */
+  net_elevation_m: number | null;
+  /** Net grade over the lap, percent. net_elevation_m / distance_m * 100. */
+  avg_grade_pct: number | null;
+  /**
+   * Minetti grade-adjusted pace for the lap. Compare THIS across laps before
+   * calling a pace change a fade: raw lap pace on rolling terrain mostly tracks
+   * the hills.
+   */
+  grade_adjusted_pace_sec_per_km: number | null;
   avg_heartrate: number | null;
   peak_heartrate: number | null;
 }
@@ -510,17 +525,29 @@ export interface MovementBreakdown {
   pause_s: number;
   /** Walk time as a share of moving time (run+walk), percent. */
   walk_pct: number;
-  /** Split type computed on running samples only (walks/pauses excluded). */
+  /**
+   * Split type on running samples only (walks/pauses excluded), computed on
+   * grade-adjusted effort speed — a downhill start or uphill finish does not
+   * register here as a split.
+   */
   run_only_split_type: SplitType | null;
-  /** Fatigue index (% speed drop, last 25% vs first 75%) on running samples only. */
+  /**
+   * Fatigue index (% effort-speed drop, last 25% vs first 75%) on running
+   * samples only. Grade-adjusted, as with run_only_split_type.
+   */
   run_only_fatigue_index_pct: number | null;
   /**
    * What drove any back-half slowdown:
+   * - "none": nothing slowed — neither moving pace nor run-only pace fell (grade-adjusted)
    * - "running": no walk-driven slowdown (continuous run, or running itself faded with little walking)
    * - "walking": moving pace fell but run-only pace held — slowdown is walk breaks, not a fade
    * - "mixed": running faded AND walking grew
+   *
+   * "none" is not a formality: it is the only value that lets a fade claim be
+   * falsified on a walk-free run. Never read "running" as evidence a fade
+   * happened — it means walking did not cause the slowdown, nothing more.
    */
-  split_driver: "running" | "walking" | "mixed" | null;
+  split_driver: "none" | "running" | "walking" | "mixed" | null;
   /** Walk share (percent of moving time) in [first half, second half] by distance. */
   walk_share_by_half: [number, number];
   /**

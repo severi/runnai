@@ -112,16 +112,24 @@ function ratioToSplit(avg1: number, avg2: number): SplitType | null {
   return "even";
 }
 
-/** Time-weighted average speed over [start,end) for samples matching `keep`. */
+/**
+ * Time-weighted average speed over [start,end) for samples matching `keep`.
+ *
+ * `speed` is always the raw stream — it gates which samples count as moving.
+ * `values` is what gets averaged, and is the grade-adjusted effort speed for
+ * every pacing metric here (see the note on the effortSpeed parameter of
+ * computeMovementBreakdown). Splitting the two matters because a sample can be
+ * genuinely stopped while its Minetti-scaled twin is still above the threshold.
+ */
 function avgSpeedWhere(
   speed: number[], time: number[], gait: Gait[], start: number, end: number,
-  keep: (g: Gait) => boolean,
+  keep: (g: Gait) => boolean, values: number[] = speed,
 ): number | null {
   let sum = 0, count = 0;
   for (let i = Math.max(1, start); i < end; i++) {
     const dt = time[i] - time[i - 1];
     if (dt <= 0 || dt > 30 || speed[i] < 0.5 || !keep(gait[i])) continue;
-    sum += speed[i] * dt;
+    sum += values[i] * dt;
     count += dt;
   }
   return count > 0 ? sum / count : null;
@@ -164,6 +172,19 @@ function distanceFractionIdx(distance: number[], fraction: number): number {
  * @param cadence  Raw cadence stream (per-leg or full) or null.
  * @param hr       Per-sample HR (bpm) or null. Enables per-gait-state HR, so a
  *                 walking-deflated whole-run average is never the only HR view.
+ * @param effortSpeed Per-sample grade-adjusted (Minetti) speed, or null to fall
+ *                 back to raw speed. Every pacing metric derived here — the
+ *                 run-only split, the run-only fatigue index, and the moving
+ *                 split that feeds split_driver — is computed on this, so a
+ *                 downhill start / uphill finish does not masquerade as a fade.
+ *                 The whole-run split_type and fatigue_index_pct in
+ *                 stream-analysis have always been grade-adjusted; these were
+ *                 not, and the two disagreeing is what put a phantom "mild late
+ *                 pace fade" into a real athlete-facing analysis (activity
+ *                 19569913259: "even"/0.6% adjusted vs "positive"/5.3% raw, the
+ *                 whole gap being a +22m closing climb). Gait classification
+ *                 and all time accounting still use raw speed — a walk is a
+ *                 walk regardless of grade.
  */
 export function computeMovementBreakdown(
   speed: number[],
@@ -172,6 +193,7 @@ export function computeMovementBreakdown(
   grade: number[] | null,
   cadence: number[] | null,
   hr: number[] | null = null,
+  effortSpeed: number[] | null = null,
 ): MovementBreakdown {
   const gait = classifyGait(speed, time, cadence);
   const n = gait.length;
@@ -189,16 +211,17 @@ export function computeMovementBreakdown(
   const movingS = runS + walkS;
   const walkPct = movingS > 0 ? Math.round((walkS / movingS) * 100) : 0;
 
-  // Run-only split + fatigue.
+  // Run-only split + fatigue, on grade-adjusted effort speed.
+  const effort = effortSpeed ?? speed;
   const midIdx = distanceFractionIdx(distance, 0.5);
   const isRun = (g: Gait) => g === "run";
-  const r1 = avgSpeedWhere(speed, time, gait, 0, midIdx, isRun);
-  const r2 = avgSpeedWhere(speed, time, gait, midIdx, n, isRun);
+  const r1 = avgSpeedWhere(speed, time, gait, 0, midIdx, isRun, effort);
+  const r2 = avgSpeedWhere(speed, time, gait, midIdx, n, isRun, effort);
   const runOnlySplit = r1 != null && r2 != null ? ratioToSplit(r1, r2) : null;
 
   const q75Idx = distanceFractionIdx(distance, 0.75);
-  const f1 = avgSpeedWhere(speed, time, gait, 0, q75Idx, isRun);
-  const f2 = avgSpeedWhere(speed, time, gait, q75Idx, n, isRun);
+  const f1 = avgSpeedWhere(speed, time, gait, 0, q75Idx, isRun, effort);
+  const f2 = avgSpeedWhere(speed, time, gait, q75Idx, n, isRun, effort);
   const runOnlyFatigue = f1 != null && f2 != null && f1 > 0
     ? Math.round(((f1 - f2) / f1) * 1000) / 10 : null;
 
@@ -252,14 +275,21 @@ export function computeMovementBreakdown(
   // A smaller run-only drift (e.g. ~3% / ~17s/km over an ultra) is ordinary
   // aerobic decoupling, not a running fade, so it stays "walking".
   const MATERIAL_RUN_FADE_PCT = 5;
-  const m1 = avgSpeedWhere(speed, time, gait, 0, midIdx, g => g !== "pause");
-  const m2 = avgSpeedWhere(speed, time, gait, midIdx, n, g => g !== "pause");
+  const m1 = avgSpeedWhere(speed, time, gait, 0, midIdx, g => g !== "pause", effort);
+  const m2 = avgSpeedWhere(speed, time, gait, midIdx, n, g => g !== "pause", effort);
   const movingSplit = m1 != null && m2 != null ? ratioToSplit(m1, m2) : null;
   const walkGrew = walkShareByHalf[1] > walkShareByHalf[0];
   const runFaded = (runOnlyFatigue ?? 0) >= MATERIAL_RUN_FADE_PCT;
   let splitDriver: MovementBreakdown["split_driver"];
-  if (walkPct < 2 || movingSplit !== "positive") {
-    splitDriver = "running"; // no walk-driven slowdown (running itself may have faded)
+  if (movingSplit !== "positive" && !runFaded) {
+    // Nothing slowed on either view — say so. This branch used to fall into
+    // "running" via a `walkPct < 2` short-circuit, which made every walk-free
+    // run report split_driver="running" whether or not anything faded. Since
+    // SKILL.md names that value as the evidence required to claim a back-half
+    // fade, the check validated fade claims by construction.
+    splitDriver = "none";
+  } else if (walkPct < 2) {
+    splitDriver = "running"; // no walk-driven slowdown — the running itself slowed
   } else if (runFaded) {
     splitDriver = walkGrew ? "mixed" : "running"; // running faded; walking too?
   } else {

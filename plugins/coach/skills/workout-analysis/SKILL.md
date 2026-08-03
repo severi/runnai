@@ -83,7 +83,8 @@ Evidence before claims, always. Every characterization of a run must point to th
 
 | Claim | Required evidence | NOT sufficient |
 |---|---|---|
-| "Faded in the back half" | `movement.split_driver` = `running` or `mixed` | A slower back-half average pace |
+| "Faded in the back half" | `movement.split_driver` = `running` or `mixed` (never `none`) AND `run_only_fatigue_index_pct` ≥ 5 | A slower back-half average pace; raw lap paces trending slower |
+| "The pace change was terrain, not fatigue" | lap `avg_grade_pct` / `net_elevation_m` shape AND lap `grade_adjusted_pace_sec_per_km` holding steady | Whole-run `elevation.gain_m` or `hill_category` |
 | "Cardiac drift / ran out of gas" | `cardiac_drift_pct` elevated AND confounds clear | HR higher at the end |
 | "HR climbed through the run" | `hr_trend.pattern` = `linear_drift` | First-vs-last HR delta |
 | "Too fast for easy" | pace outside current `get_training_zones` AND HR above Z2 | A stored or plan pace string |
@@ -210,13 +211,24 @@ Raw avg pace, `split_type`, and `fatigue_index_pct` fold walking into "pace", so
 - **Lead with `movement.split_driver`:**
   - `"walking"` → moving pace fell but run-only pace held. Narrate as **"running held steady; the back half was slower because of more walking"**, NOT a fade. This is the expected shape of a walk-the-climbs ultra.
   - `"mixed"` → running also faded materially (run-only fatigue ≥5%) on top of more walking. Name both.
-  - `"running"` → the slowdown (if any) is the running itself; walking wasn't the driver.
+  - `"running"` → the slowdown is the running itself; walking wasn't the driver.
+  - `"none"` → **nothing slowed.** Neither moving pace nor run-only pace fell once grade is accounted for. There is no fade to narrate; do not go looking for one.
 - **Walking the climbs is planned and optimal, not a finding.** Above ~+15% grade walking is metabolically cheaper than running (Minetti). When the plan says "walk all uphills," walk time in the `gentle_up`/`moderate_up`/`steep_up` bands is execution-as-prescribed — don't flag it as slowdown.
 - **Walk terrain comes from `walk_grade_band_min` (+ `_by_half`), never from eyeballing.** Bands are signed: descent < -1%, flat ±1%, gentle_up 1-3%, moderate_up 3-6%, steep_up > 6%. Two guardrails: (1) 1-3% is *uphill*, not flat — never lump it into "flat/rolling"; (2) the by-half shift is a first-class signal — walking spreading from climbs to flats and *especially to descents* late in a long event is a fuel/fatigue fingerprint (fresh runners run descents for free), not a terrain story.
 - **HR on a run-walk session: use the per-state fields, not the blend.** When `walk_pct` is material (≥ ~15-20%), the whole-run `avg_heartrate` is a compositional artifact — walking HR deflates it, so it describes neither the running effort nor the walking recovery. Read `movement.run_avg_hr` (the actual running load), `movement.walk_avg_hr`, and `movement.run_avg_hr_by_half` (drift within the running). Never infer "engine wasn't the limiter" (or any limiter claim) from the blended average.
 - **`pauses` are watch-stopped time, not movement.** A paused gap (e.g. toilet/refill) is never a walk and never slow running. Read pause locations from `movement.pauses`.
 - **Localize from the data, never infer.** Walk and pause locations come from `movement.walks`/`movement.pauses` (each has `at_km`). Do not guess where a walk or stop happened from lap pace.
 - **Reconcile with the athlete's report.** If they describe their walks (e.g. "one flat walk to swap bottles, rest were uphills"), it should match the tagged segments — confirm it does rather than contradicting it.
+
+**Terrain shape — read this before narrating any split, fade, or "held it well"**:
+
+Walking is not the only thing that contaminates a pace curve; grade does it on every run that isn't a track session. A run can be net-flat overall and still open downhill and close uphill, and the raw per-km table will then show a textbook fade that never happened.
+
+- **Whole-run elevation cannot answer this.** `elevation.gain_m` and `hill_category` are totals — they describe how much climbing there was, never *where*. "+93m, rolling" is exactly what a run reads like when it drops 20m in the first 2km and climbs 22m in the last 3km. Do not conclude "terrain wasn't a factor" from a total.
+- **Read the shape from lap `net_elevation_m` / `avg_grade_pct`.** These are per-lap and signed. Scan them before the pace column, not after — the order matters, because a pace curve you've already explained is very hard to unexplain.
+- **Compare lap `grade_adjusted_pace_sec_per_km`, not raw lap pace, whenever `net_elevation_m` moves across the run.** If the GAP column is flat while raw pace slows, the athlete held effort and the hill took the pace. That is the opposite of a fade and should be narrated as such.
+- **HR holding flat while pace slows on a climb is strength, not fatigue.** The fade signature is pace *and* effort decoupling — HR climbing to hold a slowing pace, or GAP itself decaying. Grade-blind, the two look identical.
+- **Every fade metric is already grade-adjusted** (`split_type`, `fatigue_index_pct`, `movement.run_only_split_type`, `movement.run_only_fatigue_index_pct`). If one of them says "even" and the raw per-km table looks like a fade, **the metric is right and your reading of the table is wrong.** This exact disagreement — 0.6% adjusted vs a slowing raw column — put a phantom "mild late pace fade" into a real analysis on 2026-08-02.
 
 **Race / Ultra Assessment (RACE DAY in the plan, any run ≥4h elapsed, or a first-of-kind distance)**:
 
