@@ -54,3 +54,44 @@ describe("MessageLog", () => {
     expect(lastFrame()!).toContain("not tempo");
   });
 });
+
+// ─── Long text must wrap, not truncate ───────────────────────────────────────
+// Inside <Static>, a Box with no bottom margin is measured one line tall and
+// long text is truncated at the first line — silently, with no ellipsis. Only
+// `marginBottom` changes the measurement (marginTop does not). ChatBubble and
+// the `system` branch already carried marginBottom={1} and were fine; thinking,
+// status, and tool_activity did not, so on 2026-08-03 the UI dropped the tail of
+// every thinking summary and every long Bash command in the activity log —
+// which read as tool lines "disappearing".
+describe("MessageLog — long content wraps in every role", () => {
+  // Verbatim thinking summary from session 9715e1dd.
+  const LONG =
+    "I need to track down references for Tactical Barbell / Fighter since it's not " +
+    "showing up in the plan directory, so I'm checking the research index and searching memory for it.";
+  const TAIL = "and searching memory for it.";
+
+  const roles = ["thinking", "status", "assistant", "user", "system"] as const;
+
+  for (const role of roles) {
+    test(`${role}: tail survives instead of being cut at one line`, () => {
+      const { lastFrame } = render(
+        <Box flexDirection="column" padding={1}>
+          <MessageLog items={[{ id: 1, message: { role, content: LONG } }]} />
+        </Box>,
+      );
+      expect((lastFrame() ?? "").replace(/\s+/g, " ")).toContain(TAIL);
+    });
+  }
+
+  test("tool_activity: a long command keeps its tail and its duration", () => {
+    const label = "✓ [14] Bash: cd /tmp/tb_epub/text && python3 -c \"import re; print(open('part0028.html').read())\"";
+    const { lastFrame } = render(
+      <Box flexDirection="column" padding={1}>
+        <MessageLog items={[{ id: 1, message: { role: "tool_activity", content: `${label}|||0.2s` } }]} />
+      </Box>,
+    );
+    const out = (lastFrame() ?? "").replace(/\s+/g, " ");
+    expect(out).toContain("part0028.html");
+    expect(out).toContain("0.2s");
+  });
+});
