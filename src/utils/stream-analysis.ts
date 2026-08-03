@@ -10,7 +10,7 @@ import type {
 } from "../types/index.js";
 import { computeMovementBreakdown } from "./gait.js";
 
-export const STREAM_ANALYSIS_VERSION = 7;
+export const STREAM_ANALYSIS_VERSION = 8;
 
 /** Lap boundary hint for phase detection. */
 export interface LapHint {
@@ -126,9 +126,13 @@ export function computeStreamAnalysis(
 
   // Run/walk/pause decomposition. Uses raw (unsmoothed) speed so paused-watch
   // time gaps are visible, and the raw cadence stream for gait classification.
+  // The pacing metrics it derives (run-only split/fatigue, moving split) take
+  // `smoothedEffortSpeed` instead — same grade-adjusted basis as split_type and
+  // fatigueIndex above. Passing raw speed here left the two views contradicting
+  // each other on every hilly run; see the effortSpeed note in gait.ts.
   const totalDist = distance[distance.length - 1] - distance[0];
   const movement = totalDist >= 1000
-    ? computeMovementBreakdown(speed, time, distance, grade, cadence, hr)
+    ? computeMovementBreakdown(speed, time, distance, grade, cadence, hr, smoothedEffortSpeed)
     : null;
 
   // Stream-derived elevation totals: device altitude (barometric when the
