@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parsePlan, extractPlanWeeks } from "../plan-parser.js";
+import { parsePlan, extractPlanWeeks, findCurrentWeekNumber } from "../plan-parser.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -269,5 +269,77 @@ describe("extractPlanWeeks", () => {
     const markdown = `# Plan\n\n## Week 1: Build\n\nSome content.\n`;
     const result = extractPlanWeeks(markdown, [99]);
     expect(result).toHaveLength(0);
+  });
+});
+
+// ─── Alternate authored plan format ──────────────────────────────────────────
+// Plans are authored by the coach as markdown, and the shape drifted: the
+// nuuksio-hybrid-2026 plan uses `### Week N — Aug 3–9` headings and a compact
+// two-column `| Day | Session |` table with the weekday folded into the date
+// cell, instead of `## Week N` + `**Dates:**` + `| Day | Date | Session |
+// Details |`. Every parser here keyed on the canonical shape and silently
+// returned nothing for it — parsePlan 0 workouts, extractPlanWeeks none,
+// findCurrentWeekNumber null — and every caller swallows that via try/catch.
+// The visible symptom was a startup greeting with no plan data at all, which
+// fell back to the (stale) CONTEXT.md hot cache and told the athlete to lift
+// and run on the same day a day after the plan said never to.
+
+const COMPACT_PLAN = `# Nuuksio Hybrid
+
+**Plan Created:** 2026-07-27
+
+## Week-by-week
+
+### Week 1 — Aug 3–9 · Reintroduce structure, first lifts
+
+Running stays fully aerobic this week.
+
+| Day | Session |
+|-----|---------|
+| Mon Aug 3 | **Lift A** — lift only, no run |
+| Tue Aug 4 | Easy Z2 run |
+| Fri Aug 7 | Rest |
+| Sat Aug 8 | **Trail long run ~2h** on Nuuksio-type terrain |
+
+### Week 2 — Aug 10–16 · First quality
+
+| Day | Session |
+|-----|---------|
+| Mon Aug 10 | **Lift A** |
+| Sat Aug 15 | Long run |
+`;
+
+describe("compact authored format (### headings, | Day | Session |)", () => {
+  test("parsePlan extracts workouts, skipping rest days", () => {
+    const w = parsePlan(COMPACT_PLAN, "nuuksio-hybrid-2026");
+    expect(w.length).toBe(5); // 3 in wk1 (Fri Rest skipped) + 2 in wk2
+    expect(w[0].date.slice(0, 10)).toBe("2026-08-03");
+    expect(w[0].sessionName).toContain("Lift A");
+    expect(w[0].weekNumber).toBe(1);
+    expect(w.some(x => x.sessionName.toLowerCase().includes("rest"))).toBe(false);
+    expect(w[3].weekNumber).toBe(2);
+  });
+
+  test("findCurrentWeekNumber reads the date range off the heading", () => {
+    // No `**Dates:**` line exists — the range lives in `### Week 1 — Aug 3–9`.
+    expect(findCurrentWeekNumber(COMPACT_PLAN, new Date(2026, 7, 3))).toBe(1);
+    expect(findCurrentWeekNumber(COMPACT_PLAN, new Date(2026, 7, 9))).toBe(1);
+    expect(findCurrentWeekNumber(COMPACT_PLAN, new Date(2026, 7, 12))).toBe(2);
+    expect(findCurrentWeekNumber(COMPACT_PLAN, new Date(2026, 6, 1))).toBeNull();
+  });
+
+  test("extractPlanWeeks returns the week body", () => {
+    const ex = extractPlanWeeks(COMPACT_PLAN, [1]);
+    expect(ex.length).toBe(1);
+    expect(ex[0].weekNumber).toBe(1);
+    expect(ex[0].markdown).toContain("Mon Aug 3");
+    expect(ex[0].markdown).not.toContain("Mon Aug 10"); // week 2 not bled in
+  });
+
+  test("a weekday-prefixed date cell resolves to the right day", () => {
+    const w = parsePlan(COMPACT_PLAN, "p");
+    expect(w.map(x => x.date.slice(0, 10))).toEqual([
+      "2026-08-03", "2026-08-04", "2026-08-08", "2026-08-10", "2026-08-15",
+    ]);
   });
 });

@@ -82,11 +82,26 @@ export function parseRaceCountdowns(
 
     if (!inRaces || !line.startsWith("- ")) continue;
 
-    const match = line.match(/\*\*(.+?)\*\*\s*—\s*([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})/);
-    if (!match) continue;
+    // Two authored shapes: `**Name** — Apr 19, 2026 — status` (bold closes
+    // before the date) and `**Name — Sat Sep 5, 2026 — status**` (bold swallows
+    // the date, weekday in front of the month). Take the name from the bold
+    // span up to its first em dash, then find the date anywhere on the line —
+    // which covers both without caring where the bold ends.
+    const boldMatch = line.match(/\*\*(.+?)\*\*/);
+    if (!boldMatch) continue;
+    const name = boldMatch[1].split(/\s*—\s*/)[0].trim();
+    if (!name) continue;
 
-    const [, name, monthStr, dayStr, yearStr] = match;
-    const monthIdx = MONTHS[monthStr];
+    const dateMatch = line.match(
+      /(?:\b(?:mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)[a-z]*\.?\s+)?\b([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})/i,
+    );
+    if (!dateMatch) continue;
+
+    const [, monthStr, dayStr, yearStr] = dateMatch;
+    // MONTHS is keyed Title-case ("Sep"); the date regex is case-insensitive
+    // and only needs the first three letters, so normalize before lookup.
+    const monthKey = monthStr.slice(0, 3);
+    const monthIdx = MONTHS[monthKey.charAt(0).toUpperCase() + monthKey.slice(1).toLowerCase()];
     if (monthIdx === undefined) continue;
 
     const raceDate = new Date(parseInt(yearStr), monthIdx, parseInt(dayStr));
@@ -412,7 +427,20 @@ export function formatStartupGreeting(ctx: StartupContext): string {
   const parts: string[] = [];
   parts.push("[Session start — no new activities]");
   parts.push("");
-  parts.push("Give a brief, warm coaching greeting (2-4 sentences max). Reference this week's plan and race countdown from the system prompt. Be specific — mention what's coming up today or this week. Do NOT use any tools. Do NOT give a long breakdown. Just a quick, personalized check-in.");
+  parts.push("Give a brief, warm coaching greeting (2-4 sentences max). Be specific — mention what's coming up today or this week. Do NOT use any tools. Do NOT give a long breakdown. Just a quick, personalized check-in.");
+  // The week excerpt below is read live from plan.md at startup. CONTEXT.md's
+  // hot cache duplicates some of the same scheduling facts and WILL drift from
+  // the plan — it is only refreshed when update_context happens to be called.
+  // That drift already shipped a wrong greeting once (2026-08-03: the cache
+  // still said "Mon lift+easy / Mon (lower) + Thu (upper)" a day after the plan
+  // moved to separate lift/run days and a book-accurate Fighter cluster).
+  // Since this turn forbids tools, the greeting cannot self-correct — so name
+  // the plan excerpt as authoritative rather than letting the cache answer.
+  if (ctx.planExcerpt) {
+    parts.push("");
+    parts.push(`**This week's plan — from \`${ctx.planExcerpt.name}/plan.md\` (authoritative; overrides anything in the system prompt's Current Training Plan section if they disagree):**`);
+    parts.push(ctx.planExcerpt.currentWeek.trim());
+  }
   if (ctx.raceCountdowns.length > 0) {
     parts.push("");
     parts.push("Race countdowns:");

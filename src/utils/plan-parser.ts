@@ -37,9 +37,14 @@ function extractPlanYear(markdown: string): number {
 }
 
 function resolveDate(dateStr: string, year: number): string | null {
-  // Parse dates like "Mar 9", "Apr 19", "Jul 11"
+  // Parse dates like "Mar 9", "Apr 19", "Jul 11" — and, when the plan has no
+  // separate Date column, weekday-prefixed cells like "Mon Aug 3" / "Monday
+  // Aug 3". The weekday is redundant with the date, so it's matched and
+  // dropped rather than validated.
   const trimmed = stripMarkdown(dateStr).trim();
-  const match = trimmed.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  const match = trimmed.match(
+    /^(?:(?:mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)[a-z]*\.?[\s,]+)?([A-Za-z]+)\s+(\d{1,2})$/i,
+  );
   if (!match) return null;
 
   const monthIndex = MONTH_MAP[match[1].toLowerCase().slice(0, 3)];
@@ -57,11 +62,17 @@ function resolveDate(dateStr: string, year: number): string | null {
 
 function findColumnIndices(headerRow: string): { dateIdx: number; sessionIdx: number; detailsIdx: number } | null {
   const cols = headerRow.split("|").map((c) => c.trim().toLowerCase()).filter(Boolean);
-  const dateIdx = cols.findIndex((c) => c === "date");
+  // Canonical layout is | Day | Date | Session | Details |. Compact plans drop
+  // Date and Details and fold the weekday into the day cell (| Day | Session |),
+  // so fall back to Day for the date and treat Details as optional — only Session
+  // and some date-bearing column are actually required. detailsIdx of -1 yields
+  // an undefined cell, which the caller already coerces to "".
   const sessionIdx = cols.findIndex((c) => c === "session");
+  const explicitDateIdx = cols.findIndex((c) => c === "date");
+  const dateIdx = explicitDateIdx !== -1 ? explicitDateIdx : cols.findIndex((c) => c === "day");
   const detailsIdx = cols.findIndex((c) => c === "details");
 
-  if (dateIdx === -1 || sessionIdx === -1 || detailsIdx === -1) return null;
+  if (dateIdx === -1 || sessionIdx === -1) return null;
   return { dateIdx, sessionIdx, detailsIdx };
 }
 
@@ -78,7 +89,7 @@ export function parsePlan(markdown: string, planSlug: string, weekFilter?: numbe
 
   for (const line of lines) {
     // Detect week headers: "## Week 1: Build 1" or "## Week 14: Recovery + Jukola (...)"
-    const weekMatch = line.match(/^##\s+Week\s+(\d+)\b/i);
+    const weekMatch = line.match(/^#{2,4}\s+Week\s+(\d+)\b/i);
     if (weekMatch) {
       currentWeek = parseInt(weekMatch[1], 10);
       columnIndices = null;
@@ -171,10 +182,42 @@ export function findCurrentWeekNumber(planContent: string, today: Date = new Dat
 
     if (todayMs >= weekStart.getTime() && todayMs <= weekEnd.getTime()) {
       for (let j = i; j >= 0; j--) {
-        const weekMatch = lines[j].match(/^##\s+Week\s+(\d+)\b/i);
+        const weekMatch = lines[j].match(/^#{2,4}\s+Week\s+(\d+)\b/i);
         if (weekMatch) return parseInt(weekMatch[1], 10);
       }
     }
+  }
+
+  // Fallback: plans without a `**Dates:**` line carry the range in the heading
+  // itself — `### Week 1 — Aug 3–9` or `### Week 5 — Aug 31–Sep 6`. Runs only
+  // after the canonical pass finds nothing, so existing plans are unaffected.
+  return findWeekNumberFromHeadings(lines, todayMs, year);
+}
+
+function findWeekNumberFromHeadings(lines: string[], todayMs: number, year: number): number | null {
+  for (const line of lines) {
+    const heading = line.match(/^#{2,4}\s+Week\s+(\d+)\b(.*)$/i);
+    if (!heading) continue;
+    const weekNumber = parseInt(heading[1], 10);
+
+    // "Aug 3–9" (end month implied) or "Aug 31–Sep 6" (explicit end month).
+    const range = heading[2].match(
+      /\b([A-Za-z]{3,9})\s+(\d{1,2})\s*[-–—]\s*(?:([A-Za-z]{3,9})\s+)?(\d{1,2})\b/,
+    );
+    if (!range) continue;
+
+    const [, startMonth, startDay, endMonthRaw, endDay] = range;
+    const startIdx = MONTH_MAP[startMonth.toLowerCase().slice(0, 3)];
+    const endIdx = endMonthRaw ? MONTH_MAP[endMonthRaw.toLowerCase().slice(0, 3)] : startIdx;
+    if (startIdx === undefined || endIdx === undefined) continue;
+
+    const weekStart = new Date(year, startIdx, parseInt(startDay));
+    // A week that wraps the new year (Dec 29–Jan 4) lands its end in year + 1.
+    const endYear = endIdx < startIdx ? year + 1 : year;
+    const weekEnd = new Date(endYear, endIdx, parseInt(endDay));
+    weekEnd.setHours(23, 59, 59, 999);
+
+    if (todayMs >= weekStart.getTime() && todayMs <= weekEnd.getTime()) return weekNumber;
   }
   return null;
 }
@@ -193,7 +236,7 @@ export function extractPlanWeeks(markdown: string, weekNumbers: number[]): PlanW
   let currentLines: string[] = [];
 
   for (const line of lines) {
-    const weekMatch = line.match(/^##\s+Week\s+(\d+)\b/i);
+    const weekMatch = line.match(/^#{2,4}\s+Week\s+(\d+)\b/i);
     if (weekMatch) {
       // Flush previous week if it was one we wanted
       if (currentWeek !== null && weekSet.has(currentWeek)) {
@@ -206,7 +249,7 @@ export function extractPlanWeeks(markdown: string, weekNumbers: number[]): PlanW
 
     // End of a week section: another ## heading that is NOT a Week header
     if (currentWeek !== null) {
-      if (line.match(/^##\s/) && !line.match(/^##\s+Week\s+\d+/i)) {
+      if (line.match(/^#{2,4}\s/) && !line.match(/^#{2,4}\s+Week\s+\d+/i)) {
         // Non-week ## heading — flush and reset
         if (weekSet.has(currentWeek)) {
           results.push({ weekNumber: currentWeek, markdown: currentLines.join("\n").trim() });

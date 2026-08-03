@@ -361,3 +361,41 @@ describe("formatCompactStatus", () => {
     expect(result).toContain("strava-auth");
   });
 });
+
+// ─── Race lines where the bold span swallows the date ────────────────────────
+// CONTEXT.md is authored by the coach, and the race entries drifted from
+// `**Name** — Sep 5, 2026` to `**Name — Sat Sep 5, 2026 — status**`: the bold
+// wraps the date too, and a weekday sits in front of the month. The original
+// regex required `**` to close before the em dash, so it matched nothing and
+// the startup greeting silently lost every race countdown.
+describe("parseRaceCountdowns — bold-wrapped date + weekday prefix", () => {
+  const CTX = `## Target Races
+- **Vienna Marathon** — Apr 19, 2026 — ✅ COMPLETED: **3:40:45** (5:14/km official)
+- **Nuuksio Classic Trail Marathon — Sat Sep 5, 2026 — ✅ CONFIRMED (by-effort capstone).** 42km single loop, ~820–1,050m D+.
+
+## Next Section
+- not a race
+`;
+
+  test("finds a race whose date is inside the bold span", () => {
+    const out = parseRaceCountdowns(CTX, new Date(2026, 7, 3));
+    const nuuksio = out.find(r => r.name.includes("Nuuksio"));
+    expect(nuuksio).toBeDefined();
+    expect(nuuksio!.name).toBe("Nuuksio Classic Trail Marathon");
+    expect(nuuksio!.daysAway).toBe(33);
+  });
+
+  test("still parses the canonical `**Name** — Date` form", () => {
+    // Vienna is in the past relative to this date, so use an earlier `today`.
+    const out = parseRaceCountdowns(CTX, new Date(2026, 3, 1));
+    const vienna = out.find(r => r.name === "Vienna Marathon");
+    expect(vienna).toBeDefined();
+    expect(vienna!.daysAway).toBe(18);
+  });
+
+  test("past races are still excluded, and the section boundary still holds", () => {
+    const out = parseRaceCountdowns(CTX, new Date(2026, 7, 3));
+    expect(out.some(r => r.name === "Vienna Marathon")).toBe(false);
+    expect(out.some(r => r.name.includes("not a race"))).toBe(false);
+  });
+});
