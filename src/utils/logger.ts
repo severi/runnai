@@ -29,7 +29,10 @@ function ensureLogFile(): number {
 export type LogEventType = "user" | "assistant" | "system" | "progress";
 export type LogEventSubtype =
   | "session_start" | "init" | "system_prompt" | "can_use_tool"
-  | "turn_duration" | "result" | "error" | "task_progress";
+  | "turn_duration" | "result" | "error" | "task_progress"
+  // Emitted by the Agent SDK from 0.3.220: a safety classifier declined the
+  // request (with or without a fallback model), and graceful host shutdown.
+  | "model_refusal_fallback" | "model_refusal_no_fallback" | "worker_shutting_down";
 
 /** Log a structured event to the session JSONL file. Returns the event UUID. */
 export function logEvent(

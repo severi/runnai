@@ -54,6 +54,12 @@ export function handleSdkMessage(
         task_id?: string;
         tool_use_id?: string;
         summary?: string;
+        // model_refusal_* / worker_shutting_down (SDK >= 0.3.220)
+        content?: string;
+        reason?: string;
+        original_model?: string;
+        fallback_model?: string;
+        api_refusal_category?: string | null;
       };
       if (sys.subtype === "init") {
         logEvent("system", {
@@ -82,6 +88,24 @@ export function handleSdkMessage(
             summary: sys.summary,
           });
         }
+      } else if (
+        sys.subtype === "model_refusal_fallback" ||
+        sys.subtype === "model_refusal_no_fallback"
+      ) {
+        // A safety classifier declined the request. Opus 5 runs these, and a
+        // benign coaching turn can trip one. Silence here reads as the coach
+        // ignoring the athlete, so surface it rather than dropping the message.
+        logEvent("system", {
+          subtype: sys.subtype,
+          original_model: sys.original_model,
+          fallback_model: sys.fallback_model,
+          api_refusal_category: sys.api_refusal_category,
+        });
+        addMessage("error", sys.content ?? "The model declined this request.");
+      } else if (sys.subtype === "worker_shutting_down") {
+        // Graceful host exit — explains an otherwise silent end of session.
+        logEvent("system", { subtype: "worker_shutting_down", reason: sys.reason });
+        addMessage("error", `Session ended by the host (${sys.reason ?? "unknown reason"}).`);
       }
       break;
     }
