@@ -408,9 +408,15 @@ export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Optio
     model: "claude-opus-5",
     // Pinned rather than the "opus" alias so a family bump is a deliberate edit.
     // The alias resolves here anyway — the subagents below ride it (model: "opus").
-    // 1M context is native on Opus 5 (no context-1m beta header needed), and
-    // thinking is on by default, so `thinking` stays unset. Don't set
-    // { type: "disabled" }: on Opus 5 that is rejected above effort "high".
+    // 1M context is native on Opus 5 (no context-1m beta header needed).
+    // `display` must be set explicitly: Opus 5 turns thinking ON by default but
+    // defaults display to "omitted", which streams thinking blocks whose text is
+    // an empty string. Leaving it unset produced a live region that redrew every
+    // few seconds with nothing new in it (14 empty blocks in one turn), reading
+    // as flicker. "summarized" costs nothing extra — display controls visibility
+    // only; thinking happens and is billed the same either way.
+    // Don't set { type: "disabled" }: on Opus 5 that is rejected above effort "high".
+    thinking: { type: "adaptive", display: "summarized" },
     effort: "high",
     systemPrompt,
     permissionMode: "default",
