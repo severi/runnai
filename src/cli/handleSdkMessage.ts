@@ -150,6 +150,22 @@ export function handleSdkMessage(
 
           state.currentResponse += block.text;
           setStreamingText(state.currentResponse);
+        } else if (block.type === "thinking") {
+          // Opus 5 thinks by default, so these arrive on most turns. With
+          // display: "summarized" they carry a readable summary; commit it so
+          // the redraw this message already triggers (via onUsage below) shows
+          // actual progress instead of an empty repaint. Blocks still arrive
+          // empty on older CLIs or if display is ever set back to "omitted" —
+          // skip those rather than committing a blank line.
+          const summary = ((block as { thinking?: string }).thinking ?? "").trim();
+          if (summary) {
+            if (state.currentResponse.trim()) {
+              addMessage("assistant", state.currentResponse);
+              state.currentResponse = "";
+              setStreamingText(null);
+            }
+            addMessage("thinking", summary);
+          }
         } else if (block.type === "tool_use") {
           const toolUseId = (block as any).id as string || `fallback-${Date.now()}`;
           // Flush accumulated text as a proper message
