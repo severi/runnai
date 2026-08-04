@@ -1,0 +1,12 @@
+# cyberjunky/python-garminconnect — https://github.com/cyberjunky/python-garminconnect
+# (The GitHub repo is "python-garminconnect"; the PyPI distribution it publishes
+# is "garminconnect". Same project — installing this pulls that repo.)
+#
+# Needed because Garmin's official developer
+# programme requires a legal entity and is closed to new applicants, and because
+# Strava's API exposes no strength set data at all.
+#
+# This version authenticates via curl_cffi (browser TLS impersonation), which is
+# what survives the Cloudflare fingerprinting Garmin added in March 2026 — the
+# change that deprecated garth. Pin the minor version: auth is the fragile part.
+garminconnect>=0.3.8,<0.4
