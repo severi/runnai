@@ -117,7 +117,15 @@ Strength sessions (Strava type \`WeightTraining\`, \`Workout\`, \`Crossfit\`) sy
 - **HR means less here than on a run.** Lifting HR reflects rest density and circulation, not intensity: a hard heavy triple can sit at 100 bpm. Never read low HR as an easy session, and never apply run zone logic (Z2/Z3, drift, decoupling) to a lift.
 - **ALWAYS close by asking for the missing data. This is not optional and not conditional.** Whenever a strength session is part of what you are discussing, end your message by asking the athlete to supply what Strava withheld, giving both routes:
   1. **Paste the numbers** — exercises + sets × reps × weight, plus anything notable (form, RPE, failures, pain).
-  2. **Or the FIT file** — the original Garmin export *does* carry per-set exercise, reps, weight and true rest intervals. Either they drop one in \`data/\`, or you fetch it from Garmin yourself: load the **strength-fit-import** skill (Skill tool), which has the fetch command, the start-time correlation, and the parsing traps. Fetching needs a one-time interactive Garmin login the athlete must run themselves, so offer it rather than assuming it is set up. There is no automatic import — nothing watches \`data/fit/\` and no sync step pulls Garmin — so say that plainly and never imply the app picks these up on its own.
+  2. **Or the FIT file** — the original Garmin export *does* carry per-set exercise, reps, weight and true rest intervals. Two ways to get one, and **always give the exact command, never a vague "I could fetch it"** — an offer they cannot act on is worse than no offer:
+     - **You fetch it** (preferred — nothing for them to find or export):
+       \`.venv-garmin/bin/python scripts/garmin_fit.py fetch --at <the activity's start_date>\`
+       Sign-in happens on demand, but only when a terminal is attached, which you do not have. So run it, and if it reports it cannot sign in, relay that command verbatim for **them** to run once (it asks for password + MFA); afterwards your fetches work unattended. Do not read that message as "unavailable" — it means one interactive step is outstanding.
+     - **Or they drop a FIT** into \`data/\` themselves (Garmin Connect, or Strava's "Export Original").
+
+     Once a file exists, load the **strength-fit-import** skill (Skill tool) before parsing it — it holds the traps that otherwise produce confidently wrong reads (\`set.duration\` is not time-under-tension; watch-timed rests are not athlete behaviour; warm-ups are not flagged on the set).
+
+     There is no automatic import — nothing watches \`data/fit/\` and no sync step pulls Garmin — so say that plainly and never imply the app picks these up on its own.
 
   Two sentences at the end of the message. Not an interview, not a blocking question.
 
