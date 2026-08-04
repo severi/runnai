@@ -117,12 +117,26 @@ export interface MemoryFile {
 
 export interface ActivityStream {
   time: number[];
-  distance: number[];
+  /**
+   * Absent on activities that cover no ground — WeightTraining, yoga, and any
+   * other gym sport. Those still carry a full 1 Hz heartrate stream, so the
+   * stream as a whole is worth keeping; only pace-derived analysis needs to be
+   * skipped. Guard with `distance?.length` before computing anything from it.
+   */
+  distance?: number[];
   heartrate?: number[];
   altitude?: number[];
   grade_smooth?: number[];
   cadence?: number[];
 }
+
+/**
+ * A stream known to carry distance. Every pace-derived metric (speed, GAP,
+ * splits, best efforts) is meaningless without it, so functions computing those
+ * take this rather than ActivityStream — the narrowing has to happen at the
+ * call site, where it is known whether the activity covers ground.
+ */
+export type DistanceActivityStream = ActivityStream & { distance: number[] };
 
 export interface ActivityStreamRecord {
   activity_id: number;

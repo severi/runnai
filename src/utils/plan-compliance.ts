@@ -52,6 +52,32 @@ export interface ActivityRow {
   moving_time: number;
   run_type: string | null;
   start_date_local: string;
+  /** Strava activity type ("Run", "WeightTraining", …). Absent on older callers. */
+  type?: string | null;
+}
+
+/**
+ * Strava types that count as a strength session. `Workout` is Strava's generic
+ * bucket and is included deliberately: a gym session logged from a non-strength
+ * profile lands there, and a planned lift matching it is the better failure mode
+ * than reporting a completed session as missed.
+ */
+const STRENGTH_ACTIVITY_TYPES = new Set([
+  "WeightTraining", "Workout", "Crossfit", "Elliptical", "StairStepper",
+]);
+
+/**
+ * Which kind of session a plan row describes. Plans are prose, so this reads the
+ * session name — the plan writes "Lift A", "Lift B", "Strength", never a type code.
+ */
+function plannedKind(sessionName: string): "strength" | "endurance" {
+  return /\b(lift|strength|gym|squat|bench|deadlift|press|pull-?up)\b/i.test(sessionName)
+    ? "strength"
+    : "endurance";
+}
+
+function activityKind(row: ActivityRow): "strength" | "endurance" {
+  return row.type && STRENGTH_ACTIVITY_TYPES.has(row.type) ? "strength" : "endurance";
 }
 
 function toComplianceActivity(row: ActivityRow): ComplianceActivity {
@@ -75,10 +101,17 @@ function pickBestActivityForWorkout(rows: ActivityRow[]): ActivityRow | null {
   return rows.reduce((best, r) => (r.distance > best.distance ? r : best));
 }
 
-function splitPrimaryAndExtras(rows: ActivityRow[]): { primary: ActivityRow | null; extras: ActivityRow[] } {
-  const primary = pickBestActivityForWorkout(rows);
+function splitPrimaryAndExtras(
+  rows: ActivityRow[],
+  wantKind: "strength" | "endurance",
+): { primary: ActivityRow | null; extras: ActivityRow[] } {
+  // Only same-kind activities can satisfy the planned session. Without this, a
+  // run and a lift on one day would each be able to complete the other's row —
+  // and on a run-only day a lift would mark the run done.
+  const eligible = rows.filter(r => activityKind(r) === wantKind);
+  const primary = pickBestActivityForWorkout(eligible);
   if (!primary) return { primary: null, extras: [] };
-  const extras = rows
+  const extras = eligible
     .filter(r => r.id !== primary.id)
     .sort((a, b) => a.start_date_local.localeCompare(b.start_date_local));
   return { primary, extras };
@@ -121,7 +154,7 @@ export function buildComplianceEntries(
   return workouts.map(w => {
     const dateKey = w.date.slice(0, 10);
     const matches = byDate.get(dateKey) ?? [];
-    const { primary, extras } = splitPrimaryAndExtras(matches);
+    const { primary, extras } = splitPrimaryAndExtras(matches, plannedKind(w.sessionName));
     const actual = primary ? toComplianceActivity(primary) : null;
     const extrasOut = extras.map(toComplianceActivity);
 
@@ -193,10 +226,18 @@ export async function getWeeklyPlanCompliance(
 
   const db = getDb();
   const rows = db.prepare(
-    `SELECT id, name, distance, moving_time, run_type, start_date_local
+    // Strength types are included so a planned lift can be matched — until they
+    // were, every lift in the plan reported "missed". The trainer filter is
+    // deliberately NOT applied to them: Strava flags gym sessions trainer = 1,
+    // and excluding indoor activity is only meaningful for runs (treadmill),
+    // where it keeps outdoor pace comparisons honest. A lift is indoor by
+    // definition, so the same filter silently dropped every one of them.
+    `SELECT id, name, distance, moving_time, run_type, start_date_local, type
      FROM activities
-     WHERE type = 'Run'
-       AND (trainer = 0 OR trainer IS NULL)
+     WHERE (
+       (type = 'Run' AND (trainer = 0 OR trainer IS NULL))
+       OR type IN ('WeightTraining','Workout','Crossfit','Elliptical','StairStepper')
+     )
        AND date(start_date_local) BETWEEN date(?) AND date(?)
      ORDER BY start_date_local ASC`
   ).all(minDate, maxDate) as ActivityRow[];
