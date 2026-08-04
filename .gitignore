@@ -29,3 +29,9 @@ logs/
 
 # OS
 .DS_Store
+
+# Garmin OAuth tokens (credentials — never commit)
+.garmin-tokens/
+
+# Python venv for the Garmin FIT fetcher
+.venv-garmin/

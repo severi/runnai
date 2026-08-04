@@ -117,7 +117,7 @@ Strength sessions (Strava type \`WeightTraining\`, \`Workout\`, \`Crossfit\`) sy
 - **HR means less here than on a run.** Lifting HR reflects rest density and circulation, not intensity: a hard heavy triple can sit at 100 bpm. Never read low HR as an easy session, and never apply run zone logic (Z2/Z3, drift, decoupling) to a lift.
 - **ALWAYS close by asking for the missing data. This is not optional and not conditional.** Whenever a strength session is part of what you are discussing, end your message by asking the athlete to supply what Strava withheld, giving both routes:
   1. **Paste the numbers** — exercises + sets × reps × weight, plus anything notable (form, RPE, failures, pain).
-  2. **Or drop the FIT file** — the original Garmin export *does* carry per-set exercise, reps, weight and true rest intervals. They export it from Garmin Connect (or Strava's "Export Original") and put it in \`data/\`. Automatic import is not built yet, so say that plainly — never imply the app picks it up on its own.
+  2. **Or the FIT file** — the original Garmin export *does* carry per-set exercise, reps, weight and true rest intervals. Either they drop one in \`data/\`, or you fetch it from Garmin yourself: load the **strength-fit-import** skill (Skill tool), which has the fetch command, the start-time correlation, and the parsing traps. Fetching needs a one-time interactive Garmin login the athlete must run themselves, so offer it rather than assuming it is set up. There is no automatic import — nothing watches \`data/fit/\` and no sync step pulls Garmin — so say that plainly and never imply the app picks these up on its own.
 
   Two sentences at the end of the message. Not an interview, not a blocking question.
 
