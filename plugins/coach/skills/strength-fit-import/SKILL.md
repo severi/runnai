@@ -71,19 +71,26 @@ The script refuses to guess: no match within 2 minutes is an error, and multiple
 
 ## Reading the FIT
 
-Parse with the `fit-file-parser` npm package (already proven against this athlete's Enduro 3 — no Python or Garmin SDK needed). Sets are at `data.sets` / `data.messages.set`.
+**Use the project script — do not install packages or write a parser.** `fit-file-parser` is a project dependency and the parsing already exists:
 
-Traps, all confirmed against a real file:
+```bash
+bun scripts/parse-fit.ts data/fit/23840025442_ACTIVITY.fit          # readable table
+bun scripts/parse-fit.ts data/fit/23840025442_ACTIVITY.fit --json   # structured
+```
 
-- **`set.duration` is not time-under-tension.** It is the lap-button interval and includes setup, plate changes and forgetting to press the button. One real set read 8:10 for 6 reps. Never present it as work time.
-- **`weight: 0` is a written value, not a missing one.** Rest sets have `weight: null`; zero means an empty bar or bodyweight. Use `!= null`, never truthiness — `if (set.weight)` silently drops bodyweight sets.
-- **Timed vs open rest.** A rest whose `workout_step` has `duration_type: "time"` was ended by the watch's timer, not the athlete. Reading "they rested exactly 60s, disciplined" would be wrong. Only `duration_type: "open"` rests reflect athlete behaviour. Check `wkt_step_index` before making any rest-discipline claim.
-- **Warm-ups are not flagged on the set.** Every set is `set_type: "active"`; warm-up classification lives in the `split` stream. Naive tonnage includes warm-up sets.
-- **Pull-up weight is *added* load.** True tonnage needs bodyweight, which the file provides at `user_profile.weight`.
-- **`category`/`category_subtype` are 3-element arrays** with identical elements — take `[0]`.
-- **Exercise names:** join `set.(category, category_subtype)` to the file's own `exercise_title` messages for Garmin's display strings. No mapping table needed.
-- **Strings are 0xFF-padded**, not NUL-terminated — strip at the first replacement character.
-- **Garmin's anaerobic training effect reads ~0 for lifting.** Its cardio model sees nothing. Compute load from tonnage; do not quote TE as evidence the session was easy.
+It prints session totals (reps, tonnage, active vs rest time, HR) and a per-set table with exercise names, reps, weight, per-set HR, and flags for warm-ups and watch-timed rests. `--json` gives the same as a `StrengthSession` object.
+
+The script already handles every trap below; they are recorded so nobody "simplifies" them away:
+
+- **`set.duration` is not time-under-tension.** It is the lap-button interval and includes setup, plate changes and forgetting to press the button — one real set reads 8:10 for 6 reps. The script reports it as duration; never present it as work time.
+- **`weight: 0` is a written value, not a missing one.** Rest sets are `null`; zero means empty bar or bodyweight. `if (set.weight)` silently drops the bodyweight set.
+- **`message_index` / `wkt_step_index` are bitfield objects, not integers** — `{value: N, reserved, selected}`. Comparing them raw fails silently, which is exactly how watch-timed rests went undetected.
+- **Timed vs open rest.** A rest whose workout step is `duration_type: "time"` was ended by the watch, not the athlete — the script marks these `watch-timed rest`. Never read them as rest discipline. Only open rests reflect athlete behaviour.
+- **Warm-ups are not flagged on the set.** Every set is `set_type: "active"`; warm-up lives in the `split` stream. The script flags them and excludes them from tonnage.
+- **Pull-up weight is *added* load.** True tonnage needs bodyweight — reported as `athleteWeightKg`.
+- **Garmin's anaerobic training effect reads ~0 for lifting.** Its cardio model sees nothing; use tonnage, never TE, as evidence about difficulty.
+
+If the script fails on a file, fix the script — don't work around it in a scratch file that the next session will have to rediscover.
 
 ## After Importing
 

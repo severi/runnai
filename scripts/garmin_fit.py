@@ -177,20 +177,33 @@ def _resolve_by_time(api: Garmin, iso: str) -> dict:
     small window. Refuses to guess when more than one activity matches.
     """
     target = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-    if target.tzinfo is None:
-        target = target.replace(tzinfo=timezone.utc)
-    day = target.astimezone(timezone.utc).date()
+    # A naive timestamp is ambiguous: our activities table holds both
+    # start_date (UTC) and start_date_local, and callers reach for whichever is
+    # in front of them. Rather than guessing — guessing wrong just reports "no
+    # match", as it did for 2026-08-03T21:07:54 — compare a naive value against
+    # BOTH the Garmin activity's UTC and local start. An explicit offset (or Z)
+    # is unambiguous and is matched against UTC only.
+    naive = target.tzinfo is None
+    day = (target if naive else target.astimezone(timezone.utc)).date()
     candidates = api.get_activities_by_date(
         (day - timedelta(days=1)).isoformat(), (day + timedelta(days=1)).isoformat()
     )
 
+    def close(a_raw: str | None, want: datetime) -> bool:
+        if not a_raw:
+            return False
+        started = datetime.fromisoformat(a_raw.replace("Z", "").strip())
+        if want.tzinfo is not None:
+            started = started.replace(tzinfo=timezone.utc)
+        return abs((started - want).total_seconds()) <= 120
+
     matches = []
     for a in candidates:
-        raw = a.get("startTimeGMT")
-        if not raw:
-            continue
-        started = datetime.fromisoformat(raw.replace("Z", "")).replace(tzinfo=timezone.utc)
-        if abs((started - target).total_seconds()) <= 120:
+        if naive:
+            hit = close(a.get("startTimeGMT"), target) or close(a.get("startTimeLocal"), target)
+        else:
+            hit = close(a.get("startTimeGMT"), target)
+        if hit:
             matches.append(a)
 
     if not matches:
