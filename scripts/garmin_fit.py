@@ -109,8 +109,11 @@ def connect() -> Garmin:
         if needs_mfa == "needs_mfa":
             code = input("MFA code: ").strip()
             api.resume_login(client_state, code)
-            # resume_login does not persist; dump explicitly or MFA repeats forever.
-            api.garth.dump(str(TOKEN_DIR))
+            # resume_login does NOT persist tokens (verified: its source has no
+            # dump call), so without this the MFA prompt returns every run.
+            # The attribute is `client` — Garmin has no `.garth`; this library
+            # dropped garth when it moved to curl_cffi.
+            api.client.dump(str(TOKEN_DIR))
     except (EOFError, KeyboardInterrupt):
         # Ctrl-C / Ctrl-D at a prompt is a normal way to back out — say so
         # instead of dumping a traceback.
@@ -120,6 +123,17 @@ def connect() -> Garmin:
 
 def cmd_login(_args: argparse.Namespace) -> None:
     connect()
+    # Verify tokens actually landed rather than trusting that login returned.
+    # A crash between resume_login and the token dump leaves you "logged in"
+    # for the life of the process and signed out for every later run — with the
+    # MFA code already spent, so the next attempt needs a fresh one.
+    if not any(TOKEN_DIR.iterdir()):
+        sys.exit(
+            "Login appeared to succeed but no tokens were written to "
+            f"{TOKEN_DIR.relative_to(PROJECT_ROOT)}/.\n"
+            "Nothing is cached, so this would prompt again next run. Please retry; "
+            "if it keeps happening the token-persistence call needs looking at."
+        )
     print(f"Logged in. Tokens cached in {TOKEN_DIR.relative_to(PROJECT_ROOT)}/")
     print("Future runs reuse them — no password or MFA needed.")
 
