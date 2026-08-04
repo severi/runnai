@@ -40,8 +40,6 @@ import {
   deleteIntervalsEventTool,
   reconcileIntervalsPlanTool,
   commitDataTool,
-  garminAuthTool,
-  garminFetchFitTool,
 } from "../tools/index.js";
 
 export const coachMcpServer = createSdkMcpServer({
@@ -94,10 +92,6 @@ export const coachMcpServer = createSdkMcpServer({
     reconcileIntervalsPlanTool,
     // Data backup
     commitDataTool,
-
-    // Garmin (strength set data — Strava exposes none)
-    garminAuthTool,
-    garminFetchFitTool,
     // Memory
     readMemoryTool,
     writeMemoryTool,

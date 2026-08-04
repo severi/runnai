@@ -124,83 +124,6 @@ def cmd_login(_args: argparse.Namespace) -> None:
     print("Future runs reuse them — no password or MFA needed.")
 
 
-# --- Machine-drivable auth, for the garmin_auth tool -------------------------
-# The coach has no terminal, so it cannot use the interactive path above. These
-# emit JSON and take the password from the environment, never from an argument
-# or stdin — a credential passed through the agent would land in the model's
-# context and the session transcript. Only the MFA code round-trips, and that is
-# single-use and expires in ~30s.
-
-MFA_STATE = TOKEN_DIR / "pending-mfa.json"
-
-
-def _emit(payload: dict) -> None:
-    import json
-
-    print(json.dumps(payload))
-
-
-def cmd_auth_status(_args: argparse.Namespace) -> None:
-    TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-    if not any(p for p in TOKEN_DIR.iterdir() if p.name != MFA_STATE.name):
-        _emit({"authenticated": False, "reason": "no_tokens"})
-        return
-    try:
-        Garmin().login(str(TOKEN_DIR))
-        _emit({"authenticated": True})
-    except Exception as exc:  # noqa: BLE001
-        _emit({"authenticated": False, "reason": "tokens_rejected", "detail": str(exc)[:200]})
-
-
-def cmd_auth(args: argparse.Namespace) -> None:
-    import json
-
-    TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Second leg: an MFA code arrived; resume the login we parked earlier.
-    if args.mfa_code:
-        if not MFA_STATE.exists():
-            _emit({"status": "error", "detail": "No pending MFA login. Start with `auth` first."})
-            return
-        try:
-            state = json.loads(MFA_STATE.read_text())
-            api = Garmin(email=state["email"], password=state["password"], return_on_mfa=True)
-            needs_mfa, client_state = api.login(str(TOKEN_DIR))
-            if needs_mfa == "needs_mfa":
-                api.resume_login(client_state, args.mfa_code.strip())
-                api.garth.dump(str(TOKEN_DIR))
-            _emit({"status": "ok"})
-        except Exception as exc:  # noqa: BLE001
-            _emit({"status": "error", "detail": str(exc)[:300]})
-        finally:
-            MFA_STATE.unlink(missing_ok=True)
-        return
-
-    email = os.getenv("GARMIN_EMAIL")
-    password = os.getenv("GARMIN_PASSWORD")
-    if not email or not password:
-        _emit({
-            "status": "needs_credentials",
-            "detail": "Set GARMIN_EMAIL and GARMIN_PASSWORD in .env, then retry.",
-        })
-        return
-
-    try:
-        api = Garmin(email=email, password=password, return_on_mfa=True)
-        needs_mfa, _client_state = api.login(str(TOKEN_DIR))
-        if needs_mfa == "needs_mfa":
-            # The client_state object is not JSON-safe and the library rebuilds
-            # it on resume anyway, so park only what a resume needs. Written
-            # inside TOKEN_DIR, which is gitignored.
-            MFA_STATE.write_text(json.dumps({"email": email, "password": password}))
-            MFA_STATE.chmod(0o600)
-            _emit({"status": "needs_mfa"})
-            return
-        _emit({"status": "ok"})
-    except Exception as exc:  # noqa: BLE001
-        _emit({"status": "error", "detail": str(exc)[:300]})
-
-
 def _fmt(activity: dict) -> str:
     return (
         f"{activity.get('activityId')}  "
@@ -313,18 +236,6 @@ def main() -> None:
     sub.add_parser("login", help="Sign in explicitly (optional — fetch/list prompt on demand).").set_defaults(
         func=cmd_login
     )
-
-    sub.add_parser(
-        "auth-status", help="JSON: whether cached tokens are usable. For the garmin_auth tool."
-    ).set_defaults(func=cmd_auth_status)
-
-    p_auth = sub.add_parser(
-        "auth",
-        help="JSON sign-in using GARMIN_EMAIL/GARMIN_PASSWORD from the environment. "
-        "For the garmin_auth tool; humans should use `login`.",
-    )
-    p_auth.add_argument("--mfa-code", help="Complete a login that returned needs_mfa.")
-    p_auth.set_defaults(func=cmd_auth)
 
     p_list = sub.add_parser("list", help="List recent activities with their Garmin ids.")
     p_list.add_argument("--days", type=int, default=14, help="Look-back window (default 14).")
