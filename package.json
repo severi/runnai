@@ -10,7 +10,7 @@
     "dev": "bun src/index.tsx",
     "reset": "rm -rf data/athlete data/memory data/plans data/research data/.session data/.chat-history.json && echo 'Reset complete. Strava data preserved.'",
     "reset:all": "rm -rf data/athlete data/memory data/plans data/research data/strava/activities.db data/strava/recent-summary.md data/.session data/.chat-history.json && echo 'Full reset complete. Strava tokens preserved.'",
-    "test": "bun test src/",
+    "test": "bun test src/ scripts/",
     "evals": "cd evals && bunx promptfoo eval",
     "evals:view": "bunx promptfoo view"
   },
@@ -19,6 +19,7 @@
     "chalk": "5.6.2",
     "dotenv": "17.3.1",
     "exceljs": "4.4.0",
+    "fit-file-parser": "^4.1.0",
     "fuse.js": "7.1.0",
     "get-port": "7.1.0",
     "ink": "6.8.0",
