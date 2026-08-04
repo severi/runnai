@@ -133,7 +133,8 @@ function findFastestSegment(
 ): { timeSeconds: number; distanceMeters: number; startIndex: number; endIndex: number } | null {
   const { time, distance } = stream;
 
-  if (distance.length === 0 || distance[distance.length - 1] < targetDistance) {
+  // No distance stream at all (gym activities) => no best efforts to find.
+  if (!distance?.length || distance[distance.length - 1] < targetDistance) {
     return null;
   }
 

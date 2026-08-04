@@ -1,5 +1,5 @@
 import type {
-  ActivityStream,
+  DistanceActivityStream,
   HrZones,
   HrZoneDistribution,
   SplitType,
@@ -75,7 +75,7 @@ export function detectManualLaps(laps: LapHint[]): number[] | null {
  * @returns Complete analysis result. Fields are null when input data is insufficient.
  */
 export function computeStreamAnalysis(
-  streams: ActivityStream,
+  streams: DistanceActivityStream,
   hrZones: HrZones | null,
   movingTimeS: number,
   easyPaceRef: number,

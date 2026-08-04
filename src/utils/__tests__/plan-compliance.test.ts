@@ -190,3 +190,73 @@ describe("buildComplianceEntries", () => {
     expect(result[2].completedRunIndex).toBe(2); // not 3 — the missed row is skipped
   });
 });
+
+// ─── Strength sessions ───────────────────────────────────────────────────────
+// The compliance query was `WHERE type = 'Run'`, so a WeightTraining activity
+// could never match a planned lift: the nuuksio-hybrid plan has 8 lift sessions
+// and every one of them reported "missed" even when completed (2026-08-03, the
+// athlete's first strength session). Widening the query is only half the fix —
+// once non-runs are in scope, a run and a lift on the same day must not be able
+// to satisfy each other's planned session.
+
+function strengthActivity(overrides: Partial<ActivityRow>): ActivityRow {
+  return makeActivity({ distance: 0, type: "WeightTraining", ...overrides });
+}
+
+describe("buildComplianceEntries — strength sessions", () => {
+  const liftPlan: ParsedWorkout[] = [{
+    weekNumber: 1, sessionIndex: 0,
+    date: "2026-08-03T00:00:00",
+    sessionName: "Lift A — lift only, no run",
+    details: "", externalId: "runnai:p:w1:s0",
+  }];
+
+  test("a WeightTraining activity completes a planned lift", () => {
+    const acts = [strengthActivity({
+      id: 19586976445,
+      name: "Severi 3.0 - Hybrid build started",
+      moving_time: 2788,
+      start_date_local: "2026-08-03T21:07:54Z",
+    })];
+    const [entry] = buildComplianceEntries(liftPlan, acts, new Date(2026, 7, 4));
+    expect(entry.status).toBe("completed");
+    expect(entry.actual?.id).toBe(19586976445);
+  });
+
+  test("a run does NOT complete a planned lift", () => {
+    const acts = [makeActivity({
+      id: 1, name: "Easy Z2 run", type: "Run",
+      distance: 8000, moving_time: 2600,
+      start_date_local: "2026-08-03T18:00:00Z",
+    })];
+    const [entry] = buildComplianceEntries(liftPlan, acts, new Date(2026, 7, 4));
+    expect(entry.status).toBe("missed");
+  });
+
+  test("a lift does NOT complete a planned run", () => {
+    const runPlan: ParsedWorkout[] = [{
+      weekNumber: 1, sessionIndex: 0,
+      date: "2026-08-04T00:00:00", sessionName: "Easy Z2 run",
+      details: "", externalId: "runnai:p:w1:s1",
+    }];
+    const acts = [strengthActivity({ id: 2, name: "Lift B", start_date_local: "2026-08-04T18:00:00Z" })];
+    const [entry] = buildComplianceEntries(runPlan, acts, new Date(2026, 7, 5));
+    expect(entry.status).toBe("missed");
+  });
+
+  test("run and lift on the same day each satisfy their own planned session", () => {
+    const bothPlan: ParsedWorkout[] = [
+      { weekNumber: 1, sessionIndex: 0, date: "2026-08-03T00:00:00", sessionName: "Lift A", details: "", externalId: "a" },
+      { weekNumber: 1, sessionIndex: 1, date: "2026-08-03T00:00:00", sessionName: "Easy Z2 run", details: "", externalId: "b" },
+    ];
+    const acts = [
+      strengthActivity({ id: 10, name: "Lift", start_date_local: "2026-08-03T18:00:00Z" }),
+      makeActivity({ id: 11, name: "Run", type: "Run", distance: 8000, moving_time: 2600, start_date_local: "2026-08-03T06:00:00Z" }),
+    ];
+    const entries = buildComplianceEntries(bothPlan, acts, new Date(2026, 7, 4));
+    expect(entries[0].status).toBe("completed");
+    expect(entries[0].actual?.id).toBe(10);
+    expect(entries[1].status).toBe("completed");
+    expect(entries[1].actual?.id).toBe(11);
+  });
+});

@@ -147,13 +147,17 @@ export async function fetchActivityStream(activityId: number): Promise<ActivityS
   }
 
   const data = await response.json();
-  if (!data.time?.data || !data.distance?.data) {
+  // Only `time` is genuinely required. Requiring `distance` here silently threw
+  // away the entire stream for every gym activity: a WeightTraining session has
+  // no distance but does have a full 1 Hz heartrate stream (verified on
+  // activity 19586976445 — 2789 samples), and we were discarding all of it.
+  if (!data.time?.data) {
     return null;
   }
 
   return {
     time: data.time.data,
-    distance: data.distance.data,
+    distance: data.distance?.data,
     heartrate: data.heartrate?.data,
     altitude: data.altitude?.data,
     grade_smooth: data.grade_smooth?.data,

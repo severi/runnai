@@ -1,6 +1,6 @@
 import { getDb, saveStreamAnalysis, getActivityStreams, getActivityLaps } from "./activities-db.js";
 import { detectHillProfile, classifyRun } from "./run-classifier.js";
-import type { ActivityLapRecord, ActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
+import type { ActivityLapRecord, ActivityStream, DistanceActivityStream, HrZones, ActivityAnalysisRecord, StreamAnalysisResult, LapSummary, TrainingContext } from "../types/index.js";
 import { computeStreamAnalysis, minettiGapFactor } from "./stream-analysis.js";
 
 /**
@@ -114,16 +114,24 @@ export function computeActivityAnalysis(
       AND start_date_local < ? AND id != ? AND distance > 0
   `).get(similarRunType, runDate, runDate, activityId) as { cnt: number; avg_pace: number | null };
 
-  // Stream analysis (Tier 1-3 metrics)
+  // Stream analysis (Tier 1-3 metrics). Requires a distance stream: every metric
+  // it produces is pace- or grade-derived, so a gym activity (no distance, but a
+  // full heartrate stream) is skipped here rather than fed zeros — that would
+  // manufacture 0:00/km paces and a fake GAP. The stream itself is still stored;
+  // only this analysis is skipped.
   let streamAnalysis: StreamAnalysisResult | null = null;
-  if (streams && streams.time.length > 0) {
+  const pacedStreams: DistanceActivityStream | null =
+    streams && streams.time.length > 0 && streams.distance?.length
+      ? (streams as DistanceActivityStream)
+      : null;
+  if (pacedStreams) {
     try {
       const lapHints = laps.map(l => ({
         start_index: l.start_index,
         end_index: l.end_index,
         distance: l.distance,
       }));
-      streamAnalysis = computeStreamAnalysis(streams, hrZones, activity.moving_time, easyPaceRef, lapHints);
+      streamAnalysis = computeStreamAnalysis(pacedStreams, hrZones, activity.moving_time, easyPaceRef, lapHints);
       saveStreamAnalysis(activityId, streamAnalysis);
     } catch {
       // Stream analysis is best-effort

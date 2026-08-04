@@ -9,7 +9,7 @@ import {
   STREAM_ANALYSIS_VERSION,
 } from "../stream-analysis.js";
 import type { LapHint } from "../stream-analysis.js";
-import type { ActivityStream, HrZones } from "../../types/index.js";
+import type { DistanceActivityStream as ActivityStream, HrZones } from "../../types/index.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
