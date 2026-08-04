@@ -605,9 +605,15 @@ ${ctx.sync.message}`;
 - Scope: use ONLY these synced runs plus the normal recent context the tools already provide. Do not pull or re-analyze the wider history.`;
   }
 
-  // Surface fitness drift signal so the coach addresses it before run analysis
+  // Surface the drift signal AFTER the run reads. It used to say "before
+  // analyzing the new runs", which put a zone-config table and a "want me to
+  // apply this?" question ahead of the thing the athlete opened the app for —
+  // and bought nothing: the new zones cannot be applied without their
+  // confirmation, so the analysis in that same message still used the old ones.
+  // Drift is also partly derived from the runs being reported, so it reads
+  // better as a conclusion than as a preamble.
   if (ctx.fitnessDrift?.should_prompt) {
-    prompt += `\n\n**Fitness drift detected (${ctx.fitnessDrift.confidence} confidence):**\n${ctx.fitnessDrift.summary}\n\nBefore analyzing the new runs, flag this to the athlete and propose a zone update. Use update_pace_zones AFTER the athlete confirms. Reference get_training_zones for the current values.`;
+    prompt += `\n\n**Fitness drift detected (${ctx.fitnessDrift.confidence} confidence):**\n${ctx.fitnessDrift.summary}\n\nRaise this AFTER the run analysis, as a short closing section — the athlete came for the run read, not a zone-config decision. Keep it to the observed-vs-stored numbers and the proposed change, then ask whether to apply it. Call update_pace_zones only after they confirm; reference get_training_zones for current values. Do not restate the drift up front, and do not let it delay or shorten the run analysis.`;
   }
 
   return prompt;
