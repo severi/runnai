@@ -29,22 +29,7 @@ Fetching requires the athlete's Garmin credentials, so it is **not** something y
 
 ## Fetching
 
-Run from the project root. First use needs a one-time login:
-
-```bash
-.venv-garmin/bin/python scripts/garmin_fit.py login
-```
-
-That prompts for email, password and an MFA code, then caches tokens in `.garmin-tokens/`. Later runs need none of it. If the venv doesn't exist yet:
-
-```bash
-python3 -m venv .venv-garmin
-.venv-garmin/bin/pip install -r scripts/requirements-garmin.txt
-```
-
-**This login is interactive — you cannot complete it yourself.** Ask the athlete to run it (they can prefix a shell command with `!` in the CLI). Only the fetch commands below are yours to run.
-
-Then, to get a session's file:
+Run from the project root. There is no setup step — every command signs in on demand:
 
 ```bash
 # By start time — the reliable route. Use the Strava activity's start_date.
@@ -58,6 +43,25 @@ Then, to get a session's file:
 ```
 
 Files land in `data/fit/`.
+
+### When it says it can't sign in
+
+Sign-in prompts only when attached to a terminal. **You are not**, so if no valid tokens are cached the command exits immediately with instructions — it will not hang. That output is the signal to hand the step to the athlete:
+
+> Sign-in is needed once. Run this in your terminal and it'll ask for your password and an MFA code:
+> `.venv-garmin/bin/python scripts/garmin_fit.py login`
+> After that I can fetch on my own.
+
+They can run it inline by prefixing with `!`. Tokens cache in `.garmin-tokens/` and every later fetch of yours works unattended. The same message appears when tokens expire — same fix.
+
+If the venv is missing entirely, that setup is theirs to run too:
+
+```bash
+python3 -m venv .venv-garmin
+.venv-garmin/bin/pip install -r scripts/requirements-garmin.txt
+```
+
+Do not treat a sign-in message as "the data is unavailable" — it means one interactive step is outstanding. Say which, and offer the paste-the-numbers route meanwhile.
 
 ### Why `--at` rather than an id
 

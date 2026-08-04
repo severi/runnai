@@ -12,14 +12,19 @@ it, so this fetches the file at source.
 Auth is the unofficial Garmin Connect route: your own credentials, your own
 data, via cyberjunky/python-garminconnect (PyPI name: `garminconnect`). There is
 no official alternative — Garmin's developer programme requires a legal entity
-and is closed to new applicants. Tokens are cached after the first login so MFA
-is a one-time cost.
+and is closed to new applicants.
+
+Every command signs in on demand, so there is no setup step to remember: run
+`fetch` and it prompts for credentials + MFA the first time, then caches tokens
+and never asks again. It only prompts when attached to a terminal — run
+non-interactively without tokens and it exits with instructions rather than
+hanging on an invisible prompt.
 
 Usage:
-    garmin_fit.py login                      # one-time; handles MFA
-    garmin_fit.py list [--days 14]           # recent activities + Garmin ids
-    garmin_fit.py fetch <garmin_activity_id> # download one FIT
     garmin_fit.py fetch --at <ISO8601>       # find by start time, then download
+    garmin_fit.py fetch <garmin_activity_id> # download one FIT
+    garmin_fit.py list [--days 14]           # recent activities + Garmin ids
+    garmin_fit.py login                      # optional: sign in ahead of time
 
 `--at` is the useful one: our database keys on Strava ids, which share no field
 with Garmin ids, but both sides record the same start instant. Pass the Strava
@@ -56,9 +61,17 @@ FIT_DIR = PROJECT_ROOT / "data" / "fit"
 STRENGTH_HINTS = ("strength", "weight", "training")
 
 
-def connect(interactive: bool = False) -> Garmin:
-    """Return a logged-in client, reusing cached tokens when possible."""
+def connect() -> Garmin:
+    """Return a logged-in client, logging in on demand if there's a terminal.
+
+    Any command authenticates itself, so `login` is never a required first step —
+    run `fetch` and it prompts if it has to. The gate is whether stdin is a TTY,
+    not which subcommand was used: the coach invokes this non-interactively, and a
+    bare input() prompt with no terminal attached would hang the agent instead of
+    failing. Without a TTY we exit with instructions for the athlete to run.
+    """
     TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+    interactive = sys.stdin.isatty()
 
     # Cached tokens first — no credentials needed, no MFA prompt.
     if any(TOKEN_DIR.iterdir()):
@@ -69,36 +82,44 @@ def connect(interactive: bool = False) -> Garmin:
         except Exception as exc:  # noqa: BLE001 - any failure means re-auth
             if not interactive:
                 sys.exit(
-                    f"Cached Garmin tokens are no longer valid ({exc}).\n"
-                    "Run:  scripts/garmin_fit.py login"
+                    f"Garmin tokens have expired or been rejected ({exc}).\n"
+                    "They need a fresh interactive login — run this in your terminal:\n"
+                    "  .venv-garmin/bin/python scripts/garmin_fit.py login"
                 )
             print(f"Cached tokens rejected ({exc}); logging in again.", file=sys.stderr)
 
     if not interactive:
         sys.exit(
-            "No cached Garmin tokens. Run:  scripts/garmin_fit.py login\n"
-            "(one-time; tokens are cached afterwards)"
+            "Not signed in to Garmin, and there is no terminal to prompt on.\n"
+            "Run this once in your terminal (it will ask for password + MFA):\n"
+            "  .venv-garmin/bin/python scripts/garmin_fit.py login\n"
+            "Afterwards every command works unattended."
         )
 
-    email = os.getenv("GARMIN_EMAIL") or input("Garmin email: ").strip()
-    password = os.getenv("GARMIN_PASSWORD")
-    if not password:
-        import getpass
+    try:
+        email = os.getenv("GARMIN_EMAIL") or input("Garmin email: ").strip()
+        password = os.getenv("GARMIN_PASSWORD")
+        if not password:
+            import getpass
 
-        password = getpass.getpass("Garmin password: ")
+            password = getpass.getpass("Garmin password: ")
 
-    api = Garmin(email=email, password=password, return_on_mfa=True)
-    needs_mfa, client_state = api.login(str(TOKEN_DIR))
-    if needs_mfa == "needs_mfa":
-        code = input("MFA code: ").strip()
-        api.resume_login(client_state, code)
-        # resume_login does not persist; dump explicitly or MFA repeats forever.
-        api.garth.dump(str(TOKEN_DIR))
+        api = Garmin(email=email, password=password, return_on_mfa=True)
+        needs_mfa, client_state = api.login(str(TOKEN_DIR))
+        if needs_mfa == "needs_mfa":
+            code = input("MFA code: ").strip()
+            api.resume_login(client_state, code)
+            # resume_login does not persist; dump explicitly or MFA repeats forever.
+            api.garth.dump(str(TOKEN_DIR))
+    except (EOFError, KeyboardInterrupt):
+        # Ctrl-C / Ctrl-D at a prompt is a normal way to back out — say so
+        # instead of dumping a traceback.
+        sys.exit("\nCancelled; not signed in.")
     return api
 
 
 def cmd_login(_args: argparse.Namespace) -> None:
-    connect(interactive=True)
+    connect()
     print(f"Logged in. Tokens cached in {TOKEN_DIR.relative_to(PROJECT_ROOT)}/")
     print("Future runs reuse them — no password or MFA needed.")
 
@@ -212,7 +233,7 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("login", help="One-time interactive login; caches tokens.").set_defaults(
+    sub.add_parser("login", help="Sign in explicitly (optional — fetch/list prompt on demand).").set_defaults(
         func=cmd_login
     )
 
