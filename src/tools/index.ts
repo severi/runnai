@@ -41,6 +41,7 @@ export {
 
 // Data backup
 export { commitDataTool } from "./data-backup.js";
+export { garminAuthTool, garminFetchFitTool } from "./garmin.js";
 
 // Phase 3: Memory tools
 export {

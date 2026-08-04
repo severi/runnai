@@ -20,54 +20,30 @@ Load it when set-level detail would change your read, and you don't already have
 
 **Do not** load it just because a lift exists in the plan or in compliance output. If the athlete already told you the numbers this turn, or you only need the fact that a session happened, you don't need the file.
 
-## The Two Routes — offer both, do not silently pick one
+## The Two Routes
 
-Fetching requires the athlete's Garmin credentials, so it is **not** something you can do unprompted on first use. Always give them the choice:
+1. **You fetch the FIT** — the default. It is a tool call, and once signed in it needs nothing from the athlete at all. It is also the only route that gives true rest intervals and exact loads, which are hard to recall accurately.
+2. **They paste the numbers** — still worth offering alongside, since it is instant and they may prefer it: exercises + sets × reps × weight, plus anything notable (form, RPE, failures, pain).
 
-1. **They paste the numbers.** Fastest, and often enough: exercises + sets × reps × weight, plus anything notable (form, RPE, failures, pain). Prefer this for a single session.
-2. **You fetch the FIT.** Better when they want it automated, when several sessions are involved, or when true rest intervals matter — those are hard to recall accurately but exact in the file.
+Fetching is no longer something to ask permission for. The only step that ever needs the athlete is a one-time MFA code (and, before that, credentials in `.env`) — after which every later fetch is silent.
 
 ## Fetching
 
-Run from the project root. There is no setup step — every command signs in on demand:
+Use the tools — there is nothing for the athlete to run:
+
+- `garmin_fetch_fit(start_time: "<the Strava activity's start_date>")` — downloads into `data/fit/`.
+- `garmin_auth()` if that says you are not signed in. Credentials come from `.env`; you never see a password.
+- On **needs_mfa**: ask for the 6-digit code and wait, then `garmin_auth(mfa_code: "...")` and continue. Nothing can proceed without it and it expires in ~30s, so ask on its own and immediately.
+- On **needs_credentials**: the athlete adds `GARMIN_EMAIL` / `GARMIN_PASSWORD` to `.env`. Never invite a password into the chat — it would be stored in the transcript.
+
+`start_time` is the reliable route: our database keys on Strava ids, Garmin uses its own, and the two share no field — but both record the same start instant, so it is an exact join. The fetch refuses to guess (no match within 2 minutes errors; multiple matches lists candidates).
+
+The equivalent CLI, if the athlete ever wants it directly:
 
 ```bash
-# By start time — the reliable route. Use the Strava activity's start_date.
 .venv-garmin/bin/python scripts/garmin_fit.py fetch --at 2026-08-03T18:07:54Z
-
-# Or by Garmin activity id, if you already know it
-.venv-garmin/bin/python scripts/garmin_fit.py fetch 23840025442
-
-# To see what is there
 .venv-garmin/bin/python scripts/garmin_fit.py list --days 14 --strength
 ```
-
-Files land in `data/fit/`.
-
-### When it says it can't sign in
-
-Sign-in prompts only when attached to a terminal. **You are not**, so if no valid tokens are cached the command exits immediately with instructions — it will not hang. That output is the signal to hand the step to the athlete:
-
-> Sign-in is needed once. Run this in your terminal and it'll ask for your password and an MFA code:
-> `.venv-garmin/bin/python scripts/garmin_fit.py login`
-> After that I can fetch on my own.
-
-They can run it inline by prefixing with `!`. Tokens cache in `.garmin-tokens/` and every later fetch of yours works unattended. The same message appears when tokens expire — same fix.
-
-If the venv is missing entirely, that setup is theirs to run too:
-
-```bash
-python3 -m venv .venv-garmin
-.venv-garmin/bin/pip install -r scripts/requirements-garmin.txt
-```
-
-Do not treat a sign-in message as "the data is unavailable" — it means one interactive step is outstanding. Say which, and offer the paste-the-numbers route meanwhile.
-
-### Why `--at` rather than an id
-
-Our database keys on **Strava** activity ids. Garmin uses its own, and the two share no field — Strava's `external_id` is a push id, not a Garmin activity id. But both platforms record the same start instant, so start time is an exact join, not a heuristic. Take `start_date` from the Strava activity and pass it to `--at`.
-
-The script refuses to guess: no match within 2 minutes is an error, and multiple matches is an error listing the candidates. If it refuses, run `list` and resolve it explicitly rather than forcing a guess.
 
 ## Reading the FIT
 
