@@ -36,7 +36,9 @@ export const planManagerTool = tool(
       "import-xlsx",
     ]).describe("Action to perform"),
     planName: z.string().optional().describe("Name of the plan"),
-    content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file — pass the complete plan, not a partial patch."),
+    content: z.string().optional().describe("Full plan content in markdown. For 'update', this REPLACES the entire file. Prefer oldString/newString for anything short of a rewrite."),
+    oldString: z.string().optional().describe("update: exact existing text to replace (must match once). Use this for targeted edits — recording actuals, moving a session, adjusting one row — instead of rewriting the whole plan."),
+    newString: z.string().optional().describe("update: replacement text for oldString."),
     newSlug: z.string().optional().describe("New slug for 'rename'. Only lowercase letters, numbers, hyphens."),
     allowEmpty: z.boolean().optional().describe("If true, finalize proceeds even with empty required reasoning sections. Default false."),
     changelogTitle: z.string().optional().describe("Custom changelog title for finalize."),
@@ -46,7 +48,7 @@ export const planManagerTool = tool(
     target: z.enum(["current", "draft"]).optional().describe("show: which version to render."),
     filePath: z.string().optional().describe("import-xlsx: absolute path to the xlsx file."),
   },
-  async ({ action, planName, content, newSlug, allowEmpty, changelogTitle, changelogBody, mode, inline, target, filePath }) => {
+  async ({ action, planName, content, oldString, newString, newSlug, allowEmpty, changelogTitle, changelogBody, mode, inline, target, filePath }) => {
     try {
       switch (action) {
         case "list": {
@@ -108,7 +110,17 @@ export const planManagerTool = tool(
         }
 
         case "update": {
-          if (!planName || !content) return toolResult("Error: planName and content are required.", true);
+          if (!planName) return toolResult("Error: planName is required.", true);
+          const patching = oldString !== undefined || newString !== undefined;
+          if (!patching && !content) {
+            return toolResult(
+              "Error: pass either oldString + newString (targeted edit — preferred) or content (full replacement).",
+              true,
+            );
+          }
+          if (patching && (oldString === undefined || newString === undefined)) {
+            return toolResult("Error: a targeted edit needs BOTH oldString and newString.", true);
+          }
           const slug = sanitizeFilename(planName);
           const draft = await isDraftActive(slug);
           const draftVersion = await nextDraftVersion(slug);
@@ -120,26 +132,57 @@ export const planManagerTool = tool(
           } catch {
             return toolResult(`Plan '${planName}' not found at ${targetPath}.`, true);
           }
-          if (existing.length > 500 && content.length < existing.length * 0.5) {
-            return toolResult(
-              `Error: update content (${content.length} chars) is much shorter than existing (${existing.length} chars). 'update' replaces the entire file — pass the full plan, not a partial patch.`,
-              true,
-            );
+
+          let nextContent: string;
+          if (patching) {
+            // Targeted edit. This exists because requiring the whole file made
+            // the commonest change — ticking one row with a session's actuals —
+            // cost a full ~200-line rewrite, so it was consistently done with
+            // the generic Edit tool instead, skipping the changelog and version
+            // snapshot entirely. Same uniqueness contract as Edit: the match
+            // must be unambiguous, or the caller adds context and retries.
+            const occurrences = existing.split(oldString!).length - 1;
+            if (occurrences === 0) {
+              return toolResult(
+                `oldString not found in ${draft ? `v${draftVersion}-draft` : "plan.md"}. `
+                + "Read the plan and copy the text exactly, including markdown and whitespace.",
+                true,
+              );
+            }
+            if (occurrences > 1) {
+              return toolResult(
+                `oldString matches ${occurrences} places — ambiguous, so nothing was changed. `
+                + "Include surrounding lines to make it unique.",
+                true,
+              );
+            }
+            nextContent = existing.replace(oldString!, newString!);
+          } else {
+            if (existing.length > 500 && content!.length < existing.length * 0.5) {
+              return toolResult(
+                `Error: update content (${content!.length} chars) is much shorter than existing (${existing.length} chars). `
+                + "A full 'update' replaces the entire file — pass the complete plan, or use oldString/newString for a targeted edit.",
+                true,
+              );
+            }
+            nextContent = content!;
           }
-          await fs.writeFile(targetPath, content);
+          await fs.writeFile(targetPath, nextContent);
 
           if (draft) {
             await appendToSection(
               getDraftReasoningFile(slug, draftVersion),
               "Decisions and rationale",
-              `- ${toDateString()}: edited draft plan.md.`,
+              `- ${toDateString()}: ${patching ? "targeted edit to" : "replaced"} draft plan.md.`,
             );
             return toolResult(await withDiffNote(`Updated draft '${planName}' (v${draftVersion}-draft).`));
           } else {
             await appendChangelogEntry(slug, {
               date: toDateString(),
               title: "plan updated",
-              body: "Direct update via manage_plan.",
+              body: patching
+                ? `Targeted edit via manage_plan.\n\n- ${oldString!.split("\n")[0].slice(0, 100)}\n+ ${newString!.split("\n")[0].slice(0, 100)}`
+                : "Full replacement via manage_plan.",
             });
             return toolResult(await withDiffNote(`Updated training plan '${planName}'.`));
           }
