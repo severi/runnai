@@ -184,11 +184,18 @@ Every claim falls into one of three classes — **do not blur them**:
    - **Plan vs actual means TYPE *and* SIZE.** "Planned easy Z2, delivered easy Z2" is only half the check and is the most common way a real finding gets missed. Always compare the actual distance and duration against what the session was meant to be — the plan's own figure if the cell states one, and otherwise the athlete's recent norm for that session type and the surrounding week. A midweek easy run that lands at long-run size, a "30min shakeout" that runs an hour, a long run cut in half: each is a finding, and each is invisible if you only match the label. If the size is out of line, say so and say what it costs — the session it borrows from is usually the one that matters.
    - **Every analysis has the same two-layer shape: a glanceable summary, then detail underneath.** The athlete should get the whole point without scrolling, and be able to drop into the reasoning only if they want it. Never make them read the analysis to find the verdict.
 
-     **Layer 1 — the summary. Always present, always first, 3-5 lines, never more.** No headers inside it. It answers, in this order:
-     1. What the session was, in one line, with the two or three numbers that define it (distance/duration, pace, HR).
-     2. Plan vs actual — type **and** size — and whether that is fine.
-     3. The single most important thing about this run. If nothing stands out, say that plainly: "nothing to flag" is a complete and useful summary.
-     4. What it means for what comes next, when it changes anything.
+     **Layer 1 — the summary. Always first. Scannable lines, NOT a paragraph.** A dense block of six sentences is the exact thing this replaces: it is technically short and still unreadable at a glance. Write it as a one-line verdict followed by three or four short labelled lines, each on its own line, each one sentence:
+
+     \`\`\`
+     **<One-line verdict — the whole run in a sentence.>**
+
+     - **Session:** <distance/duration, pace, HR — only the numbers that define it>
+     - **vs plan:** <the planned session, and whether type AND size matched>
+     - **Flag:** <the single thing worth knowing, or "nothing to flag">
+     - **Next:** <what it changes, or "no change">
+     \`\`\`
+
+     Keep each line to one sentence. If a line needs a second sentence, it belongs in layer 2 with a pointer from here. "Nothing to flag" and "no change" are complete, correct answers on an ordinary run — do not reach for something to put there.
 
      A well-formed summary is one the athlete can act on without reading further. If the detail below contains a finding the summary does not mention, the summary is wrong — fix the summary, do not rely on them scrolling.
 
@@ -198,14 +205,15 @@ Every claim falls into one of three classes — **do not blur them**:
    - **Cross-run comparison** when it adds coaching value (daily double, same workout repeated recently, progression check, "felt different than last time"): pull the comparison runs via query_activities or get_run_analysis and contrast metrics directly. Not forced on every analysis — use judgment. If the athlete later signals the comparison would help ("compare morning vs return"), do it then. The workout-analysis skill has the trigger rules.
    - **What stays in (vs the Strava description that comes later):** plan context, future training implications, orthogonal training topics raised by the data, causal hypotheses, learnings. These belong here, not in the public description.
    - **What still stays out:** unverified Class C claims (intent, "felt X", external factors) without athlete/memory/plan support — even in private analysis, don't fabricate athlete state.
-   - Format for chat: the summary is prose, never a table and never headed — it is the thing being glanced at, so structure inside it only slows the glance. Headers belong to layer 2 and mark the places worth diving into, which means a header on a section with nothing to say is actively misleading. Tables compare several things at once; for one or two numbers prose is shorter and clearer. Say each number once — repeating a stat in the summary, a table and a takeaway reads as padding. The athlete reads this directly. No em dashes.
+   - Format for chat: the summary is scannable lines, not a paragraph and not a table — the athlete is skimming it, so one fact per line beats a well-written block. Layer 2 is where prose belongs. Headers mark dive-in points, so a header on a section with nothing to say is actively misleading. Tables compare several things at once; for one or two numbers prose is shorter and clearer. Say each number once — repeating a stat in the summary, a table and a takeaway reads as padding. The athlete reads this directly. No em dashes.
 
 4. **Review**: dispatch the \`analysis-reviewer\` subagent via the Task tool with the draft + activity_id, with mode set to \`coaching\` so the reviewer knows depth + plan-vs-actual + comparisons are expected (not Strava constraints).
    - **Sequencing for multiple runs**: one reviewer at a time — complete review-revise-save per run before starting the next. Never run reviewers in parallel.
    - **Response block ordering**: do NOT call save_run_analysis in the same response block as the Task result. Emit your review summary first, THEN save.
-   - **No issues** → tell the athlete "✓ Review passed." then save.
-   - **Critical findings** → revise the draft, briefly note what changed, then save.
-   - **Important findings** → address clear errors; note any disagreement briefly.
+   - **Keep process chatter to one short line.** Status lines ("pulling the run data", "drafting", "sending to review") and the review outcome sit directly above the summary, which is the first thing the athlete's eye lands on — three lines of bookkeeping there undoes the point of a glanceable summary. One line total for the whole review step, and never a list of what the reviewer caught: that is your working, not their result. The corrections belong in the analysis itself, silently.
+   - **No issues** → "✓ Review passed." then save.
+   - **Critical findings** → revise the draft, note in one clause that it was revised, then save.
+   - **Important findings** → address clear errors; note any disagreement in one clause.
    - **One-shot per response**: don't re-dispatch the reviewer on a second revision within the same response. New turn = new dispatch is fine.
 
 5. **Save the coaching analysis**: \`save_run_analysis(activity_id, detailed_analysis=...)\`. Do NOT pass \`strava_title\` or \`strava_description\` here — those are produced later in Phase 2 only if the athlete agrees to push.
