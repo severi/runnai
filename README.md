@@ -9,10 +9,14 @@ AI running coach with persistent memory and Strava integration. Learns your patt
 - **Learns over time** -- 3-tier memory system (hot cache + deep memory + SQLite) means the coach remembers your injury patterns, training preferences, and how you respond to different workloads
 - **Strava integration** -- syncs activities, classifies runs, writes coaching notes back to your Strava descriptions
 - **Deep run analysis** -- per-second stream analysis: HR zone distribution, cardiac drift, grade-adjusted pace, fatigue index, workout phase detection, interval extraction. Every run is automatically classified (easy, tempo, intervals, long, hills)
-- **Training plans** -- periodized plans that adapt weekly based on what actually happened, with export to [intervals.icu](https://intervals.icu) (structured workouts, HR/pace targets, color-coded tags)
+- **Grade-aware, walk-aware metrics** -- pace fade is measured on Minetti grade-adjusted speed, and run/walk decomposition separates "the running slowed" from "there was more walking". A downhill start and an uphill finish don't get reported as a fade
+- **Strength training** -- Strava's API exposes nothing about a gym session beyond duration and HR, so the original Garmin FIT file is fetched and parsed for per-set exercise, reps, weight and true rest intervals
+- **Training plans** -- periodized plans that adapt weekly based on what actually happened, with versioned revisions, an audit changelog, plan-vs-actual compliance, and export to [intervals.icu](https://intervals.icu) (structured workouts, HR/pace targets, color-coded tags)
+- **Self-correcting zones** -- detects when your easy pace has drifted away from your stored zones, proposes an update with the evidence, and keeps an audit trail of every change
 - **Race predictions** -- estimates that evolve as your fitness changes, tracked over time
 - **Weather-aware** -- fetches conditions for your run location to adjust coaching advice
-- **Evidence-based** -- skills for periodization, injury management, workout analysis, race prediction, and weekly planning grounded in running science
+- **Evidence-based** -- skills for periodization, injury management, workout analysis, race prediction, weekly planning and zone calibration, grounded in running science
+- **Reviewed before it reaches you** -- every run analysis is checked by a separate reviewer agent against the underlying data, so claims the numbers don't support get caught before they're presented as coaching
 - **Session logging** -- structured JSONL logs for debugging agent behavior
 
 ## Setup
@@ -78,7 +82,22 @@ The coach will walk you through onboarding on first run -- connecting Strava, sy
 | `/research [topic]` | Look up running science |
 | `/analyze [run]` | Deep-dive analysis of a specific run |
 | `/usage` | Show session token usage and cost |
+| `/context` | Show what's currently in the hot cache |
+| `/login` | Authenticate with Claude in-session |
 | `/verbose` | Toggle debug panel |
+
+### Strength sessions (optional)
+
+Strava's public API exposes no exercises, sets, reps or weights for a gym session -- its app shows them by parsing the uploaded FIT file, but that data has never been in the v3 API. The original Garmin file does carry it, so it's fetched directly:
+
+```bash
+python3 -m venv .venv-garmin
+.venv-garmin/bin/pip install -r scripts/requirements-garmin.txt
+.venv-garmin/bin/python scripts/garmin_fit.py fetch --at 2026-08-03T18:07:54Z
+bun scripts/parse-fit.ts data/fit/<id>_ACTIVITY.fit
+```
+
+Sign-in happens on demand and caches tokens, so it's asked for once. Activities are matched by start time, since Strava and Garmin share no id.
 
 ### Resume sessions
 
@@ -107,31 +126,38 @@ src/
   agent.ts       Agent config, subagents, system prompt
 
 plugins/coach/
-  skills/        Domain knowledge (periodization, injury mgmt, strava-writeback, etc.)
+  skills/        Domain knowledge (periodization, injury mgmt, workout analysis,
+                 zone calibration, strava-writeback, strength FIT import, etc.)
   commands/      Slash command definitions
 
-data/
+scripts/
+  garmin_fit.py  Fetch original FIT files from Garmin (strength set data)
+  parse-fit.ts   Parse a strength FIT into sets, reps, load and rest
+
+data/            (its own git repo -- snapshotted by commit_data)
   athlete/       CONTEXT.md (hot cache -- always in system prompt)
-  memory/        Deep memory (observations, session summaries)
+  memory/        Deep memory (observations, session summaries, strength log)
   strava/        SQLite database + OAuth tokens
-  plans/         Training plans
+  plans/         Training plans (plan.md, CHANGELOG.md, versions/, references/)
+  fit/           Downloaded Garmin FIT files
   research/      Cached running science lookups
 
-logs/            Per-session structured logs (JSONL + tool results)
+logs/            One JSONL file per session
 ```
 
 ### Tools
 
 | Category | Tools |
 |----------|-------|
-| Strava | `strava_sync`, `strava_profile`, `strava_auth`, `query_activities`, `best_efforts`, `strava_update_activity` |
-| Analysis | `get_run_analysis`, `get_activity_streams`, `save_race_prediction`, `get_prediction_history`, `manage_personal_records` |
+| Strava | `strava_sync`, `strava_profile`, `strava_auth`, `query_activities`, `best_efforts`, `strava_update_activity`, `get_gear` |
+| Analysis | `get_run_analysis`, `save_run_analysis`, `get_activity_streams`, `generate_aerobic_chart`, `save_race_prediction`, `get_prediction_history`, `manage_personal_records` |
 | Memory | `read_memory`, `write_memory`, `update_context`, `search_memory`, `save_session_summary` |
-| Planning | `manage_plan`, `date_calc`, `calculator` |
-| Research | `research`, `save_research` |
-| HR Zones | `set_hr_zones`, `get_hr_zones` |
+| Planning | `manage_plan`, `get_plan_compliance`, `attach_reference`, `date_calc`, `calculator` |
+| Zones | `get_training_zones`, `set_hr_zones`, `get_hr_zones`, `update_pace_zones`, `get_zone_history`, `get_fitness_drift` |
+| Research | `research`, `save_research`, `link_research` |
 | Weather | `get_weather` |
-| Intervals.icu | `export_to_intervals`, `push_to_intervals` |
+| Intervals.icu | `export_to_intervals`, `push_to_intervals`, `list_intervals_events`, `delete_intervals_event`, `reconcile_intervals_plan` |
+| Data | `commit_data` |
 
 ### Memory system
 
@@ -145,18 +171,21 @@ The agent decides what to remember, what to promote to the hot cache, and what t
 
 ### Session logs
 
-Each session creates a folder under `logs/session-<timestamp>/` with structured JSONL events. Useful for debugging agent behavior:
+Each session writes a single JSONL file at `logs/<session-id>.jsonl` in Claude Code format. Every event carries `type`, `uuid`, `parentUuid`, `sessionId`, `version` and `timestamp`, so a session can be replayed or diffed after the fact. Event types: `user`, `assistant` (raw API response with per-turn `usage`), `system` (subtypes `init`, `result`, `turn_duration`, `task_progress`, …), `progress`.
 
 ```bash
 # What tools were called?
-jq 'select(.type == "tool_use") | {tool, input}' < events.jsonl
+jq 'select(.type=="assistant") | .message.content[] | select(.type=="tool_use") | {name, input}' < logs/<id>.jsonl
 
-# Any errors?
-jq 'select(.type == "tool_result" and .is_error)' < events.jsonl
+# What did the coach actually say?
+jq 'select(.type=="assistant") | .message.content[] | select(.type=="text") | .text' < logs/<id>.jsonl
 
-# What did the agent say?
-jq 'select(.type == "assistant_text") | .text' < events.jsonl
+# Per-turn token usage, and the session's cost
+jq 'select(.type=="assistant") | .message.usage' < logs/<id>.jsonl
+jq 'select(.subtype=="result")' < logs/<id>.jsonl
 ```
+
+These are the primary debugging surface: most of the coaching-quality work in this project came from reading a session back and finding where the agent's reasoning diverged from the data.
 
 ## Evals
 
