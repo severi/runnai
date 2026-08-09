@@ -3,83 +3,107 @@ name: workout-analysis
 description: Use when analyzing a completed run or a batch of just-synced runs — assessing execution against the plan, effort, pacing, HR, drift, fade, and signals, and writing the private coaching analysis
 ---
 
-# Workout Analysis
+# Workout Analysis — Domain Reference
+
+This skill is reference knowledge for the coaching read: what the metrics mean, which evidence supports which claims, and the domain traps that produce confidently wrong analyses. The **flow** (gather → triage → draft → review → save → post), the **depth and chat-output policy**, the **claim classes (A/B/C)**, and the **calibration principle** live in the system prompt's "New Run Analysis" section — they are not restated here, and nothing in this file overrides them.
 
 ## Two Artifacts, Not One
 
-This skill is for the **coaching analysis** — the thorough private read for the athlete. Do not collapse it into a Strava description. The Strava description is a *separate* artifact, written later only when the athlete asks to push, by the strava-writeback skill, derived from but distinct from this analysis.
+The **coaching analysis** (`detailed_analysis`) is the private, thorough record saved via `save_run_analysis` — plan-aware, load-aware, with derived metrics, hypotheses, and implications. The **Strava description** is a separate artifact: tight, public, what-happened-only, produced later by the strava-writeback skill only when the athlete asks to push. Never collapse one into the other.
 
-Coaching analysis is what the athlete consumes for actual coaching. It includes:
-- Plan-vs-actual context
-- Training-load significance (TRIMP, weekly load, percentile)
-- Phase / lap / structure breakdown when the run had structure
-- Derived metrics that disambiguate the story (efficiency factor, pace-CV, elevation-corrected pace, hr_trend pattern, fatigue index)
-- Causal hypotheses with appropriate hedging
-- Cross-run comparisons when they add value
-- Mistakes / learnings
-- What-to-do-next implications
+## Dimension Menu
 
-Strava description (later, separate) is tight, public, what-happened-only. Plan / future / orthogonal content stays in the coaching analysis.
+Layer 2 of the saved analysis draws from these dimensions. Include one only when it carries a finding (depth policy is in the system prompt):
 
-## Coaching Analysis Structure
+- **Plan-vs-actual** — type AND size (see Plan Comparison below)
+- **Training-load significance** — TRIMP, 7d volume, percentile vs 30 days, position in the week
+- **Phase / lap / structure breakdown** — when the run had phases, climbs, intervals, or pace shifts; don't average over a story
+- **Derived metrics that disambiguate** — efficiency factor (NGP / avg HR) when comparing runs at similar HR; pace-CV across laps (high CV ≠ fade if it tracks elevation); GAP vs raw pace when terrain shaped the effort; `hr_trend.pattern`; `cardiac_drift_pct` with confound check; `movement.split_driver` on any run with walk breaks
+- **Cross-run comparison** — triggers below
+- **Causal hypotheses** — hedging proportional to confound risk
+- **Mistakes / learnings** — only when data + context support them; don't invent lessons
+- **What-to-do-next** — when the run signals something the plan should respond to
 
-This is the default depth. A one-paragraph summary is not a coaching analysis.
+A recommendation must not contradict a conclusion reached elsewhere in the same read: if a zone was judged stale, don't prescribe running to it; if elevated HR was attributed to a confound, don't coach pace discipline off that same HR.
 
-**Default sections** (omit any that don't apply, but make a deliberate choice — don't drop them by default):
+## Calibration Reference — What Shifts the Expected Numbers
 
-1. **Plan-vs-actual** — what was scheduled, what got run, where they aligned/diverged. Lead with this on planned runs.
-2. **Headline read** — one or two sentences capturing what the run actually was (not just classification — distance + intensity + terrain + context together).
-3. **Phase / structure breakdown** — when the run had phases (warmup, work, cooldown), laps with elevation, climbs, intervals, pace shifts: walk through them. Don't average over a story.
-4. **Derived metrics check** — go beyond avg pace + avg HR. Pull the metrics that disambiguate:
-   - **Efficiency factor (NGP / avg HR)** when comparing runs at similar HR — this catches "felt stronger" / "felt fade" stories the averages hide.
-   - **Pace coefficient of variation** across laps — high CV ≠ fade if it tracks elevation; low CV = clean rhythm.
-   - **Elevation-corrected pace (GAP)** vs raw pace when terrain shaped the effort.
-   - **hr_trend.pattern** (step_then_plateau / linear_drift / stable) — never characterize HR by endpoints alone.
-   - **cardiac_drift_pct** with confound check — drift on a run with stops is an artifact, not a signal.
-   - **movement.split_driver** on any run with walk breaks — read this BEFORE narrating a split or fade (see the run-walk guardrail below). Raw `split_type`/`fatigue_index_pct` are walk-contaminated; `split_driver` says whether the running actually faded.
-5. **Training-load context** — TRIMP, 7d distance, percentile vs 30 days, days since last run, where this sits in the week's plan. Without this, "easy 10K" reads the same regardless of whether it's run 1 or run 5 of a heavy week.
-6. **Cross-run comparison** — when it adds coaching value (see triggers below).
-7. **Causal hypotheses** — when the data shows a pattern (decoupling, fade, surge, drift), say what's likely happening and why, with hedging proportional to confound risk.
-8. **Mistakes / learnings** — only if the data + context support them. Don't invent lessons.
-9. **What-to-do-next** — implications for upcoming sessions when the run signals something the plan should respond to (rest, scale back, push). Skip when nothing actionable.
+The system prompt's rule is that context calibrates the *expectation*, never the verdict. These are the adjustments worth knowing:
 
-**Format for chat:** structured for readability. Headers (`##`), sub-points, tables when comparing — the athlete reads this directly, not on a public feed. Stat lines and tables ARE allowed (and often clearer than prose). Regular hyphens (-), never em dashes.
+- **Technical trail**: matched-effort comparisons put HR ~+10%, energy cost ~+20-25%, and RPE up ~50% vs even ground (stabiliser recruitment, higher leg stiffness). A genuinely easy effort on technical terrain reads well above the road easy band — apply the ~10% to the athlete's easy HR band before judging effort.
+- **GAP under-corrects on trail**: grade-adjustment curves come from smooth-treadmill data with no term for roots, rock, mud, or braking, and grade smoothing erases short steep pitches. Treat trail GAP as a floor on true effort, and treat pace on technical terrain as close to uninformative.
+- **Heat/humidity**: elevates HR and drift at a given pace; check `weather` before attributing drift to fitness or fatigue.
+- **Stale zones**: `get_training_zones` is the only source of truth for current paces — never a plan pace string or an old lab test. If training-data pace consistently beats the stored band with stable Z2 HR and low drift, the zone is stale: name it and consider a fitness-drift update rather than grading against the stale band.
+- **HR over pace for effort**: on easy runs HR is the ground truth; pace inherits terrain, wind, and surface noise.
 
-**Length:** as long as the run warrants. A clean honest Z2 with no signals = short. A daily double with cumulative load + a perceived bonk + plan implications = long. Don't pad, don't truncate.
+Calibration explains a number; it does not re-label a session. If HR sat above even the calibrated band, or the load (TRIMP, percentile) far exceeded what the prescription implied, the session was hard — the read says so first and quantifies the tax second.
 
-**Write the final state, not your process.** The athlete reads only the finished analysis — never your earlier drafts, the reviewer's notes, or the analyzer's intermediate fields. So state the correct read directly; don't write it as a correction, a contrast against a claim the athlete never saw, or commentary on your own tooling. Two general failure modes to avoid:
+## Assessment Reference by Session Type
 
-- **Revision scaffolding.** When the review step changes a draft, fold the correction in silently and state the conclusion outright. Don't narrate the edit ("honest version: …", "so not X — actually Y", "to be accurate", "named correctly"). If the athlete never saw the wrong version, contrasting against it just reads as you walking back something you never said.
-- **Tool/QA meta-commentary.** Don't surface or debunk the analyzer's raw output to the athlete (auto-detected "intervals" that are noise, confound flags you've dismissed, fields you chose not to trust). Resolve it internally and present only the right interpretation — "one steady continuous run", not "the analyzer flagged 11 intervals but that's a GPS artifact". State what was true, not what the data pipeline almost made you think.
+### Easy runs
+- Pace within the current easy range from `get_training_zones` (pace.easy); HR in Zone 1-2 (between LT1 × 0.88 and LT1).
+- Fast-looking pace + stable Z2 HR + drift < 5% → the zones are likely stale, not the athlete undisciplined. Hard-reading HR beyond the calibrated band → the run was hard regardless of its label. Report whichever direction the calibrated gap points.
 
-This is general: anything that only makes sense if the reader had seen your draft, your reviewer's feedback, or the raw tool fields does not belong in the athlete-facing read.
+### Long runs
+- First half comfortable; pace within 30-60s/km of marathon pace is fine for experienced runners; negative split ideal.
+- Cardiac drift >10% at same pace indicates accumulating fatigue.
+- Runs over 90 minutes should include fueling.
 
-**Make takeaways consistent with your own analysis.** A recommendation must not contradict a conclusion you reached elsewhere in the same read. If you've judged that a zone looks stale, or that elevated HR was a confound (cold start, heat, prior-day load) rather than effort, the takeaway has to honor that — don't prescribe running to the band you just called conservative, or coach pace discipline on a run whose HR you just explained away. And scale prescriptiveness to the run: a trivial recovery/shakeout effort warrants a directional nudge (keep it genuinely easy, run by feel/HR), not a rigid pace+HR target.
+### Run-walk sessions (trail/ultra, or any deliberate walk breaks)
 
-## Pull Domain Knowledge Before Drafting
+Raw avg pace, `split_type`, and `fatigue_index_pct` fold walking into "pace" — on a run with walk breaks, a back-half slowdown looks like a running fade when the running held and the athlete just walked more. The `movement` block disambiguates deterministically; use it, don't eyeball per-km tables.
 
-The knowledge base (`research` tool) accumulates science syntheses precisely so analyses don't run on generic intuition. It is only worth anything if it's actually consulted — a shelf of ultra research helps nobody while an ultra gets analyzed from road-marathon heuristics.
+- **Lead with `movement.split_driver`:** `"walking"` → running held, back half slower from more walking (the expected shape of a walk-the-climbs session, not a fade). `"mixed"` → running also faded materially (run-only fatigue ≥5%); name both. `"running"` → the running itself slowed. `"none"` → nothing slowed once grade is accounted for; there is no fade to narrate.
+- **Walking the climbs is execution, not a finding.** Above ~+15% grade walking is metabolically cheaper than running (Minetti), and it spares the quads for descents. When the plan says walk the climbs, walk time in the up-grade bands is the prescription being followed.
+- **Walk terrain comes from `walk_grade_band_min` (+ `_by_half`), never eyeballing.** Bands are signed: descent < -1%, flat ±1%, gentle_up 1-3%, moderate_up 3-6%, steep_up > 6%. 1-3% is uphill, not flat. Walking spreading from climbs to flats and especially to descents late in a long event is a fuel/fatigue fingerprint, not a terrain story.
+- **HR on run-walk: per-state fields, not the blend.** When `walk_pct` ≥ ~15-20%, whole-run `avg_heartrate` is a compositional artifact. Read `movement.run_avg_hr`, `movement.walk_avg_hr`, `movement.run_avg_hr_by_half`. Never infer "engine wasn't the limiter" from the blended average.
+- **`pauses` are watch-stopped time, not movement.** Walk and pause locations come from `movement.walks` / `movement.pauses` (`at_km`) — never guessed from lap pace.
+- **Reconcile with the athlete's own account of their walks** — confirm the tagged segments match it rather than contradicting them.
 
-**Mandatory** before drafting when ANY of these hold — otherwise optional but cheap:
-- The run is a **race**, an **ultra/trail event**, or a **first-of-kind distance**
-- The run type or conditions are outside the athlete's routine (extreme heat/cold, altitude, a format you haven't analyzed recently)
-- The read hinges on physiology you'd otherwise state from memory (fueling, GI, heat, durability, taper)
+### Terrain shape — before narrating any split, fade, or "held it well"
 
-**How:** call `research` with `listTopics: true`, scan for topics matching the run's type and conditions (e.g. `ultra-pacing-effort`, `ultra-walking-strategy`, a course-specific topic), then pull the relevant ones with `research(topic)`. A stale-cache response still includes the previous research — use it; don't block the analysis on a refresh. If a load-bearing topic is missing entirely, research it (WebSearch + `save_research`) *before* drafting, not after the athlete pushes back.
+Grade contaminates the pace curve on every run that isn't a track session. A net-flat run can open downhill and close uphill, and the raw per-km table will show a textbook fade that never happened.
 
-Ground the draft's causal claims in what the research says, and cite the mechanism briefly — "reduced gut blood flow in heat slows carb absorption" reads as coaching; an unsourced hunch reads as filler.
+- Whole-run `elevation.gain_m` / `hill_category` are totals — they never say *where* the climbing was. Do not conclude "terrain wasn't a factor" from a total.
+- Read the shape from lap `net_elevation_m` / `avg_grade_pct` **before** the pace column — a pace curve you've already explained is hard to unexplain.
+- Compare lap `grade_adjusted_pace_sec_per_km`, not raw lap pace, whenever `net_elevation_m` moves across the run. Flat GAP + slowing raw pace = held effort, hill took the pace — the opposite of a fade.
+- HR flat while pace slows on a climb is strength, not fatigue. The fade signature is decoupling: HR climbing to hold a slowing pace, or GAP itself decaying.
+- Every fade metric is already grade-adjusted (`split_type`, `fatigue_index_pct`, `movement.run_only_*`). If a metric says "even" and the raw table looks like a fade, the metric is right and the table reading is wrong.
 
-## Prep-Adherence — Plan ≠ Execution
+### Races / ultras (RACE DAY in the plan, ≥4h elapsed, or first-of-kind distance)
 
-Never assert that prescribed supporting work happened. The plan says what was *scheduled*; only run data and athlete statements say what was *done* — and non-run work (sauna/heat protocol, strength, gut training, mobility) leaves no Strava trace at all.
+Most single-number summaries assume a 40-120min continuous road run; on a multi-hour run-walk event they become compositional artifacts. Switch modes:
 
-- A claim like "the heat prep paid off" or "the strength block showed up late in the race" is valid ONLY if the athlete confirmed doing the work (this session, in memory, or in a prior analysis). Otherwise the claim is fabricated — the athlete may have skipped it entirely, and crediting skipped training corrupts the whole causal read.
-- When adherence is unknown and it matters to the read: ask in the debrief (races) or hedge explicitly ("if you ran the sauna protocol through race week, X; if not, heat acclimation is an untapped lever").
-- Same rule inverted: don't scold non-adherence you haven't verified either.
+- **Debrief the athlete BEFORE drafting** (the explicit exception to draft-and-hedge — the triage step in the system prompt governs this). The athlete's account of fueling, GI, limiter sequence, and stop strategy is primary data the streams cannot contain.
+- **Decompose elapsed / moving / stopped time first.** Stopped time is strategy to be understood, not inefficiency to be fixed — ask or hedge before coaching "reclaim the stopped time".
+- **Never read whole-run avg HR as effort** (see run-walk above). "Avg HR low → engine wasn't the limiter" is the canonical wrong read.
+- **Cardiac drift is directional-only** beyond ~4-6h or in heat: it blends fitness with core temperature, dehydration, and glycogen state.
+- **Align the conditions timeline with the athlete's position** (`weather.hourly`): heat damage is often seeded mid-race and paid hours later. Never quote a window-average temp as "the temperature".
+- **Frame limiters as a chain** (heat → gut → fueling → energy low → forced walking → legs late), sequenced by when they appeared — not a single crowned cause.
+- **Goals: reconcile against the stated basis** (effort- or daylight-based targets shift with actual conditions). **Novel distance = calibration, not verdict.**
+
+### Tempo / threshold
+- Sustainable for ~60 minutes in a race; HR Zone 3-4; "comfortably hard".
+- Consistent splits (<5s/km variation) = good execution.
+
+### Intervals
+- 400-800m at ~5K pace or slightly faster; 1000-1600m at 5K-10K pace.
+- Recovery adequate (jog, not walk-to-a-stop); consistency across repeats beats one fast split; positive splits across repeats suggest starting too fast.
+
+## Load and Signal Reference
+
+- **ATL** (7d): sum of distance × intensity factor (easy 1.0, tempo 1.5, intervals 2.0, race 2.5). **CTL** (28d rolling): fitness trend. **TSB** = CTL − ATL: positive = fresh, negative = building, < −20 = overtraining risk.
+- **80/20**: ~80% of running easy (Z1-2), ~20% moderate+. More than ~25% moderate+hard = too much intensity.
+- **Cardiac drift**: first-15min vs last-15min HR at same pace. >10% = dehydration, heat, or insufficient fitness; >15% = significant concern.
+- **HR trend shape** — never characterize HR by endpoints. Use `hr_trend`: `step_then_plateau` = normal ramp-and-settle, NOT drift ("HR settled at X after initial ramp-up"); `linear_drift` = actual cardiac drift, worth flagging; `stable` = strong aerobic signal. If `cardiac_drift_pct` < 3%, a claim of "concerning HR rise" is almost certainly wrong.
+- **Cadence**: 170-185 spm optimal for most; <160 may indicate overstriding; rises naturally with speed.
+- **Pace variability on easy runs**: high variability on flat terrain = inconsistent effort; suggest running by feel/HR.
+- **Elevation impact**: ~5-8s/km per 100m gain is normal.
+- **Red flags**: HR significantly higher than usual at same pace; pace dropping on easy runs; inability to hit interval targets from 2 weeks ago; rising RPE at same objective effort; missed or cut-short workouts.
 
 ## Evidence Gate — Cite the Metric Before the Claim
 
-Evidence before claims, always. Every characterization of a run must point to the field that proves it. If you can't name the metric, you can't make the claim — soften it to a hypothesis or drop it. This is the guard against the reads that look authoritative but are hallucinated.
+Every characterization must point to the field that proves it. If you can't name the metric, soften to a hypothesis or drop it.
 
 | Claim | Required evidence | NOT sufficient |
 |---|---|---|
@@ -90,314 +114,76 @@ Evidence before claims, always. Every characterization of a run must point to th
 | "Too fast for easy" | pace outside current `get_training_zones` AND HR above Z2 | A stored or plan pace string |
 | "New PR / best effort" | `best_efforts` or the PR record confirms | A fast-looking split |
 | "Fitness is up" | the drift signal (`get_fitness_drift`) | One good run |
-| "Engine/HR wasn't the limiter" (run-walk session) | `movement.run_avg_hr` + drift with confounds clear | The walking-deflated whole-run `avg_heartrate` |
+| "Engine/HR wasn't the limiter" (run-walk) | `movement.run_avg_hr` + drift with confounds clear | The walking-deflated whole-run `avg_heartrate` |
 | "It was N°C" on a multi-hour run | `weather.hourly` / `temp_min_c`-`temp_max_c` range | `temp_avg_c` quoted as a single temperature |
 | "Prescribed prep (sauna/strength/gut) paid off" | Athlete confirmed doing it (session, memory, prior analysis) | The plan prescribing it |
-| "The course climbed Xm" | `elevation.gain_m` with `source` noted (see policy below) | Either source quoted as sole truth when `discrepancy_note` fires |
+| "The course climbed Xm" | `elevation.gain_m` with `source` noted (see elevation policy) | Either source quoted as sole truth when `discrepancy_note` fires |
 
-When the evidence isn't there, hedge it ("looks like X, but the data can't confirm it") — never assert it.
+**Prep-adherence — plan ≠ execution.** The plan says what was *scheduled*; only run data and athlete statements say what was *done*, and non-run work (sauna, strength, gut training, mobility) leaves no Strava trace. "The heat prep paid off" is valid only if the athlete confirmed doing the work — otherwise it credits training that may have been skipped. When adherence is unknown and load-bearing: ask in a race debrief, or hedge both branches. Same rule inverted: don't scold non-adherence you haven't verified.
 
-## When to Add Cross-Run Comparison
+## Pull Domain Knowledge Before Drafting
 
-Cross-run comparison is a capability you reach for when it adds coaching value, not a default step on every analysis.
+The knowledge base (`research` tool) accumulates science syntheses so analyses don't run on generic intuition. **Mandatory** before drafting when the run is a race, ultra/trail event, or first-of-kind distance; when conditions are outside the athlete's routine (extreme heat/cold, altitude); or when the read hinges on physiology you'd otherwise state from memory. Otherwise optional but cheap.
 
-**Reach for it when:**
-- **Daily double / same-day pair** — morning vs afternoon. Often a "stronger second leg" or "fade in the second" story that EF + pace-CV reveal cleanly.
-- **Same workout type recently repeated** — last week's tempo at the same target, last month's long run on the same route, the previous attempt at this hill session. Progression check.
-- **Athlete reports a perceived difference** ("felt stronger today", "the second one felt heavier", "this was tougher than last time"). The data either backs the perception or contradicts it — both are useful.
-- **Outlier signal vs the athlete's recent baseline** — a Z2 run at unusually low HR for the pace, a tempo with notably high drift, etc. The "vs baseline" is itself a comparison.
-- **Plan-prescribed comparison** — back-to-back long runs (B2B), dress rehearsal vs race goal, etc.
+Call `research` with `listTopics: true`, pull matching topics with `research(topic)`. A stale-cache response still includes the previous research — use it, don't block on a refresh. If a load-bearing topic is missing, research it (WebSearch + `save_research`) *before* drafting. Ground causal claims in the research and cite the mechanism in a clause — "reduced gut blood flow in heat slows carb absorption" — not a paragraph per citation; the fuller mechanism walk-through belongs in the saved analysis only when it changes what the athlete should do.
 
-**Don't force it when:**
-- The run stands alone and tells a clear story on its own.
-- The candidate "comparison run" was weeks ago and conditions / fitness have shifted.
-- The comparison would just restate the per-run reads without new insight.
+## Cross-Run Comparison
 
-**How to do it:**
-1. Pull the comparison run(s) via `query_activities` (recent runs of the same type / similar distance) or `get_run_analysis` (when you already know the activity_id).
-2. Build a side-by-side: distance, pace, GAP, avg HR, cardiac drift, zone split, elevation gain, **efficiency factor**, pace-CV, weather. Tables work well here.
-3. Identify what the numbers say vs the perception, especially when they diverge. The flip case ("athlete felt fade, EF says stronger") is one of the most coaching-valuable reads.
-4. Say what the comparison means for training (fitness moving up, rhythm question, recovery question, etc.).
-
-**Elevation gain — source-of-truth policy:**
-The `elevation` block from `get_run_analysis` carries its own provenance: `source: "device-stream"` (device altitude — barometric when the watch has a sensor — smoothed + hysteresis-accumulated, consistent algorithm across runs) or `"strava-api"` (Strava's per-upload DEM smoothing, whose intensity varies — two runs on the *exact same route* have reported 275m vs 376m).
-- **Prefer the device-stream value** (`gain_m` when `source` is `"device-stream"`) for both single-run terrain reads and cross-run comparison.
-- **When `discrepancy_note` is present** (stream vs API differ >20%): use the stream value for the read, and *name the discrepancy in the analysis* rather than silently picking a number — the athlete's felt terrain often sides with the device. Never present the official/API figure as the only truth.
-- When the athlete says "this is the same route as X," trust the route knowledge. If elevation numbers disagree by >20% across uploads of the same route, that's almost certainly a Strava-smoothing artifact, not a real terrain difference. Don't build a story around it.
-- Altimeter readings also have ~5-10% noise across multi-month gaps (barometer drift, firmware changes). Small differences (<5%) between runs months apart are noise, not signal.
+A capability to reach for when it adds coaching value, not a default step.
 
-## Plan Comparison — Do This First
+**Reach for it when:** daily double / same-day pair; same workout type recently repeated (progression check); athlete reports a perceived difference ("felt stronger", "felt heavier"); outlier vs the athlete's recent baseline; plan-prescribed comparison (B2B long runs, dress rehearsal vs race goal).
 
-Before assessing effort quality, establish what the run was *supposed* to be:
+**Don't force it when:** the run stands alone; the candidate comparison is weeks old under shifted conditions/fitness; it would restate the per-run reads without new insight.
 
-1. **Check the plan context.** When analyzing new runs at session start, the startup prompt already pairs each run id with its planned session. If that pairing is present, use it directly. Otherwise call `get_plan_compliance` (omit `week_number` for the current week) — it returns each planned session joined to its matching actual run by date.
-2. **Open the analysis with the plan reference.** Lead with what was planned: "You had **Tempo** scheduled today — 12km total: 2km WU → 30min @ 4:55–5:10/km → 2km CD."
-3. **Assess execution against the plan, not against generic templates:**
-   - Did the run match the session **type** (easy vs tempo vs long)?
-   - For quality sessions: was the **intensity target** hit? Was the structure (warmup, work block, cooldown) executed correctly?
-   - For easy runs: was it **genuinely easy** (Z1–Z2) as prescribed?
-   - For long runs with MP segments: did the MP block hit the target window?
-4. **Note deviations explicitly:**
-   - If the planned distance/pace was missed by more than ~10%, call it out
-   - If the run was a different type than planned (e.g., tempo done as easy, easy done at threshold), explain the gap
-   - If the day was meant to be rest and a run happened anyway, flag it
-5. **No plan match for this date?** Treat as unplanned — note it briefly and analyze on its own merits.
-
-### Dates, Weekdays, and Run Counts — Never Eyeball These
+**How:** pull comparison runs via `query_activities` or `get_run_analysis`; build a side-by-side (distance, pace, GAP, avg HR, drift, zone split, elevation, efficiency factor, pace-CV, weather); identify where numbers and perception diverge — "athlete felt fade, EF says stronger" is one of the most coaching-valuable reads; say what it means for training.
 
-Every weekday name, "run N of the week" count, and rest-day-vs-run-day claim MUST come from data, never from a plan row's position or your own mental calendar. This is a known failure mode — getting it wrong makes the entire analysis read as hallucinated even when the metrics are correct.
-
-- **Weekday names come from the data, not the plan order.** `get_plan_compliance` returns `planned.weekday` and `actual.weekday` (e.g. "Saturday") for every entry — use those verbatim. The Nth row of a plan is NOT the Nth day of the week; plans get reshuffled (rest days inserted, days moved), so a run dated 2026-05-30 is a *Saturday* regardless of where it sits in the list. If you ever need a weekday for a date that isn't in the compliance output, call `date_calc` — never compute it in your head.
-- **Any "N days/weeks out/until/since/ago" claim comes from tools, never your head.** This covers every temporal distance: run vs upcoming key session, days until a race, weeks since an illness or the last long run. For two sessions inside the compliance week, take the difference of their `planned.daysFromToday` values (0 = today, positive = future, negative = past). For everything else, call `date_calc` with the earlier date as `from_date` and the later as `target_date` and quote its `days_difference`/`weeks_difference`. In a multi-run batch, recompute per run: the count that was correct for Wednesday's run is off-by-one for Thursday's.
-- **"Run N of the week" comes from `completedRunIndex`.** Each completed entry carries `completedRunIndex` (1-based, in true date order); `summary.completed` is the week's total. Cite "run 3 of 4 this week" only from those fields. Never count plan rows or list positions — a skipped session is still a row, so position ≠ run number.
-- **Rest day vs run day comes from `actual`/`status`, not the plan.** A day is a run day only if an activity exists for it (`status: "completed"`). A planned session with `actual: null` and a past date is `missed` — do NOT narrate it as a completed run. A day with no plan row and no activity is simply a rest day; never invent a run for it.
-- **Build the weekly summary table straight from the compliance entries.** One row per entry, weekday from `planned.weekday`, status from `status`. Do not assume a Monday-anchored Mon–Sun layout and back-fill weekday labels onto it.
-
-**Violating the letter of this rule is violating its spirit.** The weekday or day-count that "looks obviously right" is exactly the one that ships a hallucinated analysis. Before stating any weekday, "run N of the week", or "N days/weeks since/until", pull it from the data or `date_calc` — never from your own sense of the calendar.
-
-| Rationalization | Reality |
-|---|---|
-| "The plan row order makes the weekday obvious" | Plans get reshuffled — row N ≠ day N. Read `planned.weekday`. |
-| "I can just count the runs myself" | A skipped session is still a row. Use `completedRunIndex`. |
-| "It's clearly ~3 weeks since the race" | "Clearly" is how the off-by-one ships. Call `date_calc`. |
-| "I computed the day-count for the last run, I'll reuse it" | It's off by one for the next run in the batch. Recompute per run. |
-
-### Annotating Completion in the Plan
-
-**Timing:** annotate the plan exactly once per run. The trigger is the FIRST turn after posting the analysis where ANY of the following holds:
-
-1. **Athlete acknowledges** ("looks good", "ok", "thanks", "ye", "yep")
-2. **Athlete asks for Strava push** ("update strava", "push it", "post it") — annotate before invoking strava-writeback
-3. **Athlete pivots to an unrelated topic** (asks about another run, asks a training question, asks about the plan, etc.) — treat as implicit acknowledgment of the analysis
-4. **Athlete keeps iterating on the analysis itself** ("dig deeper", "redo", "compare to X", "what about Y") — DO NOT annotate yet; revise the analysis and wait for one of triggers 1-3
-
-Don't annotate in the same turn as the initial draft. Don't annotate during a triage turn that ends with a clarifying question. Once annotated, don't re-annotate on subsequent revisions of the same run's analysis.
-
-When the timing is right, update the plan row to mark the session as done:
-
-- Call `manage_plan(action: "update")` with the full plan content (read it first)
-- Add a brief outcome to the session cell of the matching row — keep the existing convention (e.g., `✅` followed by a one-line result)
-- **Simple completion**: `✅ 12.1km @ 5:08/km, hit tempo target` — when the run matched the plan
-- **Notable deviation**: include the key deviation: `✅ 8.2km tempo done at 4:55/km — 30% short on distance, dropped to a quality interval session`
-- Do NOT rewrite other rows — preserve the rest of the plan exactly
-
-This is how plan completion stays in the source of truth across sessions.
-
-## Post-Run Assessment Framework
-
-When analyzing a completed run, consider:
-
-### 1. Was it the right effort?
+**Elevation — source-of-truth policy:** the `elevation` block carries provenance: `source: "device-stream"` (consistent algorithm across runs) or `"strava-api"` (per-upload DEM smoothing of varying intensity — the same route has reported 275m vs 376m). Prefer the device-stream value. When `discrepancy_note` fires (>20% gap), use the stream value and *name the discrepancy* — never present the API figure as sole truth. Same-route elevation differences >20% across uploads are a smoothing artifact, not terrain. Altimeters also drift ~5-10% across multi-month gaps; small differences months apart are noise.
 
-**Always reference current pace zones from get_training_zones — not generic formulas, not the plan file's pace strings, not the lab test from months ago.** The plan file no longer hardcodes pace strings in workout cells; it says "Easy" and you resolve to the athlete's current easy range. If you're about to flag a run as "too fast for easy" based on a pace string somewhere, STOP and call get_training_zones first.
-
-**Easy Run Assessment**:
-- Pace should fall within the **current** easy range from get_training_zones (pace.easy)
-- Heart rate should be in Zone 1-2 (between LT1 × 0.88 and LT1)
-- HR is the ground truth: a run that looks "fast for easy" but had stable HR in Z2 with cardiac drift < 5% is NOT too hard — the zones may be stale, or the athlete may be fitter than the stored zones reflect. In that case, do not lecture on pace discipline. Trust the HR data and consider whether a fitness drift update is overdue.
-- Common false alarm: flagging a run as "too fast for easy" based on stale stored paces when the training-data-derived current pace would put it squarely in Z2.
-
-**Long Run Assessment**:
-- First half should feel comfortable
-- Pace within 30-60s/km of marathon pace is fine for experienced runners
-- Negative split (second half faster) is ideal
-- Watch for cardiac drift: HR increasing >10% at same pace indicates fatigue
-- Fueling: runs over 90 minutes should include some nutrition
-
-**Run-Walk Sessions (trail/ultra, or any run with deliberate walk breaks) — read this before narrating a split or fade**:
-
-Raw avg pace, `split_type`, and `fatigue_index_pct` fold walking into "pace", so on a run with walk breaks a back-half slowdown looks like a running fade when the running actually held and the athlete just walked more. The `movement` block disambiguates it deterministically — use it, don't eyeball per-km tables.
-
-- **Lead with `movement.split_driver`:**
-  - `"walking"` → moving pace fell but run-only pace held. Narrate as **"running held steady; the back half was slower because of more walking"**, NOT a fade. This is the expected shape of a walk-the-climbs ultra.
-  - `"mixed"` → running also faded materially (run-only fatigue ≥5%) on top of more walking. Name both.
-  - `"running"` → the slowdown is the running itself; walking wasn't the driver.
-  - `"none"` → **nothing slowed.** Neither moving pace nor run-only pace fell once grade is accounted for. There is no fade to narrate; do not go looking for one.
-- **Walking the climbs is planned and optimal, not a finding.** Above ~+15% grade walking is metabolically cheaper than running (Minetti). When the plan says "walk all uphills," walk time in the `gentle_up`/`moderate_up`/`steep_up` bands is execution-as-prescribed — don't flag it as slowdown.
-- **Walk terrain comes from `walk_grade_band_min` (+ `_by_half`), never from eyeballing.** Bands are signed: descent < -1%, flat ±1%, gentle_up 1-3%, moderate_up 3-6%, steep_up > 6%. Two guardrails: (1) 1-3% is *uphill*, not flat — never lump it into "flat/rolling"; (2) the by-half shift is a first-class signal — walking spreading from climbs to flats and *especially to descents* late in a long event is a fuel/fatigue fingerprint (fresh runners run descents for free), not a terrain story.
-- **HR on a run-walk session: use the per-state fields, not the blend.** When `walk_pct` is material (≥ ~15-20%), the whole-run `avg_heartrate` is a compositional artifact — walking HR deflates it, so it describes neither the running effort nor the walking recovery. Read `movement.run_avg_hr` (the actual running load), `movement.walk_avg_hr`, and `movement.run_avg_hr_by_half` (drift within the running). Never infer "engine wasn't the limiter" (or any limiter claim) from the blended average.
-- **`pauses` are watch-stopped time, not movement.** A paused gap (e.g. toilet/refill) is never a walk and never slow running. Read pause locations from `movement.pauses`.
-- **Localize from the data, never infer.** Walk and pause locations come from `movement.walks`/`movement.pauses` (each has `at_km`). Do not guess where a walk or stop happened from lap pace.
-- **Reconcile with the athlete's report.** If they describe their walks (e.g. "one flat walk to swap bottles, rest were uphills"), it should match the tagged segments — confirm it does rather than contradicting it.
-
-**Terrain shape — read this before narrating any split, fade, or "held it well"**:
-
-Walking is not the only thing that contaminates a pace curve; grade does it on every run that isn't a track session. A run can be net-flat overall and still open downhill and close uphill, and the raw per-km table will then show a textbook fade that never happened.
-
-- **Whole-run elevation cannot answer this.** `elevation.gain_m` and `hill_category` are totals — they describe how much climbing there was, never *where*. "+93m, rolling" is exactly what a run reads like when it drops 20m in the first 2km and climbs 22m in the last 3km. Do not conclude "terrain wasn't a factor" from a total.
-- **Read the shape from lap `net_elevation_m` / `avg_grade_pct`.** These are per-lap and signed. Scan them before the pace column, not after — the order matters, because a pace curve you've already explained is very hard to unexplain.
-- **Compare lap `grade_adjusted_pace_sec_per_km`, not raw lap pace, whenever `net_elevation_m` moves across the run.** If the GAP column is flat while raw pace slows, the athlete held effort and the hill took the pace. That is the opposite of a fade and should be narrated as such.
-- **HR holding flat while pace slows on a climb is strength, not fatigue.** The fade signature is pace *and* effort decoupling — HR climbing to hold a slowing pace, or GAP itself decaying. Grade-blind, the two look identical.
-- **Every fade metric is already grade-adjusted** (`split_type`, `fatigue_index_pct`, `movement.run_only_split_type`, `movement.run_only_fatigue_index_pct`). If one of them says "even" and the raw per-km table looks like a fade, **the metric is right and your reading of the table is wrong.** This exact disagreement — 0.6% adjusted vs a slowing raw column — put a phantom "mild late pace fade" into a real analysis on 2026-08-02.
-
-**Race / Ultra Assessment (RACE DAY in the plan, any run ≥4h elapsed, or a first-of-kind distance)**:
-
-A race — especially an ultra — is outside the regime the per-run summary metrics were designed for. Most single-number summaries (avg pace, avg HR, cardiac drift, fatigue index) assume a 40-120min mostly-continuous road run; on a multi-hour run-walk event they become compositional artifacts. Before drafting, switch to this mode:
-
-- **Debrief the athlete BEFORE drafting.** This is the explicit exception to the draft-and-hedge rule. On a race — above all an A-race or first-of-kind distance — the athlete's account (fueling, GI, where the low hit, why stops were long, what actually forced walking) is *primary data the streams cannot contain*, and drafting without it guarantees a correction cycle. Ask 2-3 compact debrief questions in ONE turn (conditions felt, limiter sequence, stop strategy/fueling), then draft in the next turn. See "New Run Analysis" triage in the system prompt.
-- **Decompose elapsed / moving / stopped time first.** Official time is elapsed. Report both, and treat stopped time (`movement.pauses`, aid stations) as *strategy to be understood, not inefficiency to be fixed* — ask or hedge on whether stops were deliberate before coaching "reclaim the stopped time".
-- **HR: never read the whole-run average as effort.** With material walking, `avg_heartrate` blends two different physiological states. Use `movement.run_avg_hr` / `movement.walk_avg_hr` (and `run_avg_hr_by_half` for drift within the running). "Avg HR low → engine wasn't the limiter" is the canonical wrong read — banned.
-- **Cardiac drift is directional-only here.** Beyond ~4-6h, or in heat, drift blends fitness with core temperature, dehydration, and glycogen state. Cite it as weak supporting signal at most, never as a fitness verdict or limiter-eliminator.
-- **Align the conditions timeline with the athlete's position.** Use the `weather.hourly` profile (or `get_weather` with `granularity: "hourly"`): where was the athlete at the temperature peak? Heat damage is often *seeded* mid-race (gut blood flow, fluid debt) and *paid* hours later — do not assume the crack point coincides with the conditions peak. Never quote the window-average temp as "the temperature".
-- **Frame limiters as a chain, not a single cause.** Ultra performance limiters stack and interact (heat → gut → fueling → energy low → forced walking → legs late). Sequence them by when they appeared (from debrief + data), rather than crowning one limiter.
-- **Goals: reconcile against the stated basis.** If targets were effort- or daylight-based, say how the actual conditions moved the honest expectation before comparing clock times.
-- **Novel distance = calibration, not verdict.** On a first-of-kind distance there is no baseline; frame findings as the calibration data the race exists to produce.
-
-**Tempo/Threshold Assessment**:
-- Pace should be sustainable for about 60 minutes in a race
-- Heart rate in Zone 3-4
-- "Comfortably hard" - can speak in short phrases but not sentences
-- Consistent splits (less than 5s/km variation) = good execution
-
-**Interval Assessment**:
-- Target pace depends on interval length
-- 400m-800m: ~5K pace or slightly faster
-- 1000m-1600m: ~5K to 10K pace
-- Recovery should be adequate (jog, not walk to a stop)
-- Consistency across repeats more important than hitting one fast split
-- Positive splits (slowing) across intervals suggests starting too fast
+## Plan Comparison
 
-### 2. Training Load Indicators
+Establish what the run was *supposed* to be before assessing effort quality:
 
-**Acute Training Load (ATL)** - last 7 days:
-- Sum of distance * intensity factor
-- Easy run: 1.0x, Tempo: 1.5x, Intervals: 2.0x, Race: 2.5x
+1. **Check plan context.** The startup prompt pairs each new run with its planned session; otherwise call `get_plan_compliance` (omit `week_number` for the current week).
+2. **Lead the plan-vs-actual dimension with the plan reference** ("You had **Tempo** scheduled — 12km: 2km WU → 30min @ threshold → 2km CD").
+3. **Assess against the plan, not generic templates** — session type matched? Intensity target hit? Structure executed? Easy genuinely easy? **And size**: compare actual distance/duration against the plan's figure or the athlete's norm for that session type. A midweek easy run at long-run size, a 30min shakeout that runs an hour, a long run cut in half — each is a finding invisible to a type-only match.
+4. **Note deviations explicitly** — distance/pace missed by >10%, a different type than planned, a run on a planned rest day.
+5. **No plan match** → unplanned; note briefly, analyze on its own merits.
 
-**Chronic Training Load (CTL)** - last 28 days rolling average:
-- Fitness trends over time
-- CTL going up = fitness building
-- CTL going down = detraining or recovery
+### Dates, weekdays, and run counts — never eyeball these
 
-**Training Stress Balance (TSB)** = CTL - ATL:
-- Positive: rested/fresh (good for racing)
-- Negative: fatigued (building fitness)
-- Very negative (<-20): risk of overtraining
+Every weekday name, "run N of the week" count, and "N days/weeks since/until" claim comes from data, never from plan-row position or your own mental calendar — the one that "looks obviously right" is exactly the one that ships a hallucinated analysis.
 
-### 3. Weekly Distribution
+- **Weekdays**: `get_plan_compliance` returns `planned.weekday` / `actual.weekday` — use verbatim. Row N of a plan is NOT day N of the week. For any other date, call `date_calc`.
+- **Temporal distances**: within the compliance week, difference of `planned.daysFromToday`; everything else via `date_calc` (`days_difference`/`weeks_difference`). In a batch, recompute per run — the count correct for Wednesday's run is off-by-one for Thursday's.
+- **"Run N of the week"**: from `completedRunIndex` (1-based, true date order) and `summary.completed`. Never count plan rows — a skipped session is still a row.
+- **Rest vs run day**: from `actual`/`status`. `actual: null` on a past date is `missed`, not a completed run; a day with no row and no activity is a rest day — never invent a run for it.
 
-**80/20 Rule**: ~80% of running should be easy, ~20% moderate-to-hard
+### Annotating completion in the plan
 
-How to check:
-- Count minutes at each intensity level
-- Easy/recovery: Zone 1-2 HR or conversational pace
-- Moderate: Zone 3 (tempo range)
-- Hard: Zone 4-5 (intervals, races)
+Annotate exactly once per run, on the FIRST turn after posting where the athlete (1) acknowledges, (2) asks for a Strava push (annotate before invoking strava-writeback), or (3) pivots to an unrelated topic. If they keep iterating on the analysis itself, don't annotate yet. Never annotate in the same turn as the initial post, and never re-annotate on later revisions.
 
-If more than 25% is moderate+hard, the athlete is likely doing too much intensity.
+Mechanics: `manage_plan(action: "update")`, adding a brief outcome to the session cell in the existing convention — `✅ 12.1km @ 5:08/km, hit tempo target`, or with the key deviation: `✅ 8.2km tempo done at 4:55/km — 30% short on distance`. Preserve every other row exactly.
 
-### 4. Key Metrics to Flag
+## Clarifying Questions
 
-**Cardiac Drift**:
-- Compare HR in first 15 min vs last 15 min at same pace
-- Drift >10%: dehydration, heat, or insufficient fitness
-- Drift >15%: significant concern
+The triage policy — when a question is allowed to block drafting (unscheduled run, firing confounds, race debrief) and when it is not — lives in the system prompt. This is the how:
 
-**HR Trend Shape** (critical - avoid the endpoints-only fallacy):
-- NEVER characterize HR by comparing only the first and last values of a segment
-- Use the `hr_trend` field on work phases when available - it pre-computes the pattern
-- **step_then_plateau**: HR rises in first 1-3km as body adjusts to the pace, then stabilizes. This is normal cardiovascular response, NOT drift. Describe as "HR settled at X after initial ramp-up" rather than "HR climbed from A to B"
-- **linear_drift**: HR rises progressively throughout. This IS cardiac drift and worth flagging
-- **stable**: HR stays consistent throughout - strong aerobic capacity signal
-- Cross-check: if `cardiac_drift_pct` < 3%, a claim of "concerning HR rise" is almost certainly wrong. Re-examine the per-km data before making such a claim
-- When in doubt, describe the actual shape ("rose for 2km then held steady at 167-170") rather than the delta ("rose 12 beats")
+- **One question per run, plain prose**, like a coach who reviewed the file and wants to understand what they're seeing. Good: "The drift suggests something was working against you in the second half — were you well-hydrated going in, or was it one of those days?" Bad: a numbered interview.
+- **The question is the last thing in the response — no review, no save, no tools after it.** Free text doesn't pause execution; the only way to wait is to stop. The reply arrives as a new turn; revise + review + save happen there. If you wouldn't stop and wait for the answer, you aren't asking — you're speculating in prose.
+- **Class C gaps get hedged, not asked about.** Write both branches ("if the cold had cleared, X; if you pushed through run-down, flag it — the physiology shows no cost either way") and keep the batch moving.
+- **In a batch**: at most 1-2 questions total, bundled into one turn, for the most coaching-consequential ambiguity only.
+- **Using the answer**: revise where it changes the read (a sentence of correction, not a rewrite), then continue the normal review → save → post flow. If the answer reveals a recurring pattern, save it to memory once the conversation settles.
 
-**Cadence**:
-- Optimal: 170-185 spm for most runners
-- Below 160: may indicate overstriding
-- Cadence naturally increases with speed
+## Multi-Run Batching
 
-**Pace Variability in Easy Runs**:
-- High variability on flat terrain = inconsistent effort
-- Suggest running by feel/HR rather than pace
+Runs that sync together are a connected batch, not independent silos:
 
-**Elevation Impact**:
-- Adjust pace expectations for hilly runs
-- ~5-8s/km per 100m elevation gain is normal
+1. **Gather everything first** (get_run_analysis + zones + plan compliance for every run) before drafting any read.
+2. **Draft chronologically (oldest first)**, each read aware of its siblings — prior load and recovery state behind it, what the day was setting up ahead of it. Reference siblings by verified weekday/date.
+3. **Give the reviewer sibling context**: when a draft references a sibling run, include that sibling's key data (date, weekday, distance, pace, HR, type) in the reviewer dispatch so the reference verifies instead of being flagged as unsupported.
+4. **Batch synthesis** after the per-run reads when the runs form a related set (back-to-back days, daily double, weekend block): cumulative load and the through-line. Skip only when the runs are genuinely unrelated, and say so briefly.
+5. **Scope**: the synced runs plus the normal recent context the tools already surface — not a season review.
 
-## Feedback Guidelines
+## Feedback Tone
 
-When giving feedback:
-1. **Lead with the positive**: "Great consistency on those intervals"
-2. **Be specific**: Reference actual paces, distances, dates
-3. **Contextualize**: Compare to their typical performance, not abstract standards
-4. **One key takeaway**: Don't overwhelm with 10 observations
-5. **Actionable**: If something needs to change, say what and how
-6. **Check memory**: Have they shown this pattern before? Reference it.
-
-## Red Flags
-
-- HR significantly higher than usual at same pace
-- Pace dropping on easy runs (fatigue accumulation)
-- Inability to hit interval targets they could hit 2 weeks ago
-- Increasing RPE for same objective effort
-- Missing workouts or cutting them short
-
-## When to Ask Clarifying Questions
-
-The data answers most questions, and a hedged draft answers most of the rest. "Subjective context would change my read" is *not* a reason to ask — that is true of almost every run, and it is exactly the trap that turns analysis into an interview. Ask only when the data is structurally insufficient to draft at all (the two cases below); otherwise draft and hedge.
-
-### The test: can you draft without the answer?
-
-Ask **only when you cannot produce a meaningful, non-misleading draft without it.** Asking ends the response and saves no analysis (see "How to Ask"), so a hedged draft always beats a blocked turn. Two cases clear that bar — and only two. They mirror the triage gate in the system prompt's "New Run Analysis" protocol:
-
-- **Unscheduled run** — intent is structurally unknowable, so plan-vs-actual (required depth) can't be written. Ask one question about intent.
-- **Confounds fire** — lap-derived metrics are untrustworthy, so Class B claims would be actively wrong. Ask one targeted question about the confound (or lean on `stream_analysis.phases`).
-
-If you can write the read and hedge the gap, you draft. That is the whole rule.
-
-### Not a trigger: "this would change my score" / "I can't read it from the data"
-
-Class C uncertainty — illness, how the legs felt, sleep, whether an overshoot was deliberate, perceived effort — **cannot be derived from data and is not grounds to ask** on a scheduled run with clean confounds. It *feels* like it should be, because it genuinely affects the coaching read. But the Class C rule is to **hedge or omit**, not block. Write both branches:
-
-> "At 32.8km you went past even the uncapped 30km target. If the cold had cleared, this is a strong Z2 long run your body absorbed cleanly (drift 3.8%, HR mid-Z2). If you were still run-down and pushed through, flag it — but the physiology shows no cost either way."
-
-That delivers the analysis *and* surfaces the open question without halting the batch. The signals that used to justify a question here — elevated drift, unexplained fade, long gaps, high load — are all **draft-and-hedge**: name the hypothesis, hedge the cause, recommend accordingly. Don't stop for them.
-
-### Also don't ask when
-
-- The data tells the full story (clean intervals, comfortable Z2 run, long run that went as planned)
-- You'd ask only to confirm what you can already conclude
-- The athlete, memory, or plan context already answers it — check first
-- You've already asked about another run this session and this signal isn't more significant
-
-**Races are the opposite case.** A race (RACE DAY in the plan, ≥4h elapsed, or a first-of-kind distance) gets a short pre-draft debrief — see the Race / Ultra Assessment section. "The result is the context" does not hold for races: the result is the *outcome*; the athlete holds the context (fueling, limiter sequence, stop strategy) that the data cannot contain.
-
-### How to Ask
-
-One question per run, plain prose. It should feel like a coach who reviewed the session file and wants to understand what they're seeing.
-
-Good: "The drift suggests something was working against you in the second half — were you well-hydrated going in, or was it one of those days?"
-
-Bad: "I have some questions: 1) How was hydration? 2) How was sleep? 3) Was this the intended effort?"
-
-**Critical: the question must be the last thing in your response — no review, no save, no further tool calls after it.** The free-text question does not pause execution; the only way to actually wait for an answer is to stop emitting tools. The athlete's reply arrives as a new user turn; revise + review + save happen in that next turn. (See the "New Run Analysis" protocol in the system prompt for the exact flow.)
-
-If you would not stop and wait for the answer, you are not actually asking a question — you are speculating in prose. Either commit to waiting (end response after the question) or don't ask.
-
-### Using the Answer
-
-The athlete's reply arrives in the next turn. Then:
-
-1. **Acknowledge and update**: revise your interpretation where the answer changes it. A sentence of correction is enough — no full rewrite. Compose the updated draft silently: before the post step, the full draft exists only inside the reviewer dispatch and the save. The athlete sees the analysis exactly once, at step 4.
-2. **Run the review step**: dispatch analysis-reviewer with the revised draft.
-3. **Save**: call save_run_analysis(detailed_analysis=...) after review passes.
-4. **Post the analysis in chat and stop.** Its first and only appearance in chat. Wait for the athlete's reaction before any Strava offer or further persistence.
-5. **Pattern check**: if the answer reveals a recurring pattern (always drifts in afternoon runs, consistently pushes easy days too hard), save to memory with write_memory once the conversation settles.
-6. **Strava description**: only when the athlete later asks to push. The strava-writeback skill produces a separate description from the saved coaching analysis.
-
-### Multi-Run Batching
-
-When several runs sync together (startup sync, or a weekly review), they are a **connected batch, not independent silos**. A short shakeout reads differently once you know a long run followed it the next day. Analyze them with mutual awareness:
-
-**Process:**
-1. **Gather all of them first.** Pull get_run_analysis (+ zones, plan compliance) for every run in the batch before drafting any read. You need the whole picture to place each run.
-2. **Draft in chronological order (oldest first).** Each run's read should be aware of its siblings — the run(s) before it (cumulative load, recovery state, what it was recovering from) and the run(s) after it (what the day was setting up). Reference siblings by their verified weekday/date from plan compliance, never by guessed day.
-3. **Give the reviewer the sibling context.** When you dispatch analysis-reviewer for a run whose draft references another run in the same batch ("the real volume came the next day", "the morning's shakeout"), include that sibling's key data (date, weekday, distance, pace, HR, type) in the reviewer's prompt. Otherwise the reviewer has no way to verify the reference and will (correctly, given its packet) flag it as unsupported. Cross-batch references are legitimate — make them verifiable.
-4. **Add a batch synthesis** after the per-run reads when the runs form a related set — back-to-back days, a daily double, a weekend block, a same-week progression. Cover cumulative load across the batch and the through-line (e.g. "both weekend runs came in under your easy-pace floor with controlled HR"). This is a first-class part of a batch analysis, not an optional flourish — produce it unless the runs are genuinely unrelated (different types, no shared narrative), in which case say so briefly and skip it.
-5. **Scope: the batch + normal recent context only.** Use the synced runs plus the recent training context the tools already surface (7d load, similar runs). Do NOT pull or re-analyze the wider history — this is a bounded recent batch, not a season review.
-
-**Asking questions in a batch:**
-- Don't ask per-run questions for every activity — that becomes an interview.
-- Pick at most 1-2 runs with the most coaching-consequential ambiguity.
-- If you ask, the question(s) are the last thing in the response — no reviews or saves happen this turn. The next turn (after the athlete answers) is where review + save run for all the analyzed drafts.
-- If no run has a genuinely ambiguous signal, skip the follow-up entirely and proceed straight to per-run review + save in this turn.
+Lead with the positive; be specific (actual paces, distances, dates); contextualize against the athlete's own baseline, not abstract standards; one key takeaway, not ten observations; make change actionable (what and how); check memory for whether the pattern has appeared before.

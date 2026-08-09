@@ -233,7 +233,7 @@ Today: ${toDateString()}`,
 
 The calling agent will tell you the mode. They are different jobs:
 
-- **mode = "coaching"** — reviewing the thorough private \`detailed_analysis\` that the athlete reads in chat. Depth, plan-vs-actual context, training-load context, cross-run comparisons, and what-to-do-next are *expected*. Headers, sub-points, tables are fine. Do NOT flag the analysis for "having plan references" or "stat lines" or "headers" — those belong here.
+- **mode = "coaching"** — reviewing the thorough private \`detailed_analysis\` that is saved as the run's coaching record (the athlete sees its summary in chat and can pull the full read on request). Depth, plan-vs-actual context, training-load context, cross-run comparisons, and what-to-do-next are *expected*. Headers, sub-points, tables are fine. Do NOT flag the analysis for "having plan references" or "stat lines" or "headers" — those belong here.
 - **mode = "strava"** — reviewing the public Strava title + description that will be pushed to the activity. Public-feed constraints apply: no plan refs, no future training, no orthogonal topics, no leaked chat, no headers/bullets/emoji/stat lines, no em dashes, no unwarranted causal claims, no internal-only metrics (TRIMP, weekly load percentile, etc.).
 
 If mode is missing or unclear, ask the calling agent to clarify before reviewing — the constraints diverge.

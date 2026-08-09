@@ -1,0 +1,139 @@
+# Run-analysis output policy scenarios
+#
+# Born from a real regression (session 93ae60b2, 2026-08-09): the coach wrote a
+# 1,846-word analysis for two ordinary runs, and spent a section "defending" the
+# athlete's sarcastic activity title as if it were a claim to adjudicate.
+# These cases pin the two output policies that failed:
+#   1. Athlete titles are voice, not claims — execution is graded against the
+#      plan and the data only.
+#   2. Chat output is a glanceable summary; depth lives in the saved record.
+#
+# Harness note: the eval MCP server exposes query_activities/manage_plan but not
+# get_run_analysis / save_run_analysis / the analysis-reviewer subagent, so the
+# full New Run Analysis pipeline cannot run here. These rubrics judge OUTPUT
+# properties (stance, shape, length) only — do not penalize missing pipeline
+# steps like review or save.
+#
+# Fixture: trail-prep (Mikko, LT1 160 / LT2 175 / max 188; easy HR band ~141-160).
+# Probe runs:
+#   2000000290 Sat 2026-02-14 — 'vuoret kutsuu w/ J - "chill zone 2" haha'
+#     15.8km trail, 1h52 (7:05/km), 310m gain, avg HR 172, max 184.
+#     Planned: easy trail long run. Even with a generous ~+10% trail-terrain HR
+#     allowance (calibrated easy top ≈ 176), avg 172 sits just under LT2 175 —
+#     this was a hard session, not an easy one.
+#   2000000291 Sun 2026-02-15 — 'Sunday shuffle'
+#     9.2km road, 51min (5:33/km), avg HR 152 — mid easy band, clean.
+
+- description: "Sarcastic title: grade vs plan, not the title"
+  vars:
+    fixture: trail-prep
+    prompt: >
+      Runs to analyze — work through each one following the "New Run Analysis"
+      steps in your instructions.
+
+      New runs:
+      - 2026-02-14: 'vuoret kutsuu w/ J - "chill zone 2" haha' (id: 2000000290) — 15.8km trail @ 7:05/km
+      - 2026-02-15: 'Sunday shuffle' (id: 2000000291) — 9.2km @ 5:33/km
+
+      Plan context — compare each run against what was scheduled:
+      - Run 2000000290 (Saturday 2026-02-14) → Planned: Easy trail long run ~1h45 — easy effort, walk the steep bits
+      - Run 2000000291 (Sunday 2026-02-15) → Planned: Easy Z2 recovery run
+
+      These 2 runs synced together — analyze them as one batch.
+  assert:
+    - type: llm-rubric
+      value: |
+        You are evaluating a running coach's analysis of two runs for Mikko
+        (HR zones: LT1 160, LT2 175, max 188; easy band roughly 141-160 bpm).
+
+        Ground truth:
+        - Saturday 2026-02-14, titled 'vuoret kutsuu w/ J - "chill zone 2" haha'
+          (the quoted "chill zone 2" is the athlete being sarcastic/jokey):
+          15.8km trail run, 1h52, 310m gain, avg HR 172, max 184. It was
+          PLANNED as an easy-effort trail long run. Avg HR 172 is far above the
+          easy band (141-160) and just under threshold (LT2 175). Even granting
+          that technical trail elevates HR ~10% at matched effort, this was a
+          hard session run hard — a genuine deviation from the easy
+          prescription.
+        - Sunday 2026-02-15 'Sunday shuffle': 9.2km, 51min, avg HR 152 —
+          squarely mid easy band, exactly as planned. Nothing to flag.
+
+        Score these criteria:
+
+        1. PLAN-GRADING (most important): Does the coach clearly state that
+           Saturday exceeded its easy prescription — that it was a hard
+           session in a slot that asked for easy? Score 5 if this is the lead
+           finding for Saturday. Score 1 if the coach concludes the run was
+           "basically easy" / "the label holds up" by leaning on terrain
+           adjustments, or never compares against the planned easy effort.
+
+        2. TITLE STANCE: Does the coach avoid treating the sarcastic title
+           text ("chill zone 2") as a claim to verify, defend, or refute?
+           A light nod to the athlete's own words is fine. Score 1 if the
+           analysis contains an argument structured around whether the title
+           was honest/accurate (e.g. "the label was closer to honest than the
+           number looks"). Score 5 if execution is graded purely against the
+           plan and the data.
+
+        3. CALIBRATION SYMMETRY: If the coach mentions that trail terrain
+           elevates HR, is it used to calibrate the expectation (how much of
+           the raw number was terrain tax) rather than to excuse the session?
+           Score 5 if terrain context is present but the hard-session verdict
+           stands; score 3 if terrain is not mentioned at all; score 1 if
+           terrain is used to conclude the effort was fine.
+
+        4. NO FABRICATION: Does the coach avoid asserting the athlete's
+           intent, feelings, or mid-run decisions that no data supports
+           (e.g. "you decided to push", "it felt strong")? Hedged hypotheses
+           are fine. Score 1 if unhedged Class-C claims appear.
+
+- description: "Clean easy run: summary is the analysis"
+  vars:
+    fixture: trail-prep
+    prompt: >
+      Runs to analyze — work through each one following the "New Run Analysis"
+      steps in your instructions.
+
+      New runs:
+      - 2026-02-15: 'Sunday shuffle' (id: 2000000291) — 9.2km @ 5:33/km
+
+      Plan context — compare each run against what was scheduled:
+      - Run 2000000291 (Sunday 2026-02-15) → Planned: Easy Z2 recovery run
+  assert:
+    - type: llm-rubric
+      value: |
+        You are evaluating the CHAT OUTPUT SHAPE of a running coach's analysis
+        of one ordinary, clean easy run for Mikko (easy HR band ~141-160):
+        Sunday 2026-02-15 'Sunday shuffle', 9.2km, 51min (5:33/km), avg HR 152,
+        42m gain. Planned as an easy Z2 recovery run; delivered exactly that.
+        There is genuinely nothing to flag.
+
+        The coach's instructions say: chat gets a glanceable summary (a
+        one-line verdict plus a few short labelled lines); depth is saved
+        separately and offered on request; "nothing to flag" and "no change"
+        are complete, correct answers; a paragraph concluding "this was fine"
+        should not exist.
+
+        Score these criteria:
+
+        1. SUMMARY-FIRST: Does the response lead with a scannable summary —
+           a one-line verdict plus short labelled lines (session / vs plan /
+           flag / next or similar) — rather than opening with prose analysis?
+           Score 5 if yes; 1 if the verdict is buried mid-text.
+
+        2. PROPORTIONATE LENGTH: Is the response short, as befits a clean easy
+           run with nothing to flag? Score 5 if the whole response is roughly
+           under 200 words; 3 if 200-400 words; 1 if over ~600 words or if it
+           has multiple headed analysis sections for this unremarkable run.
+
+        3. NO NARRATED NORMALITY: Does the coach avoid paragraphs whose only
+           conclusion is "this was fine/normal/unremarkable"? Confirming the
+           run matched the plan in a line is good; walking through metrics
+           one by one to conclude each was normal is the failure. Score 1 if
+           such padding paragraphs exist.
+
+        4. DEPTH ON DEMAND: Does the coach offer or reference deeper detail
+           (e.g. the saved full read) rather than dumping derived-metric
+           walkthroughs, research citations, or mechanism paragraphs into
+           chat? Score 5 if depth is offered not dumped; 1 if chat contains
+           multi-paragraph mechanism/citation content for this clean run.

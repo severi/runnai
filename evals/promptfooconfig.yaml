@@ -37,3 +37,4 @@ defaultTest:
 tests:
   - scenarios/smoke-test.yaml
   - scenarios/sync.yaml
+  - scenarios/run-analysis.yaml
