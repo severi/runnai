@@ -24,8 +24,8 @@ const MIN_WALK_SEGMENT_S = 20;
 const MIN_PAUSE_SEGMENT_S = 10;
 /**
  * Signed grade banding. A binary climb/flat cutoff hid gentle 1-3% climbs and
- * downhills inside "flat" (the ULTRA "83 min walked on even ground" misread —
- * recut with signed bands it was 63 min flat, 118 min uphill, 0 downhill).
+ * downhills inside "flat" (a 100km-ultra debrief misread "83 min walked on
+ * even ground" — recut with signed bands it was mostly uphill walking).
  */
 export function gradeToBand(gradePct: number): GradeBand {
   if (gradePct < -1) return "descent";

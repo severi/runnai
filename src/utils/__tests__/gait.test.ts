@@ -190,7 +190,7 @@ describe("computeMovementBreakdown", () => {
   });
 
   // ─── Grade bands ───────────────────────────────────────────────────────────
-  // The ULTRA follow-up failure: a binary climb/flat label with a 3% cutoff
+  // The 100km-ultra follow-up failure: a binary climb/flat label with a 3% cutoff
   // lumped 1-3% gentle climbs AND downhills into "flat", so "83 min walked on
   // even ground" was wrong and the athlete caught it. Signed bands from
   // per-sample grade make the walk-terrain distribution native data.
@@ -257,7 +257,7 @@ describe("computeMovementBreakdown", () => {
   });
 
   // ─── Per-gait-state HR ─────────────────────────────────────────────────────
-  // The ULTRA 100km failure: whole-run avg HR 128 was 65% walking (HR ~110-135)
+  // The 100km-ultra failure: whole-run avg HR 128 was 65% walking (HR ~110-135)
   // blended with 35% running (HR 143-153). Reading 128 as "the effort" produced
   // "engine was never troubled → legs were the limiter". Per-state HR makes the
   // compositional artifact visible in the data itself.

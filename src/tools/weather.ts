@@ -71,7 +71,7 @@ export const getWeatherTool = tool(
     activity_id: z.number().optional().describe("Activity ID — uses the run's recorded start coordinates. Preferred for weather on a specific run; overrides city/lat/lng"),
     latitude: z.number().optional().describe("Latitude (use with longitude, or provide city instead)"),
     longitude: z.number().optional().describe("Longitude (use with latitude, or provide city instead)"),
-    city: z.string().optional().describe("City name for geocoding (e.g., 'Espoo', 'Rotterdam'). Used if lat/lng not provided"),
+    city: z.string().optional().describe("City name for geocoding (e.g., 'Helsinki', 'Berlin'). Used if lat/lng not provided"),
     start_date: z.string().describe("Start date in YYYY-MM-DD format"),
     end_date: z.string().optional().describe("End date in YYYY-MM-DD (defaults to start_date for single day)"),
     granularity: z.enum(["daily", "hourly"]).optional().describe("'daily' (default) = min/max per day. 'hourly' = per-hour temps/precip/wind — use for multi-hour activities and race-day timing questions. Max 3 days per hourly call"),

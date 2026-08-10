@@ -55,7 +55,7 @@ describe("fetchActivityWeather — local-time window selection", () => {
   });
 });
 
-// The ULTRA 100km failure: a 07:09 → 00:25 race spanning 17°C→30°C was stored as
+// The 100km-ultra failure: a 17-hour race spanning 17°C→30°C was stored as
 // the single average "25°C", which the analysis quoted as "the temperature".
 // Multi-hour conditions need the range and the hourly profile, not one number.
 describe("fetchActivityWeather — duration-aware profile", () => {

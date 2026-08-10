@@ -35,3 +35,7 @@ logs/
 
 # Python venv for the Garmin FIT fetcher
 .venv-garmin/
+
+# Python bytecode
+__pycache__/
+*.pyc

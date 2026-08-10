@@ -8,7 +8,7 @@ describe("parseRaceCountdowns", () => {
 
 ## Target Races
 - **Rotterdam Marathon** — Apr 19, 2026 (A race, road, flat) — TARGET 3:30:00 (4:59/km)
-- **Trail Ultra 100km** — Jul 11, 2026 (A race, trail, non-stop, 1350m elev)
+- **Trail Ultra 100km** — Jul 11, 2026 (A race, trail, non-stop, 1400m elev)
 `;
     const today = new Date(2026, 2, 8); // Mar 8, 2026
     const result = parseRaceCountdowns(context, today);

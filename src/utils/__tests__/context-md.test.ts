@@ -82,7 +82,7 @@ describe("replaceContextSection", () => {
 
 describe("looksLikePartialContext", () => {
   test("flags a single-section body sent as a full replace (the wipe scenario)", () => {
-    const partial = "- Phase: POST-ULTRA RECOVERY (started Jul 12)\n- Return progression: two easy jogs";
+    const partial = "- Phase: POST-ULTRA RECOVERY (started recently)\n- Return progression: two easy jogs";
     expect(looksLikePartialContext(CONTEXT, partial)).toBe(true);
   });
 

@@ -172,12 +172,14 @@ describe("parsePlan", () => {
     expect(result[0].weekNumber).toBe(2);
   });
 
-  test("parses real rotterdam plan", () => {
-    const planPath = path.join(process.cwd(), "data/plans/rotterdam-marathon-2026/plan.md");
+  test("parses a real local plan when present (opt-in via RUNNAI_TEST_PLAN_SLUG)", () => {
+    const slug = process.env.RUNNAI_TEST_PLAN_SLUG;
+    if (!slug) return; // skip unless a local plan slug is provided
+    const planPath = path.join(process.cwd(), `data/plans/${slug}/plan.md`);
     if (!fs.existsSync(planPath)) return; // skip if file doesn't exist
 
     const content = fs.readFileSync(planPath, "utf-8");
-    const result = parsePlan(content, "rotterdam-marathon-2026");
+    const result = parsePlan(content, slug);
 
     // Should have many workouts across 18 weeks
     expect(result.length).toBeGreaterThan(50);
@@ -299,7 +301,7 @@ Running stays fully aerobic this week.
 | Mon Aug 3 | **Lift A** — lift only, no run |
 | Tue Aug 4 | Easy Z2 run |
 | Fri Aug 7 | Rest |
-| Sat Aug 8 | **Trail long run ~2h** on Forest-type terrain |
+| Sat Aug 8 | **Trail long run ~2h** on rolling trail terrain |
 
 ### Week 2 — Aug 10–16 · First quality
 

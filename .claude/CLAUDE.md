@@ -42,6 +42,13 @@ Each session creates a single JSONL file at `logs/<session-id>.jsonl` (Claude Co
 - Session cost: `jq 'select(.subtype == "result")' < logs/<id>.jsonl`
 - Event tree: `jq '{uuid: .uuid[:8], parent: .parentUuid[:8]?, type, subtype}' < logs/<id>.jsonl`
 
+## Privacy — no real athlete data in tracked files
+This repo is public. Real athlete data lives ONLY in `data/` and `.private/` (both gitignored). Anything committed to git — source, tests, docs, tool descriptions, comments — must use the synthetic persona instead:
+- Name "Alex"; races "Rotterdam Marathon", "Trail Ultra 100km", "Forest Classic Trail Marathon"; plan slugs `rotterdam-marathon-2026`, `forest-hybrid-2026`
+- Never commit the athlete's real races, race names, result/target times, HR zones, lab-test details, or real Strava activity IDs (use fake IDs like 90000000001)
+- Don't hardcode athlete-specific numbers in prompts or tool descriptions — read them from CONTEXT.md / data files at runtime
+- When writing a test from a real debugging incident, genericize the story ("a 100km ultra") — keep the lesson, drop the identity
+
 ## Important
 - Use date_calc for ALL date math
 - Use calculator for pace/distance calculations

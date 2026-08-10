@@ -7,7 +7,7 @@ export const commitDataTool = tool(
   "commit_data",
   "Commit current data changes to git backup. Call when a logical chunk of changes is complete (e.g., after updating a plan, writing memory, saving research). Returns a diff summary so you can verify what changed.",
   {
-    message: z.string().describe("Commit message describing what changed (e.g., 'update rotterdam marathon race week')"),
+    message: z.string().describe("Commit message describing what changed (e.g., 'update marathon race week')"),
   },
   async ({ message }) => {
     try {

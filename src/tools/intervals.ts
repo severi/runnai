@@ -112,15 +112,9 @@ REPEATS: number followed by 'x', then indented steps. MUST have blank line befor
 
 RAMP (progressive): - 10km ramp Z1-Z3 HR Progressive
 
-ATHLETE ZONES (from lab lactate test):
-  Z1 PK1: 110-130 bpm (recovery, 7:45-6:40/km)
-  Z2 PK2: 131-145 bpm (easy/aerobic, 6:39-5:50/km)
-  Z3 VK1: 146-158 bpm (tempo, 5:49-5:01/km)
-  Z4 VK2: 159-170 bpm (threshold, 5:00-4:25/km)
-  Z5 MK: 171-185 bpm (VO2max)
-  Marathon Pace: 5:00/km (~155-165 bpm)
+ATHLETE ZONES: use the athlete's actual HR zones and marathon pace from the athlete context (CONTEXT.md / hr-zones data) — never invent numbers.
 
-Use HR zones (Z1 HR, Z2 HR, etc.) for easy/recovery runs. Use absolute pace (5:00/km Pace) for specific pace targets like marathon pace. Prefer HR zones over pace zones since they match the lab test configuration in intervals.icu.`),
+Use HR zones (Z1 HR, Z2 HR, etc.) for easy/recovery runs. Use absolute pace (e.g. 5:00/km Pace) for specific pace targets like marathon pace. Prefer HR zones over pace zones since they match the zone configuration in intervals.icu.`),
   external_id: z.string().describe("External ID for upsert (from dry run output)"),
   color: z.string().optional().describe(`Hex color code for the workout. Suggested mapping:
   Easy: #4CAF50 (green)
