@@ -633,6 +633,107 @@ describe("computeStreamAnalysis", () => {
     });
   });
 
+  // ─── Tier 3: Within-session relative refinement ────────────────────────────
+  // The absolute work threshold (easyPaceRef × 1.05) cannot separate two
+  // effort modes that both sit above it. Real failure shape: a ~20min tempo
+  // (4:30/km) followed by a cooldown jog at 5:40/km — slower than the tempo by
+  // 70s/km, but inside the hysteresis band (between easyPace×1.05 and ×0.95)
+  // — never exited "work". The coach read a 26min work block, compared it to
+  // the planned ~20min, and called a dead-on-plan session an overshoot.
+
+  describe("phase refinement — session-relative modes", () => {
+    const EASY_REF = 347; // work = faster than 5:30/km, easy = slower than 6:05/km
+
+    /** Build streams from consecutive constant-pace segments (1s samples). */
+    function makeSegmentedRun(
+      segments: { durationS: number; paceSecPerKm: number; hr?: number }[],
+    ): ActivityStream {
+      const time: number[] = [];
+      const distance: number[] = [];
+      const heartrate: number[] = [];
+      let dist = 0;
+      let t = 0;
+      const hasHr = segments.some(s => s.hr != null);
+      for (const seg of segments) {
+        const speed = 1000 / seg.paceSecPerKm;
+        for (let s = 0; s < seg.durationS; s++) {
+          time.push(t);
+          distance.push(dist);
+          if (hasHr) heartrate.push(seg.hr ?? 0);
+          dist += speed;
+          t++;
+        }
+      }
+      time.push(t);
+      distance.push(dist);
+      if (hasHr) heartrate.push(segments[segments.length - 1].hr ?? 0);
+      return { time, distance, heartrate: hasHr ? heartrate : undefined };
+    }
+
+    test("cooldown in the hysteresis band is split out of the work block", () => {
+      const streams = makeSegmentedRun([
+        { durationS: 300, paceSecPerKm: 384, hr: 130 },  // warmup 6:24/km — easy
+        { durationS: 1200, paceSecPerKm: 270, hr: 162 }, // tempo 4:30/km — work
+        { durationS: 360, paceSecPerKm: 340, hr: 148 },  // cooldown 5:40/km — band
+      ]);
+      const result = computeStreamAnalysis(streams, TEST_ZONES, 1860, EASY_REF);
+
+      const workPhases = result.phases.filter(p => p.phase === "work");
+      expect(workPhases.length).toBe(1);
+      // Work block ≈ the actual 1200s tempo, not tempo + cooldown (1560s).
+      const workS = workPhases[0].end_s - workPhases[0].start_s;
+      expect(workS).toBeGreaterThan(1140);
+      expect(workS).toBeLessThan(1320);
+      // The tail is not work, and a continuous tempo is not an interval session.
+      expect(result.phases[result.phases.length - 1].phase).not.toBe("work");
+      expect(result.intervals).toEqual([]);
+    });
+
+    test("brisk warmup above the absolute threshold is demoted, not a rep", () => {
+      const streams = makeSegmentedRun([
+        { durationS: 420, paceSecPerKm: 322, hr: 135 },  // warmup 5:22/km — "work" by absolute test
+        { durationS: 90, paceSecPerKm: 400, hr: 140 },   // pre-tempo jog — easy
+        { durationS: 1200, paceSecPerKm: 270, hr: 162 }, // tempo — work
+        { durationS: 300, paceSecPerKm: 340, hr: 147 },  // cooldown — band
+      ]);
+      const result = computeStreamAnalysis(streams, TEST_ZONES, 2010, EASY_REF);
+
+      const workPhases = result.phases.filter(p => p.phase === "work");
+      expect(workPhases.length).toBe(1);
+      const workS = workPhases[0].end_s - workPhases[0].start_s;
+      expect(workS).toBeGreaterThan(1140);
+      expect(workS).toBeLessThan(1320);
+      expect(result.intervals).toEqual([]);
+    });
+
+    test("demotion holds without HR (wider pace gap required and met)", () => {
+      const streams = makeSegmentedRun([
+        { durationS: 420, paceSecPerKm: 322 },
+        { durationS: 90, paceSecPerKm: 400 },
+        { durationS: 1200, paceSecPerKm: 270 },
+        { durationS: 300, paceSecPerKm: 340 },
+      ]);
+      const result = computeStreamAnalysis(streams, null, 2010, EASY_REF);
+
+      const workPhases = result.phases.filter(p => p.phase === "work");
+      expect(workPhases.length).toBe(1);
+    });
+
+    test("mixed-pace reps with high HR are NOT demoted (pyramid guard)", () => {
+      // Second rep is 15% slower than the first, but HR stays within a few bpm
+      // — that's fatigue on a genuine rep, not a warmup/cooldown jog.
+      const streams = makeSegmentedRun([
+        { durationS: 300, paceSecPerKm: 256, hr: 168 },  // rep 1 — 4:16/km
+        { durationS: 120, paceSecPerKm: 400, hr: 150 },  // recovery
+        { durationS: 300, paceSecPerKm: 303, hr: 166 },  // rep 2 — 5:03/km
+      ]);
+      const result = computeStreamAnalysis(streams, TEST_ZONES, 720, EASY_REF);
+
+      const workPhases = result.phases.filter(p => p.phase === "work");
+      expect(workPhases.length).toBe(2);
+    });
+  });
+
   // ─── Tier 3: Interval Detection ────────────────────────────────────────────
 
   describe("interval detection", () => {

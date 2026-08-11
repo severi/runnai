@@ -32,7 +32,7 @@ const ZONES: HrZones = { source: "manual", lt1: 155, lt2: 170, max_hr: 185, conf
 const EASY_PACE_REF = 400; // 6:40/km
 
 describe("detectHillProfile — hill-repeat false positives", () => {
-  // Real data from activity 19011649651: a 32.8km Z2 long run over rolling trail,
+  // Real failure shape (activity 90000000005): a 32.8km Z2 long run over rolling trail,
   // recorded with 1km auto-laps. +376m total (~11.5 m/km). The per-km gain/loss
   // alternates ~20 times across 33 laps, which the old detector read as "2x reps".
   // Per-km terrain undulation is NOT workout structure.
@@ -72,7 +72,7 @@ describe("detectHillProfile — hill-repeat false positives", () => {
 });
 
 describe("classifyByPaceAndHr — slow long run is not a recovery run", () => {
-  // Real data from activity 19011649651: 32.8km Z2 long run @ 6:40/km, avg HR 147.
+  // Real failure shape (activity 90000000005): 32.8km Z2 long run @ 6:40/km, avg HR 147.
   // The athlete's easy-pace reference is faster (~6:00/km), so 6:40 lands in the
   // slow-pace branch; at Z2 HR that branch returned "recovery" with no distance
   // guard. A deliberately-slow Z2 long run has the same pace+HR signature as a
@@ -103,6 +103,67 @@ describe("classifyByPaceAndHr — slow long run is not a recovery run", () => {
 
   test("a genuinely short slow Z2 run is still recovery", () => {
     expect(classify(6000).run_type).toBe("recovery");
+  });
+});
+
+describe("classifyStructuredLapRun — session-mode work/rest split", () => {
+  // Real failure shape (activity 90000000006): a continuous ~20min tempo
+  // bracketed by a brisk warmup and cooldown. The old work threshold
+  // (lap-pace median × 0.92) sits a fixed offset below the median — which
+  // lands BETWEEN the session's two pace modes, so the ×0.92 offset cut INTO
+  // the work cluster. The slowest tempo lap (a windy km) fell to "rest", the
+  // remaining work laps read as alternating, and a dead-on-plan tempo was
+  // classified "fartlek 4x4/5min".
+  const TEMPO_PACES = [310, 330, 318, 268, 280, 266, 270, 267, 340, 338];
+  const TEMPO_DISTS = [1000, 1000, 800, 1000, 1000, 1000, 1000, 400, 1000, 800];
+  const tempoLaps = TEMPO_PACES.map((p, i) =>
+    lap(i + 1, TEMPO_DISTS[i], 2, 2, p, i >= 3 && i <= 7 ? 160 : 140),
+  );
+  const tempoDist = TEMPO_DISTS.reduce((a, b) => a + b, 0);
+
+  test("tempo with brisk warmup/cooldown is tempo, not fartlek", () => {
+    const result = classifyRun(
+      { id: 3, distance: tempoDist, moving_time: 2680, average_speed: 3.36,
+        average_heartrate: 150, workout_type: null },
+      tempoLaps, ZONES, EASY_PACE_REF,
+    );
+    expect(result.run_type).toBe("tempo");
+    expect(result.run_type_detail).toContain("4.4km");
+  });
+
+  test("intervals survive a brisk warmup lap (tightening guard)", () => {
+    // 6x1km reps with jog recoveries; warmup/cooldown laps are brisk enough to
+    // land on the fast side of the largest sorted-pace gap (the biggest gap is
+    // reps-vs-jogs). The work-cluster ceiling (median × 1.12) must push the
+    // warmup/cooldown back to rest, or this reads as "8x" with ruined pattern.
+    const paces = [340, 250, 600, 250, 600, 250, 600, 250, 600, 250, 600, 250, 345];
+    const dists = [1000, 1000, 250, 1000, 250, 1000, 250, 1000, 250, 1000, 250, 1000, 1000];
+    const laps6x = paces.map((p, i) => lap(i + 1, dists[i], 1, 1, p, p < 300 ? 168 : 140));
+    const total = dists.reduce((a, b) => a + b, 0);
+
+    const result = classifyRun(
+      { id: 4, distance: total, moving_time: 3000, average_speed: 3.0,
+        average_heartrate: 155, workout_type: null },
+      laps6x, ZONES, EASY_PACE_REF,
+    );
+    expect(result.run_type).toBe("intervals");
+    expect(result.run_type_detail).toBe("6x1km");
+  });
+
+  test("single-mode manual-lap run has no work/rest structure", () => {
+    // Steady pace, irregular manual lap distances — pace wander of a few
+    // sec/km must not be read as modes.
+    const paces = [330, 328, 334, 326, 332, 329, 331, 333];
+    const dists = [1000, 700, 1300, 900, 1100, 600, 1400, 800];
+    const steadyLaps = paces.map((p, i) => lap(i + 1, dists[i], 2, 2, p));
+    const total = dists.reduce((a, b) => a + b, 0);
+
+    const result = classifyRun(
+      { id: 5, distance: total, moving_time: 2574, average_speed: 3.03,
+        average_heartrate: 147, workout_type: null },
+      steadyLaps, ZONES, EASY_PACE_REF,
+    );
+    expect(["intervals", "fartlek"]).not.toContain(result.run_type);
   });
 });
 

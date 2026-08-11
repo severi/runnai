@@ -199,6 +199,21 @@ Where `easySpeed = 1000 / easyPaceRef` (athlete's easy pace in m/s).
 
 Post-processing:
 - Phases shorter than 60s (except stopped) merge into neighbors
+- **Within-session relative refinement** — the absolute threshold cannot
+  separate two effort modes that both sit above it (a 5:40/km cooldown jog
+  after a 4:30/km tempo never exits "work" via the hysteresis band):
+  - Work phases ≥ 300s are split where a 60s rolling average of effort speed
+    runs ≥ 10% below the phase's own median for a sustained (≥ 60s) stretch
+  - HR tail trim: a tail whose avg HR sits ≥ 10 bpm under the phase's median
+    (after the last work-level HR sample) and whose speed is below re-entry
+    level is cut off — cardiac lag makes this conservative
+  - Demotion: a non-dominant work phase (dominant = fastest sustained work
+    mode) is relabeled easy when clearly slower AND HR corroborates — tiers:
+    ≥ 12% slower + HR 8 bpm under; ≥ 5% slower + HR 12 under; any speed +
+    HR 25 under; raw speed below the absolute work threshold (work only via
+    GAP) + HR 8 under. Without HR, demotion needs a ≥ 15% speed gap.
+    The HR conditions guard genuine mixed-pace sessions: a fading rep in a
+    descending pyramid keeps rep-level HR and is never demoted.
 - First "easy" segment covering < 15% of total distance → **warmup**
 - Last "easy" segment starting after 85% of total distance → **cooldown**
 - Other "easy" segments → **recovery**

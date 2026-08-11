@@ -10,7 +10,7 @@ import type {
 } from "../types/index.js";
 import { computeMovementBreakdown } from "./gait.js";
 
-export const STREAM_ANALYSIS_VERSION = 8;
+export const STREAM_ANALYSIS_VERSION = 9;
 
 /** Lap boundary hint for phase detection. */
 export interface LapHint {
@@ -605,14 +605,23 @@ function detectPhases(
   // Merge short phases into neighbors
   const merged = mergeShortPhases(splitPhases, time);
 
+  // Refine against the session's own modes: the absolute easy-pace threshold
+  // cannot separate two effort modes that both sit above it, so a brisk
+  // cooldown (or warmup) reads as "work" forever. Split slower-mode stretches
+  // out of long work phases, demote non-dominant slow work phases, then
+  // re-merge the shorts this creates.
+  const refined = mergeShortPhases(
+    refineWorkPhases(merged, effortSpeed, rawSpeed, hr, time, workThreshold), time
+  );
+
   // Convert to PhaseSegments and label warmup/cooldown
   const totalDist = distance[n - 1] - distance[0];
   const warmupMaxDist = totalDist * 0.15;
   const cooldownMinDist = totalDist * 0.85;
 
   const segments: PhaseSegment[] = [];
-  for (let si = 0; si < merged.length; si++) {
-    const p = merged[si];
+  for (let si = 0; si < refined.length; si++) {
+    const p = refined[si];
     const startS = time[p.startIdx];
     const endS = time[p.endIdx];
     const distM = distance[p.endIdx] - distance[p.startIdx];
@@ -626,7 +635,7 @@ function detectPhases(
       phase = "stopped";
     } else if (si === 0 && p.phase === "easy" && distM < warmupMaxDist && distM > 0) {
       phase = "warmup";
-    } else if (si === merged.length - 1 && p.phase === "easy" && distance[p.startIdx] - distance[0] > cooldownMinDist) {
+    } else if (si === refined.length - 1 && p.phase === "easy" && distance[p.startIdx] - distance[0] > cooldownMinDist) {
       phase = "cooldown";
     } else if (p.phase === "work") {
       phase = "work";
@@ -799,6 +808,245 @@ function mergeShortPhases(
   }
 
   return result;
+}
+
+// --- Within-session relative refinement ---
+
+/** Work phases shorter than this are not sub-segmented (too little signal). */
+const REFINE_MIN_PHASE_S = 300;
+/** Rolling-average window for the within-phase slow/fast decision. */
+const SPLIT_AVG_WINDOW_S = 60;
+/** A windowed sample is "slow" below phase-median effort speed × this. */
+const SPLIT_SLOW_RATIO = 0.9;
+/** A slower-mode stretch must sustain this long to split a work phase. */
+const MIN_SLOW_STRETCH_S = 60;
+/** Tail-trim validation: tail avg speed must be below phase median × this. */
+const TRIM_TAIL_SPEED_RATIO = 0.92;
+/** Demote a work phase slower than dominant × this — if HR corroborates. */
+const DEMOTE_SPEED_RATIO = 0.88;
+/** Without HR, demotion needs a wider speed gap to be safe. */
+const DEMOTE_SPEED_RATIO_NO_HR = 0.85;
+/** HR corroboration: phase avg HR at least this many bpm under the dominant's. */
+const DEMOTE_HR_MARGIN_BPM = 8;
+/** With STRONG HR evidence, demote at a smaller speed gap (brisk warmups
+ * whose GAP-inflated pace lands near work level while HR says easy). */
+const DEMOTE_SPEED_RATIO_HR_STRONG = 0.95;
+const DEMOTE_HR_STRONG_MARGIN_BPM = 12;
+/** HR-dominant demotion: no same-session rep runs this far under the
+ * dominant work HR — only warmups/cooldowns do. Speed is ignored (smoothing
+ * startup and grade noise can fake a work-level pace) beyond a sanity bound. */
+const DEMOTE_HR_ONLY_MARGIN_BPM = 25;
+const DEMOTE_HR_ONLY_MAX_RATIO = 1.05;
+/** Tail trim: the tail's avg HR must sit this far under the phase median. */
+const TRIM_TAIL_HR_MARGIN_BPM = 10;
+/** A sample within this margin of the phase's median HR is still "at work". */
+const TRIM_HR_WORK_FLOOR_BPM = 5;
+/** Dominant work mode must be at least this long to anchor demotion. */
+const DOMINANT_MIN_DURATION_S = 120;
+
+/**
+ * Refine work phases against the session's own effort modes.
+ *
+ * The absolute threshold (easyPaceRef × 1.05) answers "faster than the
+ * athlete's global easy pace?" — but plan compliance needs "which mode of
+ * THIS session is it?". Two failure shapes follow from the absolute test:
+ *
+ * 1. A cooldown/float jog slower than the tempo but inside the hysteresis
+ *    band never exits "work", so a 20min tempo + 6min cooldown reads as one
+ *    26min work block. Fixed by splitting sustained stretches that run ≥12%
+ *    slower than the work phase's own median effort speed.
+ * 2. A brisk warmup or cooldown above the absolute work threshold becomes its
+ *    own "work" phase, polluting interval detection. Fixed by demoting work
+ *    phases ≥12% slower than the dominant (fastest sustained) work mode —
+ *    only when HR agrees it was easier (guards genuine mixed-pace sessions
+ *    like descending pyramids, where the slower rep's HR stays high), or with
+ *    a wider 15% gap when HR is absent.
+ */
+function refineWorkPhases(
+  phases: { phase: string; startIdx: number; endIdx: number }[],
+  effortSpeed: number[],
+  rawSpeed: number[],
+  hr: number[] | null,
+  time: number[],
+  absoluteWorkSpeed: number
+): { phase: string; startIdx: number; endIdx: number }[] {
+  // 1. Split slower-mode stretches out of long work phases, then trim
+  // HR-confirmed cooldown tails the pace hysteresis leaves attached (an
+  // uphill cooldown's GAP speed can flicker around the exit threshold and
+  // keep resetting the sustained-stretch counter; falling HR cannot).
+  const split: { phase: string; startIdx: number; endIdx: number }[] = [];
+  for (const p of phases) {
+    const duration = time[p.endIdx] - time[p.startIdx];
+    if (p.phase !== "work" || duration < REFINE_MIN_PHASE_S) {
+      split.push({ ...p });
+      continue;
+    }
+    for (const sub of splitWorkPhaseByOwnPace(p, effortSpeed, time)) {
+      if (sub.phase === "work" && time[sub.endIdx] - time[sub.startIdx] >= REFINE_MIN_PHASE_S) {
+        split.push(...trimWorkPhaseTailByHr(sub, effortSpeed, hr, time));
+      } else {
+        split.push(sub);
+      }
+    }
+  }
+
+  // 2. Demote non-dominant slow work phases (brisk warmup/cooldown jogs)
+  const works = split.filter(p => p.phase === "work");
+  if (works.length < 2) return split;
+
+  // Dominant = fastest work phase with sustained duration. Fastest (not
+  // longest): a long brisk cooldown must not out-anchor short genuine reps.
+  let dominant: typeof works[number] | null = null;
+  let dominantSpeed = 0;
+  for (const w of works) {
+    if (time[w.endIdx] - time[w.startIdx] < DOMINANT_MIN_DURATION_S) continue;
+    const s = segmentMean(effortSpeed, w.startIdx, w.endIdx);
+    if (s > dominantSpeed) { dominant = w; dominantSpeed = s; }
+  }
+  if (!dominant || dominantSpeed <= 0) return split;
+
+  const dominantHr = hr
+    ? computeSegmentAvgHr(hr, time, dominant.startIdx, dominant.endIdx) : null;
+
+  for (const w of works) {
+    if (w === dominant) continue;
+    const ratio = segmentMean(effortSpeed, w.startIdx, w.endIdx) / dominantSpeed;
+    const wHr = hr ? computeSegmentAvgHr(hr, time, w.startIdx, w.endIdx) : null;
+    let confirmed = false;
+    if (wHr !== null && dominantHr !== null) {
+      if (ratio < DEMOTE_SPEED_RATIO) {
+        confirmed = wHr <= dominantHr - DEMOTE_HR_MARGIN_BPM;
+      } else if (ratio < DEMOTE_SPEED_RATIO_HR_STRONG) {
+        confirmed = wHr <= dominantHr - DEMOTE_HR_STRONG_MARGIN_BPM;
+      } else if (ratio < DEMOTE_HR_ONLY_MAX_RATIO) {
+        confirmed = wHr <= dominantHr - DEMOTE_HR_ONLY_MARGIN_BPM;
+      }
+      // A phase that is work only because of grade adjustment (raw speed
+      // below the absolute work threshold) with HR under the dominant's is
+      // an uphill jog, not a hill rep — genuine hill reps carry rep-level HR.
+      if (!confirmed
+        && segmentMean(rawSpeed, w.startIdx, w.endIdx) < absoluteWorkSpeed
+        && wHr <= dominantHr - DEMOTE_HR_MARGIN_BPM) {
+        confirmed = true;
+      }
+    } else {
+      confirmed = ratio < DEMOTE_SPEED_RATIO_NO_HR;
+    }
+    if (confirmed) w.phase = "easy";
+  }
+
+  return split;
+}
+
+/**
+ * Trim an HR-confirmed cooldown tail off a work phase.
+ *
+ * The tail starts after the LAST sample at work-level HR (within 5 bpm of
+ * the phase's own median) — per-sample threshold walks are defeated by HR
+ * flicker, but "HR never returns to work level again" is a stable boundary.
+ * The candidate tail is then validated as a whole: its average HR must sit
+ * ≥10 bpm under the phase median AND its average effort speed below the work
+ * re-entry level, so a strong negative-split finish (fast, high HR) never
+ * trims. Cardiac lag makes falling HR trail the true transition by ~30-60s,
+ * so this is conservative: it can leave a sliver of cooldown attached, never
+ * cut genuine work. Start-side trimming is deliberately absent — early-phase
+ * HR runs LOW while climbing to the effort (lag again), so a low-HR head is
+ * normal work, not warmup.
+ */
+function trimWorkPhaseTailByHr(
+  p: { phase: string; startIdx: number; endIdx: number },
+  effortSpeed: number[],
+  hr: number[] | null,
+  time: number[]
+): { phase: string; startIdx: number; endIdx: number }[] {
+  if (!hr) return [{ ...p }];
+  const hrMedian = arrayMedian(
+    hr.slice(p.startIdx, p.endIdx + 1).filter(v => v > 0)
+  );
+  if (hrMedian <= 0) return [{ ...p }];
+
+  const hrFloor = hrMedian - TRIM_HR_WORK_FLOOR_BPM;
+  let lastAtWorkHr = p.startIdx;
+  for (let i = p.startIdx; i <= p.endIdx; i++) {
+    if (hr[i] >= hrFloor) lastAtWorkHr = i;
+  }
+  const tailStart = lastAtWorkHr + 1;
+  if (tailStart >= p.endIdx || time[p.endIdx] - time[tailStart] < MIN_SLOW_STRETCH_S) {
+    return [{ ...p }];
+  }
+
+  const speedMedian = arrayMedian(effortSpeed.slice(p.startIdx, p.endIdx + 1));
+  const tailHr = computeSegmentAvgHr(hr, time, tailStart, p.endIdx);
+  const tailSpeed = segmentMean(effortSpeed, tailStart, p.endIdx);
+  const isCooldown = tailHr !== null
+    && tailHr <= hrMedian - TRIM_TAIL_HR_MARGIN_BPM
+    && tailSpeed < speedMedian * TRIM_TAIL_SPEED_RATIO;
+  if (!isCooldown) return [{ ...p }];
+
+  return [
+    { phase: "work", startIdx: p.startIdx, endIdx: lastAtWorkHr },
+    { phase: "easy", startIdx: tailStart, endIdx: p.endIdx },
+  ];
+}
+
+/**
+ * Split a work phase where effort drops ≥10% below the phase's own median for
+ * a sustained (≥60s) stretch. The median is robust to the slow tail as long
+ * as the true work is the phase's majority mode; when the tail dominates
+ * instead, no split fires and the phase is left intact (fails safe).
+ *
+ * The slow/fast decision runs on a 60s rolling average with a single
+ * threshold — NOT per-sample hysteresis. Per-sample thresholds are defeated
+ * by GAP flicker: an uphill cooldown jog oscillates across any sample-level
+ * boundary (short pitches inflate Minetti speed), endlessly resetting a
+ * sustained-stretch counter. Averaged over 60s the two modes separate
+ * cleanly, while a steady block's ~4% wander never dips 10% below its median.
+ */
+function splitWorkPhaseByOwnPace(
+  p: { phase: string; startIdx: number; endIdx: number },
+  effortSpeed: number[],
+  time: number[]
+): { phase: string; startIdx: number; endIdx: number }[] {
+  const phaseSpeed = effortSpeed.slice(p.startIdx, p.endIdx + 1);
+  const median = arrayMedian(phaseSpeed);
+  if (median <= 0) return [{ ...p }];
+
+  const phaseTime = time.slice(p.startIdx, p.endIdx + 1);
+  const windowed = rollingAvgTime(phaseSpeed, phaseTime, SPLIT_AVG_WINDOW_S);
+  const slowSpeed = median * SPLIT_SLOW_RATIO;
+
+  // Maximal same-class runs over the windowed signal
+  const stretches: { slow: boolean; startIdx: number; endIdx: number }[] = [];
+  let slow = windowed[0] < slowSpeed;
+  let start = p.startIdx;
+  for (let i = 1; i < windowed.length; i++) {
+    const s = windowed[i] < slowSpeed;
+    if (s !== slow) {
+      stretches.push({ slow, startIdx: start, endIdx: p.startIdx + i - 1 });
+      slow = s;
+      start = p.startIdx + i;
+    }
+  }
+  stretches.push({ slow, startIdx: start, endIdx: p.endIdx });
+
+  // Only sustained slow stretches split the phase; brief dips stay work
+  const out: { phase: string; startIdx: number; endIdx: number }[] = [];
+  for (const s of stretches) {
+    const duration = time[s.endIdx] - time[s.startIdx];
+    const phase = s.slow && duration >= MIN_SLOW_STRETCH_S ? "easy" : "work";
+    const prev = out[out.length - 1];
+    if (prev && prev.phase === phase) prev.endIdx = s.endIdx;
+    else out.push({ phase, startIdx: s.startIdx, endIdx: s.endIdx });
+  }
+  return out;
+}
+
+/** Median of an array. Returns 0 for empty input. */
+function arrayMedian(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /** Time-weighted average pace (sec/km) for a segment. Inclusive end index. */

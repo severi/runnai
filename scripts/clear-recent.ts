@@ -27,7 +27,10 @@ const ids = rows.map(r => r.id);
 const placeholders = ids.map(() => "?").join(",");
 
 db.exec("BEGIN");
-for (const table of ["activity_streams", "activity_laps", "strava_best_efforts", "best_efforts"]) {
+for (const table of [
+  "activity_streams", "activity_laps", "strava_best_efforts", "best_efforts",
+  "activity_stream_analysis", "activity_analysis", "activity_weather",
+]) {
   db.prepare(`DELETE FROM ${table} WHERE activity_id IN (${placeholders})`).run(...ids);
 }
 db.prepare(`DELETE FROM activities WHERE id IN (${placeholders})`).run(...ids);

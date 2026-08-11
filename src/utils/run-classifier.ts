@@ -183,23 +183,14 @@ function classifyStructuredLapRun(
     return { run_type: "progression", run_type_detail: null, confidence: "high" };
   }
 
-  // Separate work/rest using median pace
-  const medianPace = getMedian(lapPaces);
-  const workThreshold = medianPace * 0.92;
+  // Separate work/rest by the session's own pace modes. The old split
+  // (median × 0.92) put the boundary a fixed offset from the median — which
+  // sits BETWEEN the modes when warmup/cooldown run brisk, slicing into the
+  // work cluster: a continuous tempo lost its slowest work lap to "rest" and
+  // the remainder read as an alternating fartlek.
+  const modes = splitLapModes(lapPaces);
 
-  const workLaps: number[] = [];
-  const restLaps: number[] = [];
-
-  for (let i = 0; i < laps.length; i++) {
-    if (lapPaces[i] <= workThreshold) {
-      workLaps.push(i);
-    } else {
-      restLaps.push(i);
-    }
-  }
-
-  // Need at least 2 work laps to be intervals/fartlek
-  if (workLaps.length < 2) {
+  if (!modes || modes.workLaps.length < 2) {
     // Check for sustained tempo block with warmup/cooldown
     const tempoResult = detectTempoBlock(laps, lapPaces, easyPaceRef);
     if (tempoResult) return tempoResult;
@@ -207,9 +198,25 @@ function classifyStructuredLapRun(
     return classifyByPaceAndHr(activity, hrZones, easyPaceRef);
   }
 
+  const { workLaps, restLaps } = modes;
+
   // Check if work laps alternate with rest laps (interval pattern)
   const hasAlternating = isAlternatingPattern(workLaps, restLaps);
   if (!hasAlternating) {
+    // Consecutive work cluster = a continuous fast block. For sub-long-run
+    // distances that is a tempo, not "unknown". (≥15km keeps its long-run
+    // classification: a fast-finish long run is still a long run.)
+    const isConsecutive =
+      workLaps[workLaps.length - 1] - workLaps[0] + 1 === workLaps.length;
+    if (isConsecutive && activity.distance / 1000 < 15) {
+      const blockLaps = laps.slice(workLaps[0], workLaps[workLaps.length - 1] + 1);
+      const blockDist = blockLaps.reduce((s, l) => s + l.distance, 0);
+      const blockTime = blockLaps.reduce((s, l) => s + l.moving_time, 0);
+      if (blockDist > 0) {
+        const detail = `${(blockDist / 1000).toFixed(1)}km @ ${formatPace((blockTime / blockDist) * 1000)}`;
+        return { run_type: "tempo", run_type_detail: detail, confidence: "high" };
+      }
+    }
     return classifyByPaceAndHr(activity, hrZones, easyPaceRef);
   }
 
@@ -226,6 +233,49 @@ function classifyStructuredLapRun(
   // Irregular distances → fartlek
   const detail = formatFartlekDetail(workLaps, restLaps, laps);
   return { run_type: "fartlek", run_type_detail: detail, confidence: "high" };
+}
+
+/**
+ * Split lap paces into work/rest clusters at the session's own mode boundary.
+ *
+ * 1. Cut at the largest gap in the sorted paces (crude 1-D two-mode split).
+ * 2. Require real separation — fast-cluster mean ≥8% faster than slow-cluster
+ *    mean — else the session is single-mode and there is no work/rest
+ *    structure (returns null).
+ * 3. Tighten: the largest gap can land above a brisk warmup (e.g. reps at
+ *    4:10, warmup 5:40, jog 10:00 — the biggest gap is jog-side), pulling the
+ *    warmup into the work cluster. Intra-mode wander is ≤~10%, so anything
+ *    slower than the work cluster's median × 1.12 is pushed back to rest.
+ */
+function splitLapModes(
+  lapPaces: number[]
+): { workLaps: number[]; restLaps: number[] } | null {
+  if (lapPaces.length < 3) return null;
+  const sorted = [...lapPaces].sort((a, b) => a - b);
+
+  let gapIdx = -1;
+  let bestGap = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1];
+    if (gap > bestGap) { bestGap = gap; gapIdx = i; }
+  }
+  if (gapIdx <= 0) return null;
+
+  const fastMean = sorted.slice(0, gapIdx).reduce((a, b) => a + b, 0) / gapIdx;
+  const slowMean = sorted.slice(gapIdx).reduce((a, b) => a + b, 0) / (sorted.length - gapIdx);
+  if (fastMean > slowMean * 0.92) return null; // modes not separated
+
+  const boundary = (sorted[gapIdx - 1] + sorted[gapIdx]) / 2;
+  const workPaces = lapPaces.filter(p => p <= boundary);
+  const workCeiling = getMedian(workPaces) * 1.12;
+
+  const workLaps: number[] = [];
+  const restLaps: number[] = [];
+  for (let i = 0; i < lapPaces.length; i++) {
+    if (lapPaces[i] <= boundary && lapPaces[i] <= workCeiling) workLaps.push(i);
+    else restLaps.push(i);
+  }
+  return { workLaps, restLaps };
 }
 
 function isProgression(paces: number[]): boolean {
