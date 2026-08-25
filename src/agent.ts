@@ -1,10 +1,36 @@
-import { type Options, type AgentDefinition, type CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import { type Options, type AgentDefinition, type CanUseTool, type HookCallback, type StopHookInput } from "@anthropic-ai/claude-agent-sdk";
 import path from "path";
 import { toDateString } from "./utils/format.js";
 import { buildSystemPrompt } from "./utils/context-builder.js";
 import { getCurrentSessionId } from "./utils/session.js";
 import { coachMcpServer } from "./mcp/server.js";
 import { PROJECT_ROOT } from "./utils/paths.js";
+import { lintReply, formatLintReason, type LintFinding } from "./style-lint.js";
+
+export interface ReplyLintHooks {
+  /** Called when a reply is sent back for a rewrite, so the UI can drop the draft. */
+  onRejected: (findings: LintFinding[]) => void;
+}
+
+/**
+ * Stop hook: run the Voice-rule lint on the finished reply and block once for
+ * a rewrite if it fails. `stop_hook_active` is true on the second stop of the
+ * same turn, and we let that through so a stubborn reply cannot loop.
+ */
+export function makeReplyLintHook(hooks?: ReplyLintHooks): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== "Stop") return {};
+    if (process.env.RUNNAI_STYLE_LINT === "off") return {};
+    const stop = input as StopHookInput;
+    if (stop.stop_hook_active) return {};
+    const text = stop.last_assistant_message;
+    if (!text) return {};
+    const findings = lintReply(text);
+    if (findings.length === 0) return {};
+    hooks?.onRejected(findings);
+    return { decision: "block" as const, reason: formatLintReason(findings) };
+  };
+}
 
 export const agents: Record<string, AgentDefinition> = {
   "plan-creator": {
@@ -405,7 +431,7 @@ Today: ${toDateString()}`,
   },
 };
 
-export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Options> {
+export async function createAgentOptions(canUseTool?: CanUseTool, replyLint?: ReplyLintHooks): Promise<Options> {
   const systemPrompt = await buildSystemPrompt();
 
   return {
@@ -448,6 +474,9 @@ export async function createAgentOptions(canUseTool?: CanUseTool): Promise<Optio
       "Task",
     ],
     ...(canUseTool ? { canUseTool } : {}),
+    hooks: {
+      Stop: [{ hooks: [makeReplyLintHook(replyLint)] }],
+    },
     resume: getCurrentSessionId() ?? undefined,
   };
 }
