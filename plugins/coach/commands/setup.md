@@ -68,13 +68,14 @@ Present the analysis from Phase 1, then start a natural dialogue. Ask whatever f
    - Fill in all sections with real data
    - Include Strava-derived metrics (paces, volume, patterns)
    - In the best efforts / race history section, include your confidence assessment for each distance based on lap analysis (e.g., "5K: ~21:21 (dedicated time trial, high confidence)" or "10K: ~46:39 (from a 12km training run, probably not true best)")
-   - Add their stated goals and concerns
+   - Add their concerns and constraints (goals go through `manage_goals`, see below)
 2. Write initial observations to `write_memory` (observations.md):
    - Training patterns you noticed
    - Volume trends
    - Any anomalies discussed
 3. Write to training-history.md:
    - Current training status and recent milestones
-4. Tell them: "Profile saved! Here's what I know about you: [brief summary]. Use /plan to create a training plan, or just chat about your running."
+4. Record any goal they named with `manage_goals(action: 'add')` — the target race as an `event` goal, anything longer-range as a `horizon` goal (`aspiration` unless they said committed). Do not set a north star here.
+5. Tell them: "Profile saved! Here's what I know about you: [brief summary]. Use /plan to create a training plan, /goals to talk through what you're really building toward, or just chat about your running."
 
 CRITICAL: Do NOT respond with generic "how can I help" during onboarding. Complete all phases!

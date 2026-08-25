@@ -86,6 +86,10 @@ If 3+ indicators present: take an unplanned recovery week.
 - Running in a new city can be its own reward -- easy exploration runs
 - Don't stress about missed runs during short trips (1-3 days)
 
+### When the week falls apart
+
+Illness, a run of missed sessions, a flat patch, a race that went badly: before rearranging workouts, reason from the athlete's north star (system prompt `## Goals`). The lifetime frame — consistency over years beats any single week — usually means the answer is "drop it, don't make it up", and it is worth saying that once, briefly, in those terms. The event goal tells you what is at stake this block; the north star tells you how much that matters.
+
 ### Illness
 - **Above the neck** (cold, sniffles): Can attempt easy running, stop if it worsens
 - **Below the neck** (cough, fever, body aches): Complete rest. No exceptions.

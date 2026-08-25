@@ -16,6 +16,7 @@ import {
   linkResearchTool,
   getPlanComplianceTool,
   getGearTool,
+  manageGoalsTool,
   researchTool,
   saveResearchTool,
   saveRacePredictionTool,
@@ -66,6 +67,8 @@ export const coachMcpServer = createSdkMcpServer({
     linkResearchTool,
     getPlanComplianceTool,
     getGearTool,
+    // Goals
+    manageGoalsTool,
     // Research
     researchTool,
     saveResearchTool,

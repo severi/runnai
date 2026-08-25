@@ -9,6 +9,10 @@ description: Use when designing or restructuring a training block — choosing p
 
 Plan design is exactly where the knowledge base earns its keep. Before structuring a block: `research(listTopics: true)`, pull every topic matching the goal race (distance-specific training, taper duration/structure, course/event research), the athlete's constraints (hybrid/strength concurrency, time-crunched formats), and any special demands (heat, trail, ultra durability, gut training). Ground phase choices in those syntheses and cite the mechanism briefly. If the goal race's distance or a load-bearing constraint has no topic yet, research and `save_research` it *before* drafting the block — the templates below are generic defaults, and the athlete-specific evidence is what adapts them.
 
+## Know What the Block Serves
+
+Before structuring a block, `manage_goals(action: 'list')`. Open the plan's reasoning with the goal it serves (the event goal and, through it, the horizon goal — put the id in the plan's `goal_id:` frontmatter when there is one). Where the block costs another goal something — marathon volume against an ultra aim, running load against a strength phase, a peak against the north star's "still doing this at 70" — say so in a sentence and say why this trade is right now. Goals are the frame for the decision, not a checklist; one clear sentence beats a section.
+
 ## Training Phases
 
 ### Base Phase (4-8 weeks)

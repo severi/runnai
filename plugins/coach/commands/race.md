@@ -6,7 +6,7 @@ user-invocable: true
 
 # Race Prediction
 
-1. Check CONTEXT.md for the athlete's goal race and distance
+1. `manage_goals(action: 'list')` for the athlete's event goals and what they serve; CONTEXT.md for race logistics
 
 2. Delegate to fitness-assessor subagent:
    - Analyze recent 6-8 weeks of training data

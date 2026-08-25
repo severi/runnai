@@ -9,6 +9,7 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 
 ## Key Files
 - `data/athlete/CONTEXT.md` — Hot cache, always in system prompt
+- `data/athlete/goals.json` — Goal hierarchy (north star → horizon → event), rendered as `## Goals` in the system prompt
 - `data/memory/` — Deep memory, agent-managed observations and history
 - `data/strava/activities.db` — SQLite with synced Strava activities
 - `data/plans/` — Training plan files
@@ -17,6 +18,7 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 - Strava: strava_auth, strava_sync, strava_profile, query_activities, best_efforts
 - Memory: read_memory, write_memory, update_context, search_memory, save_session_summary
 - Planning: manage_plan, date_calc, calculator
+- Goals: manage_goals (north star / horizon / event hierarchy in `data/athlete/goals.json`, rendered into the system prompt; guides, never restricts)
 - Analysis: save_race_prediction, get_prediction_history
 - Gear: get_gear (shoe mileage — Strava-authoritative, never quote cached km)
 - Research: research, save_research

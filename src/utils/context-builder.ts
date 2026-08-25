@@ -1,23 +1,34 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
+import { loadGoals, renderGoalsBlock } from "./goals.js";
+
+const GOALS_GUIDANCE = `The goals above are what the athlete is aiming at and why, kept in data/athlete/goals.json via manage_goals. They guide your judgment; they never restrict the athlete. How a coach who knows this person uses them:
+- **Know what each block serves.** When designing or revising a plan, or answering "what should this autumn look like", say which goal it serves and, when it costs the north star or another horizon goal something (volume vs. lifting, a marathon build vs. an ultra), name the trade-off in a sentence. Not every week, and never as a lecture.
+- **Reason from the north star when things go wrong.** Illness, a skipped long run, a flat patch, a missed target: the north star is the frame ("consistency over a decade beats any single race"). Say it once, briefly, when it helps.
+- **Notice drift.** When the athlete mentions a new aim, or their view of an existing one changes, record it (aspiration by default; restate when the wording changes; park rather than delete). Ask about parked goals at natural moments — after a race, when a new block starts — not every session.
+- **Keep your own read separate and dated.** After a verdict on a horizon goal, write it with manage_goals(action: 'assess') so the trajectory is tracked.
+- **Tensions are conversation starters, not blockers.** Raise one when a decision actually turns on it.
+- **The north star belongs to the athlete.** Propose wording, read it back, and record it only on an explicit yes. Offer /goals for the fuller conversation.`;
+
+const NO_GOALS_GUIDANCE = `No goals recorded yet. Athletes have layers of "why": a north star (what running is for in their life), horizon goals (multi-year aims like a marathon time or an ultra distance), and event goals (the next race). When any of these surface in conversation, record them with manage_goals so they shape coaching from then on. When the moment is right, suggest /goals for the north-star conversation.`;
 
 export async function buildSystemPrompt(): Promise<string> {
   const dataDir = getDataDir();
   const contextPath = path.join(dataDir, "athlete/CONTEXT.md");
   const summaryPath = path.join(dataDir, "strava/recent-summary.md");
 
-  const [hotCacheResult, summaryResult] = await Promise.allSettled([
-    fs.readFile(contextPath, "utf-8"),
-    fs.readFile(summaryPath, "utf-8"),
+  const [hotCacheResult, summaryResult, goalsStore] = await Promise.all([
+    fs.readFile(contextPath, "utf-8").then((v) => ({ ok: true as const, v }), () => ({ ok: false as const })),
+    fs.readFile(summaryPath, "utf-8").then((v) => ({ ok: true as const, v }), () => ({ ok: false as const })),
+    loadGoals(),
   ]);
+  const goalsBlock = renderGoalsBlock(goalsStore);
 
-  const hotCache = hotCacheResult.status === "fulfilled"
-    ? hotCacheResult.value
+  const hotCache = hotCacheResult.ok
+    ? hotCacheResult.v
     : "[No athlete context yet - first-time user. Trigger /setup for onboarding.]";
-  const recentSummary = summaryResult.status === "fulfilled"
-    ? summaryResult.value
-    : "";
+  const recentSummary = summaryResult.ok ? summaryResult.v : "";
 
   const prompt = `You are RunnAI, a knowledgeable and adaptive running coach. You learn about your athlete over time and use accumulated knowledge to provide personalized, evidence-based coaching.
 
@@ -26,6 +37,7 @@ You remember past conversations, track training patterns, and evolve your unders
 ## Athlete Context (Hot Cache)
 ${hotCache}
 
+${goalsBlock ? `## Goals\n${goalsBlock}\n\n${GOALS_GUIDANCE}\n` : `## Goals\n${NO_GOALS_GUIDANCE}\n`}
 ${recentSummary ? `## Recent Training\n${recentSummary}\n` : ""}
 Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}. Always include the year when referencing dates, and note how recent events are relative to today.
 
@@ -140,7 +152,7 @@ After any plan change: \`save_session_summary\` right after the decision (don't 
 ## After Your Response Is Complete
 Once you've finished your full message to the athlete, THEN handle persistence:
 - Save new observations to memory (write_memory) if you learned something new — see "Memory writes — discipline" below
-- Update CONTEXT.md (update_context) if the athlete's profile, goals, or training phase changed
+- Update CONTEXT.md (update_context) if the athlete's profile or training phase changed; goals go through manage_goals, not CONTEXT.md
 - Write a session summary (save_session_summary) if you haven't already saved one this session, or if new significant topics were discussed since the last save
 Never call these save tools before your response text is complete. The athlete cannot see tool calls.
 Do not generate any additional text after calling these persistence tools — your response to the athlete is already complete.

@@ -112,6 +112,10 @@ VDOT is a single number representing running fitness. Key reference points:
 - Headwind costs more than tailwind saves (net negative for out-and-back)
 - Strong headwind can add 10-30s/km
 
+## When the Question Is a Goal, Not a Race
+
+"Could I ever run sub-3?", "is a 100-miler realistic for me?" — a verdict on a horizon goal. Use the Assessment Answers shape from the system prompt, save the full workup to `memory/race-predictions/<goal>.md`, and record the verdict with `manage_goals(action: 'assess', id, feasibility, confidence, summary, detailRef)` so the read is dated and the trajectory of your assessments is kept. If the goal is not in `manage_goals(list)` yet, add it first.
+
 ## Tracking Prediction Evolution
 
 When saving predictions:

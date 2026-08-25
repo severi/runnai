@@ -271,6 +271,16 @@ export const commands: Command[] = [
     },
   },
   {
+    name: "goals",
+    description: "Talk through what you're aiming at and why — north star, long-range goals, next events",
+    usage: "/goals",
+    handler: async (_args, ctx) => {
+      await ctx.streamResponse(
+        "Let's talk through my goals. Follow the /goals command in the coach plugin: start from manage_goals(list), have the north-star conversation if there isn't one yet, otherwise review the hierarchy with me."
+      );
+    },
+  },
+  {
     name: "research",
     description: "Look up running science topics",
     usage: "/research <topic> — e.g., /research tempo runs",
