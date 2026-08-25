@@ -27,7 +27,7 @@ Each session creates a single JSONL file at `logs/<session-id>.jsonl` (Claude Co
 ### Event types
 - **`user`** — user messages: `message: { role: "user", content: "..." }`
 - **`assistant`** — raw API response with content blocks + per-turn `usage` (tokens, cache hits)
-- **`system`** — subtypes: `session_start`, `init`, `system_prompt`, `can_use_tool`, `turn_duration`, `result`, `error`, `task_progress`, `model_refusal_fallback`, `model_refusal_no_fallback`, `worker_shutting_down`
+- **`system`** — subtypes: `session_start`, `init`, `system_prompt`, `can_use_tool`, `turn_duration`, `result`, `error`, `task_started`, `task_progress`, `task_notification`, `background_tasks_changed`, `style_lint`, `model_refusal_fallback`, `model_refusal_no_fallback`, `worker_shutting_down`
 - **`progress`** — reserved for future use
 
 ### Debugging with session logs

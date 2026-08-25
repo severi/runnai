@@ -20,6 +20,7 @@ import { useToolTracker, type ActiveTool } from "./hooks/useToolTracker.js";
 import { isSlashCommand, fuse } from "./hooks/useCommandSuggestions.js";
 import { handleSdkMessage, setLastUserUuid, resetTurn, type MessageHandlerState, type ContextUsage } from "./handleSdkMessage.js";
 import { createMessageChannel, type MessageChannel } from "../utils/message-channel.js";
+import { applyTaskEvent, emptyBackgroundTasks, type BackgroundTask, type BackgroundTasks } from "./backgroundTasks.js";
 
 const CONTEXT_FILE = path.join(getDataDir(), "athlete/CONTEXT.md");
 
@@ -47,6 +48,29 @@ function ActiveToolsBar({ tools }: { tools: ActiveTool[] }) {
           {tool.summary && (
             <Box marginLeft={5}>
               <Text color="gray" dimColor italic>{tool.summary}</Text>
+            </Box>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+// Background agents (an Agent call the SDK ran async, e.g. a researcher). These
+// outlive the turn that launched them, so this bar is rendered whenever any are
+// live, including between turns. Same event-driven rule as ActiveToolsBar: no
+// clock-driven redraws.
+function BackgroundTasksBar({ tasks }: { tasks: BackgroundTask[] }) {
+  if (tasks.length === 0) return null;
+
+  return (
+    <Box flexDirection="column">
+      {tasks.map((task) => (
+        <Box key={task.task_id} flexDirection="column">
+          <Text color="magenta" dimColor>  ⏺ background {task.subagent_type ?? "task"}: {task.description}</Text>
+          {task.summary && (
+            <Box marginLeft={5}>
+              <Text color="gray" dimColor italic>{task.summary}</Text>
             </Box>
           )}
         </Box>
@@ -125,6 +149,8 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
   // Extracted hooks
   const toolTracker = useToolTracker();
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTasks>(emptyBackgroundTasks);
+  const backgroundTasksRef = useRef<BackgroundTasks>(backgroundTasks);
 
   const addMessage = useCallback((role: Message["role"], content: string) => {
     if (role === "tool" || role === "debug" || role === "error") {
@@ -201,7 +227,18 @@ export default function App({ resume = false }: { resume?: boolean }) {
 
       // Build agent options first (fast — reads system prompt + recent-summary files).
       // Then pre-warm the subprocess with those options in parallel with startupSync (slow — Strava API).
-      const agentOptions = await createAgentOptions(canUseTool);
+      const agentOptions = await createAgentOptions(canUseTool, {
+        // The Stop hook bounced the reply for a style rewrite. The draft has
+        // streamed but is not yet committed to Static (that happens on the
+        // next tool_use/thinking/result), so drop it here and let the rewrite
+        // stream in its place instead of showing both versions.
+        onRejected: (findings) => {
+          if (turnStateRef.current) turnStateRef.current.currentResponse = "";
+          setStreamingText(null);
+          logEvent("system", { subtype: "style_lint", findings: findings.map((f) => `${f.rule}@${f.line}`) });
+          addMessage("status", `style check: rewriting (${findings.length} issue${findings.length === 1 ? "" : "s"})`);
+        },
+      });
       const warmQueryPromise: Promise<WarmQuery | null> = startup({ options: agentOptions }).catch(() => null);
       warmQueryPromiseRef.current = warmQueryPromise;
 
@@ -287,9 +324,36 @@ export default function App({ resume = false }: { resume?: boolean }) {
             onUsage: setContextUsage,
           };
           for await (const message of q) {
+            // Background-task lifecycle is independent of turn state: an async
+            // agent keeps emitting progress (and its completion) after the
+            // turn that launched it has ended, so apply these before the gate.
+            const taskResult = applyTaskEvent(backgroundTasksRef.current, message);
+            if (taskResult.state !== backgroundTasksRef.current) {
+              backgroundTasksRef.current = taskResult.state;
+              setBackgroundTasks(taskResult.state);
+              const sys = message as { subtype?: string; task_id?: string; status?: string; summary?: string; description?: string };
+              if (sys.subtype === "task_notification" || sys.subtype === "task_started" || sys.subtype === "background_tasks_changed") {
+                logEvent("system", {
+                  subtype: sys.subtype,
+                  task_id: sys.task_id,
+                  status: sys.status,
+                  summary: sys.summary,
+                  description: sys.description,
+                  live_tasks: taskResult.state.tasks.map((t) => t.task_id),
+                });
+              }
+            }
+            if (taskResult.notice) addMessage("system", taskResult.notice);
+
             const state = turnStateRef.current;
             if (state) {
               handleSdkMessage(message, callbacks, state);
+            } else if (message.type === "system" && (message as { subtype?: string }).subtype === "task_progress") {
+              // Between turns handleSdkMessage isn't called; keep the log complete.
+              const sys = message as { task_id?: string; tool_use_id?: string; summary?: string };
+              if (sys.summary) {
+                logEvent("system", { subtype: "task_progress", task_id: sys.task_id, tool_use_id: sys.tool_use_id, summary: sys.summary });
+              }
             }
 
             // Turn complete — flush and signal
@@ -586,6 +650,11 @@ export default function App({ resume = false }: { resume?: boolean }) {
       {/* Active tools progress — hidden during question prompt */}
       {isProcessing && !pendingQuestion && (
         <ActiveToolsBar tools={toolTracker.activeTools} />
+      )}
+
+      {/* Background agents — shown between turns too, they outlive the turn */}
+      {!pendingQuestion && (
+        <BackgroundTasksBar tasks={backgroundTasks.tasks} />
       )}
 
       {/* Debug panel */}
