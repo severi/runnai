@@ -76,4 +76,17 @@ describe("background task tracking", () => {
     expect(r.state).toBe(start);
     expect(r.notice).toBeUndefined();
   });
+
+  test("ambient housekeeping tasks never reach the bar or produce notices", () => {
+    const ambientStarted = { ...started, task_id: "a1", tool_use_id: "tua", ambient: true, subagent_type: undefined };
+    const ambientChanged = {
+      ...changed(["t1"]),
+      tasks: [...changed(["t1"]).tasks, { task_id: "a1", task_type: "local_agent", description: "watch", ambient: true }],
+    };
+    const ambientDone = { ...done, task_id: "a1", tool_use_id: "tua", ambient: true, summary: undefined };
+    const { state, notices } = run([started, ambientStarted, ambientChanged, ambientDone]);
+    expect(state.tasks.map((t) => t.task_id)).toEqual(["t1"]);
+    expect(state.known.a1).toBeUndefined();
+    expect(notices).toEqual([]);
+  });
 });

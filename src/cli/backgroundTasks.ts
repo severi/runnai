@@ -53,12 +53,15 @@ export function applyTaskEvent(state: BackgroundTasks, message: SDKMessage): Tas
     subagent_type?: string;
     summary?: string;
     status?: string;
-    tasks?: { task_id: string; task_type: string; description: string }[];
+    tasks?: { task_id: string; task_type: string; description: string; ambient?: boolean }[];
+    ambient?: boolean;
   };
 
   switch (sys.subtype) {
     case "task_started": {
-      if (!sys.task_id) return { state };
+      // SDK ≥0.3.247 flags housekeeping tasks (skip_transcript, live-update
+      // watchers) as ambient — the CLI never shows them as user work either.
+      if (!sys.task_id || sys.ambient) return { state };
       const known = { ...state.known, [sys.task_id]: { description: sys.description ?? "", subagent_type: sys.subagent_type } };
       const tasks = state.tasks.map((t) =>
         t.task_id === sys.task_id
@@ -71,7 +74,7 @@ export function applyTaskEvent(state: BackgroundTasks, message: SDKMessage): Tas
     case "background_tasks_changed": {
       // Level signal with replace semantics; keep summaries for retained ids.
       const prev = new Map(state.tasks.map((t) => [t.task_id, t]));
-      const tasks = (sys.tasks ?? []).map((t) => ({
+      const tasks = (sys.tasks ?? []).filter((t) => !t.ambient).map((t) => ({
         task_id: t.task_id,
         description: t.description || state.known[t.task_id]?.description || "",
         subagent_type: prev.get(t.task_id)?.subagent_type ?? state.known[t.task_id]?.subagent_type,
@@ -99,7 +102,7 @@ export function applyTaskEvent(state: BackgroundTasks, message: SDKMessage): Tas
     }
 
     case "task_notification": {
-      if (!sys.task_id) return { state };
+      if (!sys.task_id || sys.ambient) return { state };
       const task = state.tasks.find((t) => t.task_id === sys.task_id);
       const tasks = state.tasks.filter((t) => t.task_id !== sys.task_id);
       const { [sys.task_id]: dropped, ...known } = state.known;
