@@ -185,7 +185,7 @@ function deriveSpeed(time: number[], distance: number[]): number[] {
  * Window is defined in seconds, not sample count.
  * Used for 30s pace smoothing and 10s HR smoothing.
  */
-function rollingAvgTime(values: number[], time: number[], windowS: number): number[] {
+export function rollingAvgTime(values: number[], time: number[], windowS: number): number[] {
   const n = values.length;
   const result = new Array<number>(n);
   let left = 0;
@@ -253,7 +253,7 @@ function computeSmoothedGapSpeed(speed: number[], grade: number[], time: number[
  * Zone boundaries: Z1 < LT1*0.88, Z2 < LT1, Z3 < LT2, Z4 < maxHR*0.97, Z5 >= maxHR*0.97.
  * Samples with HR <= 0 or time gaps > 30s are skipped.
  */
-function computeHrZones(hr: number[], time: number[], zones: HrZones): HrZoneDistribution {
+export function computeHrZones(hr: number[], time: number[], zones: HrZones): HrZoneDistribution {
   const z1Max = zones.lt1 * 0.88;  // recovery ceiling
   const z2Max = zones.lt1;          // aerobic ceiling
   const z3Max = zones.lt2;          // tempo ceiling
@@ -392,7 +392,7 @@ function movingAvgSpeed(speed: number[], time: number[], start: number, end: num
  * HRrest estimated as LT1 * 0.65. Gender constant 1.92 (male default).
  * Returns null when max_hr <= estimated resting HR.
  */
-function computeTRIMP(hr: number[], time: number[], zones: HrZones): number | null {
+export function computeTRIMP(hr: number[], time: number[], zones: HrZones): number | null {
   const hrRest = zones.lt1 * 0.65;
   const hrMax = zones.max_hr;
   if (hrMax <= hrRest) return null;

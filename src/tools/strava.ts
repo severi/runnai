@@ -37,6 +37,7 @@ import { saveActivityWeather, getActivitiesWithoutWeather } from "../utils/activ
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
+import { isHrSessionCandidate, ingestHrSession } from "../utils/hr-session.js";
 import { toDateString, toolResult, toolError, formatPace } from "../utils/format.js";
 
 /**
@@ -126,6 +127,26 @@ export const stravaSyncTool = tool(
           await new Promise((resolve) => setTimeout(resolve, 50));
         } catch (error) {
           if (error instanceof Error && error.message === "RATE_LIMITED") break;
+        }
+      }
+
+      // Heart-rate-only sessions (basketball, tennis, ...): one stream call each,
+      // then the deterministic bout analysis, so the read is ready before the
+      // coach opens the session. Best-effort, same rate-limit handling as runs.
+      const newHrSessions = newNonRuns.filter(isHrSessionCandidate);
+      const hrSessionsAnalyzed: StravaActivity[] = [];
+      if (newHrSessions.length > 0) {
+        const zones = await loadHrZones();
+        for (const act of newHrSessions) {
+          try {
+            const streams = await fetchActivityStream(act.id);
+            if (!streams) continue;
+            saveActivityStreams(act.id, streams);
+            if (ingestHrSession(act.id, zones, streams)) hrSessionsAnalyzed.push(act);
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          } catch (error) {
+            if (error instanceof Error && error.message === "RATE_LIMITED") break;
+          }
         }
       }
 
@@ -284,6 +305,9 @@ export const stravaSyncTool = tool(
 
       if (detailFetched > 0) {
         text += `\nBest efforts fetched for ${detailFetched} new run${detailFetched > 1 ? "s" : ""}.`;
+      }
+      if (hrSessionsAnalyzed.length > 0) {
+        text += `\nHeart-rate session analysis ready for ${hrSessionsAnalyzed.map(a => `"${a.name}" (${a.sport_type}, id: ${a.id})`).join(", ")} — read with get_session_analysis.`;
       }
       if (backfillCount > 0) {
         const remaining = getActivitiesWithoutDetail(1).length;

@@ -64,9 +64,13 @@ function SyncStatus({ sync }: { sync: StartupContext["sync"] }) {
   if (sync.status === "new_activities") {
     return <Text color="green">{"↓"} {sync.message}</Text>;
   }
-  if (sync.newRunIds.length > 0) {
+  const h = sync.newHrSessionIds?.length ?? 0;
+  if (sync.newRunIds.length > 0 || h > 0) {
     const n = sync.newRunIds.length;
-    return <Text color="yellow">{"⚠"} Strava synced — {n} run{n === 1 ? "" : "s"} awaiting analysis</Text>;
+    const parts: string[] = [];
+    if (n > 0) parts.push(`${n} run${n === 1 ? "" : "s"}`);
+    if (h > 0) parts.push(`${h} session${h === 1 ? "" : "s"}`);
+    return <Text color="yellow">{"⚠"} Strava synced — {parts.join(" and ")} awaiting analysis</Text>;
   }
   return <Text color="green" dimColor>{"✓"} Strava synced — up to date</Text>;
 }

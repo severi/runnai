@@ -2,10 +2,11 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { getDb } from "../utils/activities-db.js";
 import { toolResult, toolError } from "../utils/format.js";
+import { getHrSessionAnalysis, updateHrSessionDetailedAnalysis } from "../utils/hr-session.js";
 
 export const saveRunAnalysisTool = tool(
   "save_run_analysis",
-  "Save a coaching analysis for a run. `detailed_analysis` is the thorough private coaching read (depth, plan-vs-actual, training-load context, mistakes/learnings, what-to-do-next, cross-run comparisons if relevant). `strava_description` is the optional public-feed version — set it ONLY when pushing to Strava (typically via the strava-writeback skill); leave undefined to keep the existing strava_description. The two are stored separately and intentionally diverge.",
+  "Save a coaching analysis for a run, or the `detailed_analysis` of a heart-rate-only session analysed with get_session_analysis. `detailed_analysis` is the thorough private coaching read (depth, plan-vs-actual, training-load context, mistakes/learnings, what-to-do-next, cross-run comparisons if relevant). `strava_description` is the optional public-feed version — set it ONLY when pushing to Strava (typically via the strava-writeback skill); leave undefined to keep the existing strava_description. The two are stored separately and intentionally diverge.",
   {
     activity_id: z.number().describe("Strava activity ID"),
     detailed_analysis: z.string().optional().describe("Thorough private coaching analysis. Plan-aware, includes context, comparisons, and actionable takeaways. NOT for public consumption. Pass undefined to leave existing detailed_analysis untouched."),
@@ -22,7 +23,21 @@ export const saveRunAnalysisTool = tool(
       ).get(activity_id);
 
       if (!existing) {
-        return toolResult(`No analysis record for activity ${activity_id}. Run get_run_analysis first.`, true);
+        // Heart-rate-only sessions (basketball, tennis, ...) keep their coaching
+        // read on their own record. Strava writeback is a run flow, so only the
+        // private analysis is accepted for them.
+        const session = getHrSessionAnalysis(activity_id);
+        if (session) {
+          if (strava_title !== undefined || strava_description !== undefined) {
+            return toolResult(`Activity ${activity_id} is a ${session.sport_type} session, not a run: strava_title and strava_description are not supported for it. Save detailed_analysis only.`, true);
+          }
+          if (detailed_analysis === undefined) {
+            return toolResult(`No detailed_analysis provided for session ${activity_id}.`, true);
+          }
+          updateHrSessionDetailedAnalysis(activity_id, detailed_analysis);
+          return toolResult(JSON.stringify({ activity_id, saved: true, kind: "hr_session", updated_detailed_analysis: true, saved_at: now }, null, 2));
+        }
+        return toolResult(`No analysis record for activity ${activity_id}. Run get_run_analysis first (or get_session_analysis for a heart-rate-only session).`, true);
       }
 
       if (detailed_analysis === undefined && strava_title === undefined && strava_description === undefined) {

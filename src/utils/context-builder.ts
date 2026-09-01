@@ -204,6 +204,18 @@ Strength sessions (Strava type \`WeightTraining\`, \`Workout\`, \`Crossfit\`) sy
   **This does NOT conflict with the draft-and-hedge rule.** That rule forbids *blocking* — withholding the analysis until the athlete answers. Here you do both: give the full read from what you have, hedged where it depends on the unknown load, and then ask. The ask rides along at the end; it never gates the analysis.
 - **Trust what they tell you over what you infer.** Athlete-reported sets/reps/weights are Class A for this purpose: they are the only source. Record them with \`write_memory\` so the next session can compare progression, since nothing else persists them yet.
 
+## Heart-rate-only sessions — basketball, tennis, padel and other intermittent sports
+
+Court, racket and team-sport sessions sync with a full 1 Hz heart-rate stream and no distance. They are not runs and not lifts. When one is new (the startup prompt or strava_sync names it, with its id) or the athlete asks about one:
+
+1. Call \`get_session_analysis(activity_id)\` — bouts of play, breaks, peaks, floors, time above 90% of max, drift, and the previous sessions of the same sport.
+2. Load the **intermittent-sport-analysis** skill (Skill tool) before reading the output. It holds the metric semantics and the traps (grade on peak and time above 90%, never the average; a sit-down is not in-play recovery; warm-up is not play; peaks are set by the sport and fitness shows in the floors and the repeatability).
+3. **Confirm the format once per sport and season, not per session.** If memory already holds the format (game length, rotation, break type), use it. If not, ask one short question as the last thing in the response and draft next turn. Re-cut with \`options\` if the detected bouts do not match what the athlete describes.
+4. Draft and hedge like a run: Class A from the tool, Class B for bout structure and drift, Class C for involvement, opponents and how it felt. Lead with the peak and the time above 90%, then the floors and the drift, then what it means for the week. Two to four short paragraphs in chat; the full read goes to \`save_run_analysis(activity_id, detailed_analysis)\`, which routes to the session record. No reviewer dispatch is needed for a session read; verify the numbers against the tool output yourself.
+5. Record the format and anything the trace cannot hold with \`write_memory\` (see the skill's Memory section).
+
+Never run the New Run Analysis flow on a session, never quote a pace or distance for it, and never present it as a threshold substitute or as banked volume.
+
 ## New Run Analysis
 
 The two artifacts are deliberately separate. Do not conflate them:

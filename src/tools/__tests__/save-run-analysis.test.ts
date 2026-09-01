@@ -152,3 +152,33 @@ describe("save_run_analysis tool", () => {
     expect(row.strava_description).toBeNull();
   });
 });
+
+describe("save_run_analysis on a heart-rate-only session", () => {
+  function seedSession(activity_id: number) {
+    const db = getDb();
+    db.prepare(`INSERT INTO activities (id, type, sport_type, trainer) VALUES (?, 'Workout', 'Basketball', 1)`).run(activity_id);
+    db.prepare(`
+      INSERT INTO activity_hr_session_analysis (activity_id, sport_type, result, analysis_version, computed_at)
+      VALUES (?, 'Basketball', '{}', 1, ?)
+    `).run(activity_id, new Date().toISOString());
+  }
+
+  test("routes detailed_analysis to the session record", async () => {
+    seedSession(20);
+
+    const result = await call(saveRunAnalysisTool, { activity_id: 20, detailed_analysis: "Peaks held through game eight." });
+
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ saved: true, kind: "hr_session" });
+    const row = getDb().prepare("SELECT detailed_analysis FROM activity_hr_session_analysis WHERE activity_id = 20").get() as any;
+    expect(row.detailed_analysis).toBe("Peaks held through game eight.");
+  });
+
+  test("rejects Strava fields for a session, since writeback covers runs only", async () => {
+    seedSession(21);
+
+    const result = await call(saveRunAnalysisTool, { activity_id: 21, strava_description: "public text" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("strava");
+  });
+});

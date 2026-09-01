@@ -399,3 +399,61 @@ describe("parseRaceCountdowns — bold-wrapped date + weekday prefix", () => {
     expect(out.some(r => r.name.includes("not a race"))).toBe(false);
   });
 });
+
+describe("formatNewRunsPrompt with heart-rate sessions", () => {
+  const base = {
+    recentSummary: "",
+    planExcerpt: null,
+    raceCountdowns: [],
+    weekCompliance: null,
+    newRunPlanContext: [],
+    fitnessDrift: null,
+  };
+
+  test("a session with no runs routes to the heart-rate session flow, not the run flow", () => {
+    const ctx: StartupContext = {
+      ...base,
+      sync: {
+        status: "new_activities",
+        message: '1 new activity synced (0 runs, 0km).\n\nNew heart-rate sessions (analysis ready via get_session_analysis):\n- 2026-09-01: "Night Basketball" (Basketball, id: 90000000001) — 61min, avg HR 150, max 190',
+        newRunIds: [],
+        newHrSessionIds: [90000000001],
+      },
+    };
+    const prompt = formatNewRunsPrompt(ctx);
+    expect(prompt).toContain("90000000001");
+    expect(prompt).toContain("get_session_analysis");
+    expect(prompt).toContain("intermittent-sport-analysis");
+    expect(prompt).not.toContain("Runs to analyze");
+  });
+
+  test("runs and a session together keep both flows", () => {
+    const ctx: StartupContext = {
+      ...base,
+      sync: {
+        status: "new_activities",
+        message: "2 new activities synced.",
+        newRunIds: [1],
+        newHrSessionIds: [2],
+      },
+    };
+    const prompt = formatNewRunsPrompt(ctx);
+    expect(prompt).toContain("New Run Analysis");
+    expect(prompt).toContain("get_session_analysis");
+  });
+});
+
+describe("formatCompactStatus with heart-rate sessions", () => {
+  test("counts sessions awaiting analysis", () => {
+    const ctx: StartupContext = {
+      sync: { status: "up_to_date", message: "", newRunIds: [], newHrSessionIds: [5] },
+      recentSummary: "",
+      planExcerpt: null,
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    expect(formatCompactStatus(ctx)).toContain("1 session awaiting analysis");
+  });
+});

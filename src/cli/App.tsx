@@ -272,7 +272,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
         firstPrompt = protocol
           ? `[Onboarding] Follow this protocol exactly:\n\n${protocol}`
           : "[Session start]";
-      } else if (ctx!.sync.newRunIds.length > 0) {
+      } else if (ctx!.sync.newRunIds.length > 0 || (ctx!.sync.newHrSessionIds?.length ?? 0) > 0) {
         firstPrompt = formatNewRunsPrompt(ctx!);
       } else if (ctx!.fitnessDrift?.should_prompt) {
         // No new runs but fitness drift detected — coach must surface it proactively

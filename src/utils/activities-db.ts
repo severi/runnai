@@ -169,16 +169,53 @@ function runMigrations(db: Database): void {
   addColumn("activity_laps", "elevation_gain", "REAL");
   addColumn("activity_laps", "elevation_loss", "REAL");
 
-  db.exec(`
+  // distance_data is nullable: an indoor session (basketball, gym) carries a
+  // full 1 Hz heartrate stream and no distance. It used to be NOT NULL, which
+  // rejected every such stream at save time. SQLite cannot drop a NOT NULL in
+  // place, so a legacy table is rebuilt once, keeping its rows.
+  const streamsCreateSql = `
     CREATE TABLE IF NOT EXISTS activity_streams (
       activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
       time_data TEXT NOT NULL,
-      distance_data TEXT NOT NULL,
+      distance_data TEXT,
       heartrate_data TEXT,
       altitude_data TEXT,
       grade_smooth_data TEXT,
       cadence_data TEXT,
       fetched_at TEXT
+    );
+  `;
+  db.exec(streamsCreateSql);
+  const distanceCol = (db.prepare("PRAGMA table_info(activity_streams)").all() as { name: string; notnull: number }[])
+    .find(c => c.name === "distance_data");
+  if (distanceCol?.notnull) {
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.exec("BEGIN");
+    db.exec("ALTER TABLE activity_streams RENAME TO activity_streams_legacy");
+    db.exec(streamsCreateSql);
+    db.exec(`
+      INSERT INTO activity_streams
+        SELECT activity_id, time_data, distance_data, heartrate_data, altitude_data, grade_smooth_data, cadence_data, fetched_at
+        FROM activity_streams_legacy
+    `);
+    db.exec("DROP TABLE activity_streams_legacy");
+    db.exec("COMMIT");
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  // Heart-rate-only sessions (court and racket sports, team games). The run
+  // pipeline needs distance; these never have it. One JSON blob per activity
+  // because access is always per activity; detailed_analysis is the coaching
+  // read and survives recomputes.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_hr_session_analysis (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      sport_type TEXT NOT NULL,
+      result TEXT NOT NULL,
+      analysis_version INTEGER NOT NULL,
+      computed_at TEXT NOT NULL,
+      detailed_analysis TEXT,
+      analysis_generated_at TEXT
     );
   `);
 
@@ -707,7 +744,7 @@ export function saveActivityStreams(activityId: number, streams: ActivityStream)
   `).run({
     $activity_id: activityId,
     $time_data: JSON.stringify(streams.time),
-    $distance_data: JSON.stringify(streams.distance),
+    $distance_data: streams.distance ? JSON.stringify(streams.distance) : null,
     $heartrate_data: streams.heartrate ? JSON.stringify(streams.heartrate) : null,
     $altitude_data: streams.altitude ? JSON.stringify(streams.altitude) : null,
     $grade_smooth_data: streams.grade_smooth ? JSON.stringify(streams.grade_smooth) : null,
@@ -724,7 +761,7 @@ export function getActivityStreams(activityId: number): ActivityStream | null {
   if (!row) return null;
   return {
     time: JSON.parse(row.time_data!),
-    distance: JSON.parse(row.distance_data!),
+    distance: row.distance_data ? JSON.parse(row.distance_data) : undefined,
     heartrate: row.heartrate_data ? JSON.parse(row.heartrate_data) : undefined,
     altitude: row.altitude_data ? JSON.parse(row.altitude_data) : undefined,
     grade_smooth: row.grade_smooth_data ? JSON.parse(row.grade_smooth_data) : undefined,

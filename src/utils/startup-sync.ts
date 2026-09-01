@@ -26,6 +26,7 @@ import { fetchActivityWeather } from "./activity-weather.js";
 import { loadHrZones, computeEasyPaceRef } from "./hr-zones.js";
 import { classifyRun, detectHillProfile } from "./run-classifier.js";
 import { generateTrainingPatterns } from "./training-patterns.js";
+import { isHrSessionCandidate, ingestHrSession } from "./hr-session.js";
 import { toDateString, formatPace, weekdayFromDateKey } from "./format.js";
 import { extractPlanWeeks, findCurrentWeekNumber, parsePlan } from "./plan-parser.js";
 import { findActivePlan, getWeeklyPlanCompliance } from "./plan-compliance.js";
@@ -37,6 +38,8 @@ export interface StartupContext {
     status: "up_to_date" | "new_activities" | "error";
     message: string;
     newRunIds: number[];
+    /** Heart-rate-only sessions (basketball, tennis, ...) with analysis ready. */
+    newHrSessionIds?: number[];
     needsAuth?: boolean;
   };
   recentSummary: string;
@@ -211,6 +214,28 @@ export async function startupSync(): Promise<StartupContext> {
           }
         }
 
+        // Heart-rate-only sessions (basketball, tennis, ...): stream + bout analysis
+        const newHrSessions = newActivities.filter(isHrSessionCandidate);
+        const hrSessionsAnalyzed: typeof newActivities = [];
+        if (newHrSessions.length > 0) {
+          try {
+            const zones = await loadHrZones();
+            for (const act of newHrSessions) {
+              try {
+                const streams = await fetchActivityStream(act.id);
+                if (!streams) continue;
+                saveActivityStreams(act.id, streams);
+                if (ingestHrSession(act.id, zones, streams)) hrSessionsAnalyzed.push(act);
+                await new Promise(r => setTimeout(r, 50));
+              } catch (e) {
+                if (e instanceof Error && e.message === "RATE_LIMITED") break;
+              }
+            }
+          } catch {
+            // best-effort
+          }
+        }
+
         // Backfill historical detail
         const toBackfill = getActivitiesWithoutDetail(100);
         for (const activity of toBackfill) {
@@ -284,6 +309,15 @@ export async function startupSync(): Promise<StartupContext> {
           }
         }
 
+        if (hrSessionsAnalyzed.length > 0) {
+          msg += "\n\nNew heart-rate sessions (analysis ready via get_session_analysis):";
+          for (const act of hrSessionsAnalyzed) {
+            const date = toDateString(new Date(act.start_date_local));
+            const mins = Math.round(act.elapsed_time / 60);
+            msg += `\n- ${date}: "${act.name}" (${act.sport_type}, id: ${act.id}) — ${mins}min, avg HR ${act.average_heartrate ?? "?"}, max ${act.max_heartrate ?? "?"}`;
+          }
+        }
+
         newRunDates = newRuns.map(r => ({
           id: r.id,
           date: toDateString(new Date(r.start_date_local)),
@@ -293,6 +327,7 @@ export async function startupSync(): Promise<StartupContext> {
           status: "new_activities",
           message: msg,
           newRunIds: newRuns.map(r => r.id),
+          newHrSessionIds: hrSessionsAnalyzed.map(a => a.id),
         };
       }
     }
@@ -465,9 +500,13 @@ export function formatCompactStatus(ctx: StartupContext, today: Date = new Date(
     sections.push(`✗ ${ctx.sync.message}${ctx.sync.needsAuth ? " — run /strava-auth" : ""}`);
   } else if (ctx.sync.status === "new_activities") {
     sections.push(`↓ ${ctx.sync.message.split("\n")[0]}`);
-  } else if (ctx.sync.newRunIds.length > 0) {
+  } else if (ctx.sync.newRunIds.length > 0 || (ctx.sync.newHrSessionIds?.length ?? 0) > 0) {
+    const parts: string[] = [];
     const n = ctx.sync.newRunIds.length;
-    sections.push(`✓ Synced · ${n} run${n === 1 ? "" : "s"} awaiting analysis`);
+    if (n > 0) parts.push(`${n} run${n === 1 ? "" : "s"}`);
+    const h = ctx.sync.newHrSessionIds?.length ?? 0;
+    if (h > 0) parts.push(`${h} session${h === 1 ? "" : "s"}`);
+    sections.push(`✓ Synced · ${parts.join(" and ")} awaiting analysis`);
   } else {
     sections.push("✓ Synced · no new activities");
   }
@@ -575,9 +614,20 @@ function stripMarkdown(s: string): string {
 }
 
 export function formatNewRunsPrompt(ctx: StartupContext): string {
-  let prompt = `Runs to analyze — work through each one following the "New Run Analysis" steps in your instructions. Some may be freshly synced; others may be from prior sessions where analysis didn't complete.
+  const hrSessionIds = ctx.sync.newHrSessionIds ?? [];
+  const hasRuns = ctx.sync.newRunIds.length > 0;
+
+  let prompt = hasRuns
+    ? `Runs to analyze — work through each one following the "New Run Analysis" steps in your instructions. Some may be freshly synced; others may be from prior sessions where analysis didn't complete.
+
+${ctx.sync.message}`
+    : `New activity to analyze.
 
 ${ctx.sync.message}`;
+
+  if (hrSessionIds.length > 0) {
+    prompt += `\n\n**Heart-rate session${hrSessionIds.length === 1 ? "" : "s"} to analyze (id${hrSessionIds.length === 1 ? "" : "s"}: ${hrSessionIds.join(", ")})** — this is not a run. Follow the "Heart-rate-only sessions" section in your instructions: call get_session_analysis for each id, load the **intermittent-sport-analysis** skill (Skill tool) before reading the output, and save the read with save_run_analysis(detailed_analysis). Do not run the New Run Analysis flow on these.`;
+  }
 
   // Pair each new run with its planned session so the LLM can compare.
   // Weekday is included so the agent never re-derives it (see date-handling rules).
