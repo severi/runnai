@@ -439,17 +439,22 @@ export async function createAgentOptions(canUseTool?: CanUseTool, replyLint?: Re
 
   return {
     cwd: PROJECT_ROOT,
-    model: "claude-opus-5",
-    // Pinned rather than the "opus" alias so a family bump is a deliberate edit.
-    // The alias resolves here anyway — the subagents below ride it (model: "opus").
-    // 1M context is native on Opus 5 (no context-1m beta header needed).
-    // `display` must be set explicitly: Opus 5 turns thinking ON by default but
-    // defaults display to "omitted", which streams thinking blocks whose text is
-    // an empty string. Leaving it unset produced a live region that redrew every
-    // few seconds with nothing new in it (14 empty blocks in one turn), reading
-    // as flicker. "summarized" costs nothing extra — display controls visibility
-    // only; thinking happens and is billed the same either way.
-    // Don't set { type: "disabled" }: on Opus 5 that is rejected above effort "high".
+    model: "claude-fable-5-1",
+    // Pinned rather than an alias so a family bump is a deliberate edit. The
+    // subagents below stay on Opus 5 (model: "opus"): bounded, well-specified
+    // tasks where Fable's extra cost buys little.
+    // 1M context is native on Fable 5.1 (no context-1m beta header needed).
+    // Fable 5.1 runs safety classifiers; a benign coaching turn can trip one
+    // (stop_reason "refusal"). With a fallback model the CLI retries the turn
+    // there and emits model_refusal_fallback; without one the turn is dropped.
+    fallbackModel: "claude-opus-5",
+    // Thinking is always on for Fable 5.1 — never set { type: "disabled" }, it
+    // is rejected outright. `display` must be set explicitly: the default is
+    // "omitted", which streams thinking blocks whose text is an empty string.
+    // Leaving it unset produced a live region that redrew every few seconds
+    // with nothing new in it (14 empty blocks in one turn), reading as flicker.
+    // "summarized" costs nothing extra — display controls visibility only;
+    // thinking happens and is billed the same either way.
     thinking: { type: "adaptive", display: "summarized" },
     effort: "high",
     systemPrompt,

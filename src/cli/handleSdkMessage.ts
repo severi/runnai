@@ -92,16 +92,23 @@ export function handleSdkMessage(
         sys.subtype === "model_refusal_fallback" ||
         sys.subtype === "model_refusal_no_fallback"
       ) {
-        // A safety classifier declined the request. Opus 5 runs these, and a
-        // benign coaching turn can trip one. Silence here reads as the coach
-        // ignoring the athlete, so surface it rather than dropping the message.
+        // A safety classifier declined the request. Fable 5.1 (and Opus 5)
+        // run these, and a benign coaching turn can trip one. With a fallback
+        // model configured the CLI retries the turn there, so the athlete got an
+        // answer and only needs a quiet note about who wrote it. Without one the
+        // turn was dropped; silence then reads as the coach ignoring the
+        // athlete, so surface it as an error.
         logEvent("system", {
           subtype: sys.subtype,
           original_model: sys.original_model,
           fallback_model: sys.fallback_model,
           api_refusal_category: sys.api_refusal_category,
         });
-        addMessage("error", sys.content ?? "The model declined this request.");
+        if (sys.subtype === "model_refusal_fallback") {
+          addMessage("debug", `Answered by ${sys.fallback_model ?? "the fallback model"}: ${sys.original_model ?? "the primary model"} declined this turn${sys.api_refusal_category ? ` (${sys.api_refusal_category})` : ""}.`);
+        } else {
+          addMessage("error", sys.content ?? "The model declined this request.");
+        }
       } else if (sys.subtype === "worker_shutting_down") {
         // Graceful host exit — explains an otherwise silent end of session.
         logEvent("system", { subtype: "worker_shutting_down", reason: sys.reason });
@@ -151,7 +158,7 @@ export function handleSdkMessage(
           state.currentResponse += block.text;
           setStreamingText(state.currentResponse);
         } else if (block.type === "thinking") {
-          // Opus 5 thinks by default, so these arrive on most turns. With
+          // Fable 5.1 and Opus 5 think by default, so these arrive on most turns. With
           // display: "summarized" they carry a readable summary; commit it so
           // the redraw this message already triggers (via onUsage below) shows
           // actual progress instead of an empty repaint. Blocks still arrive
