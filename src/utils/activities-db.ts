@@ -322,10 +322,15 @@ export function upsertActivities(activities: StravaActivity[]): void {
       $id, $name, $type, $sport_type, $start_date, $start_date_local,
       $distance, $moving_time, $elapsed_time, $total_elevation_gain,
       $average_speed, $max_speed, $average_heartrate, $max_heartrate, $suffer_score,
-      $average_cadence, $workout_type, $description, $trainer,
+      $average_cadence, $workout_type,
+      COALESCE($description, (SELECT description FROM activities WHERE id = $id)),
+      $trainer,
       $start_latitude, $start_longitude, $gear_id
     )
   `);
+  // `description` is coalesced because the summary list never carries it: an
+  // incremental sync re-upserts the latest activity and would otherwise wipe
+  // the description the detail fetch stored (INSERT OR REPLACE rewrites the row).
 
   const insertMany = db.transaction((activities: StravaActivity[]) => {
     for (const activity of activities) {
@@ -561,6 +566,11 @@ export function upsertStravaBestEfforts(records: StravaBestEffortRecord[]): void
 }
 
 // --- Activity detail ---
+
+/** Store the description from the detail endpoint (the list endpoint has none). */
+export function setActivityDescription(activityId: number, description: string | null): void {
+  getDb().prepare("UPDATE activities SET description = ? WHERE id = ?").run(description, activityId);
+}
 
 export function markActivityDetailFetched(activityId: number): void {
   getDb().prepare("UPDATE activities SET detail_fetched = 1 WHERE id = ?").run(activityId);

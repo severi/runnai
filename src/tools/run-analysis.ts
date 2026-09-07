@@ -10,6 +10,7 @@ import {
 } from "../utils/activity-analysis.js";
 import type { ActivityWeather } from "../utils/activities-db.js";
 import { toolResult, toolError, formatPace } from "../utils/format.js";
+import { athleteNotesFromDescription } from "../utils/athlete-notes.js";
 import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { STREAM_ANALYSIS_VERSION } from "../utils/stream-analysis.js";
 import type { LapSummary, StreamAnalysisResult } from "../types/index.js";
@@ -148,7 +149,7 @@ function buildWeatherOutput(w: ActivityWeather): Record<string, unknown> {
 
 export const getRunAnalysisTool = tool(
   "get_run_analysis",
-  "Get pre-computed deterministic analysis for a specific run. Returns classification, metrics, stream analysis (HR zones, cardiac drift, phases, intervals), and lap summaries. If not yet analyzed, computes analysis on demand. Use this to get structured data for writing Strava descriptions or answering questions about a run.",
+  "Get pre-computed deterministic analysis for a specific run. Returns classification, metrics, stream analysis (HR zones, cardiac drift, phases, intervals), lap summaries, and athlete_notes (the athlete's own Strava description, verbatim — the one Class C source in the data; quote it, never adjudicate it). If not yet analyzed, computes analysis on demand. Use this to get structured data for writing Strava descriptions or answering questions about a run.",
   {
     activity_id: z.number().describe("Strava activity ID"),
   },
@@ -188,6 +189,9 @@ export const getRunAnalysisTool = tool(
 
       const trainingContext = computeTrainingContext(activity_id);
       const activityWeather = getActivityWeather(activity_id);
+      const descriptionRow = getDb().prepare("SELECT description FROM activities WHERE id = ?")
+        .get(activity_id) as { description: string | null } | undefined;
+      const athleteNotes = athleteNotesFromDescription(descriptionRow?.description);
 
       // Build stream metrics for output
       const streamMetrics = sa ? {
@@ -313,6 +317,11 @@ export const getRunAnalysisTool = tool(
         },
         stream_analysis: streamMetrics,
         confounds: computeConfounds(activity_id, record.lap_summaries),
+        // The athlete's own Strava description, verbatim. Class C voice: intent,
+        // feel, off-watch context. Quote it as their account; never grade it or
+        // treat it as a claim to verify. Null when they wrote nothing, or when
+        // the live description is the coach's own earlier push.
+        athlete_notes: athleteNotes,
         detailed_analysis: record.detailed_analysis,
         strava_title: record.strava_title,
         strava_description: record.strava_description,

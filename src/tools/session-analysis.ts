@@ -6,6 +6,7 @@ import { loadHrZones } from "../utils/hr-zones.js";
 import { HR_SESSION_ANALYSIS_VERSION } from "../utils/hr-session-analysis.js";
 import { ingestHrSession, getHrSessionAnalysis, getRecentHrSessions, INTERMITTENT_SPORTS } from "../utils/hr-session.js";
 import { toolResult, toolError } from "../utils/format.js";
+import { athleteNotesFromDescription } from "../utils/athlete-notes.js";
 
 const optionsSchema = z.object({
   bout_enter_bpm: z.number().optional().describe("Smoothed HR at or above this starts a bout. Default: derived from the session's own HR distribution."),
@@ -26,10 +27,11 @@ export const getSessionAnalysisTool = tool(
     try {
       const db = getDb();
       const activity = db.prepare(
-        "SELECT id, name, type, sport_type, start_date_local, elapsed_time, average_heartrate, max_heartrate FROM activities WHERE id = ?"
+        "SELECT id, name, type, sport_type, start_date_local, elapsed_time, average_heartrate, max_heartrate, description FROM activities WHERE id = ?"
       ).get(activity_id) as {
         id: number; name: string | null; type: string; sport_type: string; start_date_local: string;
         elapsed_time: number | null; average_heartrate: number | null; max_heartrate: number | null;
+        description: string | null;
       } | undefined;
       if (!activity) return toolResult(`No activity ${activity_id} in the database. Run strava_sync first.`, true);
       if (activity.type === "Run" || activity.sport_type === "Run") {
@@ -77,6 +79,9 @@ export const getSessionAnalysisTool = tool(
           elapsed_time_s: activity.elapsed_time,
           strava_avg_hr: activity.average_heartrate,
           strava_max_hr: activity.max_heartrate,
+          // The athlete's own Strava description, verbatim (format, who they
+          // played, how it felt). Quote it as their account, never grade it.
+          athlete_notes: athleteNotesFromDescription(activity.description),
         },
         zones_used: { max_hr: zones.max_hr, lt1: zones.lt1, lt2: zones.lt2, source: zones.source, confirmed: zones.confirmed },
         computed_at: record!.computed_at,

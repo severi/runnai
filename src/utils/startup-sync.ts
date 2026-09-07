@@ -11,6 +11,7 @@ import {
   saveActivityStreams,
   upsertStravaBestEfforts,
   markActivityDetailFetched,
+  setActivityDescription,
   upsertActivityLaps,
   computeLapElevation,
   saveActivityWeather,
@@ -131,6 +132,7 @@ export function parseRaceCountdowns(
 
 async function fetchAndStoreDetail(activityId: number): Promise<ActivityStream | undefined> {
   const detail = await fetchActivityDetail(activityId);
+  setActivityDescription(activityId, detail.description);
   if (detail.bestEfforts.length > 0) {
     const records = convertStravaBestEfforts(activityId, detail.bestEfforts);
     upsertStravaBestEfforts(records);
@@ -222,6 +224,9 @@ export async function startupSync(): Promise<StartupContext> {
             const zones = await loadHrZones();
             for (const act of newHrSessions) {
               try {
+                // Description lives only on the detail endpoint; runs get it via
+                // fetchAndStore*Detail, HR sessions need this explicit call.
+                setActivityDescription(act.id, (await fetchActivityDetail(act.id)).description);
                 const streams = await fetchActivityStream(act.id);
                 if (!streams) continue;
                 saveActivityStreams(act.id, streams);

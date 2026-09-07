@@ -28,11 +28,11 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
-function seed(id: number, type: string, sportType: string, date: string, name: string) {
+function seed(id: number, type: string, sportType: string, date: string, name: string, description: string | null = null) {
   getDb().prepare(
-    `INSERT INTO activities (id, name, type, sport_type, start_date_local, elapsed_time, moving_time, average_heartrate, max_heartrate, trainer)
-     VALUES (?, ?, ?, ?, ?, 3600, 3600, 150, 185, 1)`
-  ).run(id, name, type, sportType, date);
+    `INSERT INTO activities (id, name, type, sport_type, start_date_local, elapsed_time, moving_time, average_heartrate, max_heartrate, trainer, description)
+     VALUES (?, ?, ?, ?, ?, 3600, 3600, 150, 185, 1, ?)`
+  ).run(id, name, type, sportType, date, description);
 }
 
 function gameStream(games: number) {
@@ -61,6 +61,14 @@ describe("get_session_analysis tool", () => {
     expect(out.analysis.breaks).toHaveLength(3);
     expect(out.detailed_analysis).toBeNull();
     expect(out.previous_sessions.map((s: any) => s.name)).toEqual(["Week 1"]);
+  });
+
+  test("carries the athlete's Strava description as athlete_notes", async () => {
+    seed(6, "Workout", "Basketball", "2026-09-03T21:04:33Z", "Pickup", "4 games, sat out the last one");
+    saveActivityStreams(6, gameStream(4));
+
+    const out = JSON.parse((await call(getSessionAnalysisTool, { activity_id: 6 })).content[0].text);
+    expect(out.activity.athlete_notes).toBe("4 games, sat out the last one");
   });
 
   test("refuses a run and points at get_run_analysis", async () => {

@@ -183,9 +183,12 @@ const STRAVA_DISTANCE_NAME_MAP: Record<string, string> = {
 
 export async function fetchActivityDetail(
   activityId: number
-): Promise<{ bestEfforts: StravaBestEffort[]; laps: StravaLap[] }> {
+): Promise<{ bestEfforts: StravaBestEffort[]; laps: StravaLap[]; description: string | null }> {
   const accessToken = await getAccessToken();
 
+  // The summary list (/athlete/activities) never carries `description`; only
+  // this detail endpoint does, so it is the single place the athlete's own
+  // notes can enter the pipeline.
   const response = await fetch(
     `https://www.strava.com/api/v3/activities/${activityId}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -202,8 +205,13 @@ export async function fetchActivityDetail(
   const data = (await response.json()) as {
     best_efforts?: StravaBestEffort[];
     laps?: StravaLap[];
+    description?: string | null;
   };
-  return { bestEfforts: data.best_efforts || [], laps: data.laps || [] };
+  return {
+    bestEfforts: data.best_efforts || [],
+    laps: data.laps || [],
+    description: data.description ?? null,
+  };
 }
 
 export interface ActivityUpdate {

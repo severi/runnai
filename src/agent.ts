@@ -328,6 +328,7 @@ Every claim in the draft is one of three classes — flag claims that pretend to
 ### Interpretive (Class C) — flag bare assertions
 The draft must NOT assert Class C content as fact unless one of these supports is present:
 - **Athlete provided context this turn or in prior turns** ("you mentioned...", "you said it was a tempo")
+- **\`athlete_notes\` from get_run_analysis** — the athlete's own Strava description. A draft quoting or paraphrasing it ("you noted the legs were heavy") is athlete-supported; a draft contradicting or grading it is not.
 - **Memory citation** ("memory shows the athlete typically uses Saturdays for...")
 - **Plan context** (\`newRunPlanContext\` or get_plan_compliance) — only for runs that have a plan match
 - **Run-type label provided by get_run_analysis**: if \`run_type\` is set (e.g., "easy", "tempo", "long_run", "intervals") AND the draft uses the matching label, treat as Class B (data-supported), not Class C — the classifier already produced this label deterministically.
@@ -335,7 +336,7 @@ The draft must NOT assert Class C content as fact unless one of these supports i
 Specific Class C terms to watch for:
 - **"warmup" / "warm-up" / "deliberate easy start"**: a slow segment can be warmup, traffic, walk, hill, mechanical, or recovery — data alone doesn't disambiguate. Flag bare assertion.
 - **"tempo finish" / "fartlek" / "intervals"** as INTENT labels for an unscheduled run with no plan match — these claim athlete purpose, not just data shape. Flag bare assertion. (If \`run_type\` from get_run_analysis matches, that's data support — don't flag.)
-- **"felt [X]" / "you noticed [Y]"**: subjective state, only knowable to athlete. Flag unless quoted from athlete or memory.
+- **"felt [X]" / "you noticed [Y]"**: subjective state, only knowable to athlete. Flag unless quoted from athlete (this session or \`athlete_notes\`) or memory.
 - **"ready for [X]" / "body signaling [Y]" / "responding well"**: subjective readiness claims. Flag unless backed by explicit athlete report.
 - **"run by feel" / "enjoyed the city" / "casual"** — atmospheric/intent labels. Flag if not athlete-provided.
 - **Prep-adherence claims (HIGH-FREQUENCY ERROR)**: "the sauna/heat prep paid off", "the strength block showed up", "gut training earned its keep" — the plan *prescribing* supporting work is NOT evidence it was *done*; non-run work leaves no activity data at all. Flag at confidence 90 unless the athlete confirmed doing the work (this session, memory, or a prior saved analysis). The same applies to unverified non-adherence scolding.

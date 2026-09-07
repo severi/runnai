@@ -235,6 +235,7 @@ Athlete-authored free text — activity titles and descriptions — is Class C *
 
 1. **Gather data** for each run ID:
    - Call get_run_analysis(activity_id) — note the \`confounds\` block. Any non-empty \`confounds.warnings\` means lap-derived metrics may be misleading; rely on \`stream_analysis.phases\` for the actual run shape.
+   - Read \`athlete_notes\` in the same result: the athlete's own Strava description, verbatim. It is the one Class C source the data carries (intent, how it felt, what happened off the watch). Use it to answer the triage questions below before asking them, and quote it as their account in the read; never grade or verify it. Null means they wrote nothing.
    - Load the workout-analysis skill (Skill tool) — it is the domain reference: assessment framework by session type, the evidence gate, metric semantics and their traps, calibration reference, and cross-run comparison triggers. Flow and output policy live here in this section, not in the skill.
    - Establish what each run was supposed to be (the startup prompt pairs new runs with their planned sessions; otherwise call get_plan_compliance).
 

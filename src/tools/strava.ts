@@ -19,6 +19,7 @@ import {
   getExistingActivityIds,
   upsertStravaBestEfforts,
   markActivityDetailFetched,
+  setActivityDescription,
   getActivitiesWithoutDetail,
   upsertActivityLaps,
   getActivityLaps,
@@ -39,6 +40,7 @@ import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
 import { isHrSessionCandidate, ingestHrSession } from "../utils/hr-session.js";
 import { toDateString, toolResult, toolError, formatPace } from "../utils/format.js";
+import { STRAVA_ATTRIBUTION } from "../utils/athlete-notes.js";
 
 /**
  * Fetch and store activity detail (best efforts, streams, laps) from Strava.
@@ -48,6 +50,7 @@ async function fetchAndStoreActivityDetail(
   activityId: number
 ): Promise<ActivityStream | undefined> {
   const detail = await fetchActivityDetail(activityId);
+  setActivityDescription(activityId, detail.description);
   if (detail.bestEfforts.length > 0) {
     const records = convertStravaBestEfforts(activityId, detail.bestEfforts);
     upsertStravaBestEfforts(records);
@@ -139,6 +142,9 @@ export const stravaSyncTool = tool(
         const zones = await loadHrZones();
         for (const act of newHrSessions) {
           try {
+            // Description lives only on the detail endpoint; runs get it via
+            // fetchAndStore*Detail, HR sessions need this explicit call.
+            setActivityDescription(act.id, (await fetchActivityDetail(act.id)).description);
             const streams = await fetchActivityStream(act.id);
             if (!streams) continue;
             saveActivityStreams(act.id, streams);
@@ -463,7 +469,6 @@ SEARCH TIPS: To find specific workouts, search MULTIPLE text fields — activity
   }
 );
 
-const ATTRIBUTION = "\n🏃 RunnAI → severi.github.io/runnai";
 
 export const stravaUpdateActivityTool = tool(
   "strava_update_activity",
@@ -471,7 +476,7 @@ export const stravaUpdateActivityTool = tool(
   {
     activity_id: z.number().describe("Strava activity ID"),
     name: z.string().optional().describe("New activity name (e.g. 'Easy Recovery 8K', 'Tempo 10K - Progression Finish')"),
-    description: z.string().optional().describe("Activity description — AI analysis with athlete notes. Attribution is appended automatically."),
+    description: z.string().optional().describe("Activity description. Replaces the whole description on Strava, including anything the athlete wrote there (their text is preserved locally as athlete_notes). Attribution is appended automatically."),
   },
   async ({ activity_id, name, description }) => {
     try {
@@ -481,7 +486,7 @@ export const stravaUpdateActivityTool = tool(
 
       const update: { name?: string; description?: string } = {};
       if (name) update.name = name;
-      if (description) update.description = description + ATTRIBUTION;
+      if (description) update.description = description + STRAVA_ATTRIBUTION;
 
       const result = await updateActivity(activity_id, update);
 
