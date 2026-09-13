@@ -150,7 +150,7 @@ logs/            One JSONL file per session
 | Category | Tools |
 |----------|-------|
 | Strava | `strava_sync`, `strava_profile`, `strava_auth`, `query_activities`, `best_efforts`, `strava_update_activity`, `get_gear` |
-| Analysis | `get_run_analysis`, `save_run_analysis`, `get_session_analysis`, `get_activity_streams`, `generate_aerobic_chart`, `save_race_prediction`, `get_prediction_history`, `manage_personal_records` |
+| Analysis | `get_run_analysis`, `save_run_analysis`, `get_session_analysis`, `get_cross_training_analysis`, `get_activity_streams`, `generate_aerobic_chart`, `save_race_prediction`, `get_prediction_history`, `manage_personal_records` |
 | Memory | `read_memory`, `write_memory`, `update_context`, `search_memory`, `save_session_summary` |
 | Planning | `manage_plan`, `get_plan_compliance`, `attach_reference`, `date_calc`, `calculator` |
 | Zones | `get_training_zones`, `set_hr_zones`, `get_hr_zones`, `update_pace_zones`, `get_zone_history`, `get_fitness_drift` |

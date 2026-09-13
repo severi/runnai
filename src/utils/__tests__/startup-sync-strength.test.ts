@@ -49,13 +49,25 @@ const LIFT = {
   average_speed: 0, max_speed: 0, average_heartrate: 92.6, max_heartrate: 140, trainer: false,
 };
 
-function stubStrava(description: string) {
+const RIDE = {
+  ...LIFT, id: 90000000003, name: "Lunch Ride", type: "Ride", sport_type: "VirtualRide",
+  start_date: "2026-09-13T09:04:36Z", start_date_local: "2026-09-13T12:04:36Z",
+  moving_time: 5400, elapsed_time: 5400, average_heartrate: 130, max_heartrate: 160, trainer: true,
+};
+
+function stubStrava(description: string, activities: (typeof LIFT)[] = [LIFT]) {
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.includes("/athlete/activities")) return new Response(JSON.stringify([LIFT]), { status: 200 });
+    if (url.includes("/athlete/activities")) return new Response(JSON.stringify(activities), { status: 200 });
     if (url.endsWith("/api/v3/athlete")) return new Response(JSON.stringify({ shoes: [] }), { status: 200 });
-    if (/\/api\/v3\/activities\/\d+$/.test(url)) {
-      return new Response(JSON.stringify({ ...LIFT, description, best_efforts: [], laps: [] }), { status: 200 });
+    if (/\/streams\?/.test(url)) {
+      const time = Array.from({ length: 600 }, (_, i) => i);
+      return new Response(JSON.stringify({ time: { data: time }, heartrate: { data: time.map(() => 140) }, watts: { data: time.map(() => 200) } }), { status: 200 });
+    }
+    const m = url.match(/\/api\/v3\/activities\/(\d+)$/);
+    if (m) {
+      const act = activities.find((a) => a.id === Number(m[1]));
+      return new Response(JSON.stringify({ ...act, description, best_efforts: [], laps: [] }), { status: 200 });
     }
     return new Response("{}", { status: 404 });
   }) as unknown as typeof fetch;
@@ -73,5 +85,16 @@ describe("startupSync with a new strength session", () => {
     expect(ctx.sync.message).toContain(String(LIFT.id));
     const row = getDb().prepare("SELECT description FROM activities WHERE id = ?").get(LIFT.id) as { description: string | null };
     expect(row.description).toBe("back at 90kg, ankle fine");
+  });
+
+  test("a new ride is analysed and listed for the startup prompt", async () => {
+    stubStrava("trainer hour", [RIDE]);
+
+    const ctx = await startupSync();
+
+    expect(ctx.sync.newCrossTrainingIds).toEqual([RIDE.id]);
+    expect(ctx.sync.newStrengthSessionIds).toEqual([]);
+    expect(ctx.sync.message).toContain("Lunch Ride");
+    expect(ctx.sync.message).toContain("get_cross_training_analysis");
   });
 });

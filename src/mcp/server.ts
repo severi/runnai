@@ -10,6 +10,7 @@ import {
   getRunAnalysisTool,
   saveRunAnalysisTool,
   getSessionAnalysisTool,
+  getCrossTrainingAnalysisTool,
   planManagerTool,
   dateCalcTool,
   calculatorTool,
@@ -62,6 +63,7 @@ export const coachMcpServer = createSdkMcpServer({
     saveRunAnalysisTool,
     // Heart-rate-only sessions (court and racket sports)
     getSessionAnalysisTool,
+    getCrossTrainingAnalysisTool,
     // Planning & utility
     planManagerTool,
     dateCalcTool,

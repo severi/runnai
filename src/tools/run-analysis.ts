@@ -159,7 +159,7 @@ export const getRunAnalysisTool = tool(
       const kind = getDb().prepare("SELECT type, sport_type FROM activities WHERE id = ?")
         .get(activity_id) as { type: string; sport_type: string } | undefined;
       if (kind && isRide(kind)) {
-        return toolResult(`Activity ${activity_id} is a ${kind.sport_type}, not a run. The run pipeline would classify it by pace against easy-run references and produce a wrong read. There is no ride analysis layer yet: read the summary row (duration, HR, power if present) with query_activities instead.`, true);
+        return toolResult(`Activity ${activity_id} is a ${kind.sport_type}, not a run. The run pipeline would classify it by pace against easy-run references and produce a wrong read. Use get_cross_training_analysis for rides.`, true);
       }
       let record = getActivityAnalysis(activity_id);
       let sa: StreamAnalysisResult | null = getStreamAnalysis(activity_id);

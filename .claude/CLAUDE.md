@@ -21,6 +21,7 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 - Goals: manage_goals (north star / horizon / event hierarchy in `data/athlete/goals.json`, rendered into the system prompt; guides, never restricts)
 - Analysis: save_race_prediction, get_prediction_history
 - Sessions: get_session_analysis (heart-rate-only sessions — basketball, tennis, padel; bouts, floors, drift, same-sport history; `save_run_analysis` routes `detailed_analysis` to the session record)
+- Cross-training: get_cross_training_analysis (rides with or without power, walks, hikes, ski, swims; HR load, normalized power, peaks, FTP ballpark, decoupling, same-sport history; `save_run_analysis` routes `detailed_analysis` to the cross-training record)
 - Gear: get_gear (shoe mileage — Strava-authoritative, never quote cached km)
 - Research: research, save_research
 

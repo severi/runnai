@@ -4,6 +4,7 @@ import * as path from "path";
 import * as os from "os";
 import { stravaSyncTool } from "../strava.js";
 import { getDb, closeDb } from "../../utils/activities-db.js";
+import { getCrossTrainingAnalysis } from "../../utils/cross-training.js";
 
 let tmp: string;
 let originalEnv: Record<string, string | undefined>;
@@ -49,6 +50,12 @@ const LIFT = {
   average_speed: 0, max_speed: 0, average_heartrate: 92.6, max_heartrate: 140, trainer: false,
 };
 
+const RIDE = {
+  ...LIFT, id: 90000000003, name: "Lunch Ride", type: "Ride", sport_type: "VirtualRide",
+  start_date: "2026-09-13T09:04:36Z", start_date_local: "2026-09-13T12:04:36Z",
+  moving_time: 5400, elapsed_time: 5400, average_heartrate: 130, max_heartrate: 160, trainer: true,
+};
+
 const BASKETBALL = {
   ...LIFT, id: 90000000002, name: "Night Basketball", type: "Workout", sport_type: "Basketball",
   start_date: "2026-09-08T18:02:04Z", start_date_local: "2026-09-08T21:02:04Z",
@@ -68,7 +75,7 @@ function stubStrava(activities: (typeof LIFT)[], detailDescription: string) {
       streamCalls.push(Number(stream[1]));
       const time = Array.from({ length: 600 }, (_, i) => i);
       return new Response(JSON.stringify({
-        time: { data: time }, heartrate: { data: time.map(() => 150) },
+        time: { data: time }, heartrate: { data: time.map(() => 150) }, watts: { data: time.map(() => 200) },
       }), { status: 200 });
     }
     const detail = url.match(/\/api\/v3\/activities\/(\d+)$/);
@@ -105,5 +112,16 @@ describe("strava_sync descriptions", () => {
     expect(streamCalls).toContain(BASKETBALL.id);
     const row = getDb().prepare("SELECT description FROM activities WHERE id = ?").get(BASKETBALL.id) as { description: string | null };
     expect(row.description).toBe("pickup, four games");
+  });
+
+  test("a new ride gets its stream and a cross-training analysis, and the result names it", async () => {
+    const { detailCalls, streamCalls } = stubStrava([RIDE], "trainer hour");
+
+    const result = await call(stravaSyncTool, { incremental: false, days: 3 });
+
+    expect(detailCalls).toContain(RIDE.id);
+    expect(streamCalls).toContain(RIDE.id);
+    expect(getCrossTrainingAnalysis(RIDE.id)?.result.power?.normalized_watts).toBe(200);
+    expect(result.content[0].text).toContain("get_cross_training_analysis");
   });
 });

@@ -38,7 +38,7 @@ export const getSessionAnalysisTool = tool(
         return toolResult(`Activity ${activity_id} is a run. Use get_run_analysis for runs; this tool is for heart-rate-only sessions.`, true);
       }
       if (isRide(activity)) {
-        return toolResult(`Activity ${activity_id} is a ${activity.sport_type}. Rides are continuous efforts, so the bout model would mislead, and there is no ride analysis layer yet: read the summary row (duration, HR, power if present) with query_activities instead.`, true);
+        return toolResult(`Activity ${activity_id} is a ${activity.sport_type}. Rides are continuous efforts, so the bout model would mislead. Use get_cross_training_analysis for rides.`, true);
       }
       if (activity.type === "WeightTraining") {
         return toolResult(`Activity ${activity_id} is a strength session. Lifting HR reflects rest density, not intensity, so bout analysis would mislead. Use the strength-fit-import skill instead.`, true);

@@ -15,7 +15,7 @@ user-invocable: true
      - Distance, pace, classification (the [type] tag from sync output)
      - Compare to their training plan if one exists (check data/plans/)
      - Note anything interesting (PR pace, unusually long/short, new classification pattern)
-   - If there are new non-run activities (cross-training), mention them briefly ("Also logged: Walk on Feb 7, Ride on Feb 3")
+   - If there are new cross-training sessions (rides, walks, ski — the tool says "Cross-training analysis ready"), read each with `get_cross_training_analysis` and the cross-training-analysis skill; for heart-rate sessions use `get_session_analysis`; for lifts follow the strength-session rules
    - Ask: "Want me to update these on Strava with names and coaching notes? (all / pick specific ones / skip)"
    - If yes, use the `strava-writeback` skill to handle the write-back
 5. Give a brief weekly summary:

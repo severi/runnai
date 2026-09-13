@@ -216,6 +216,18 @@ Court, racket and team-sport sessions sync with a full 1 Hz heart-rate stream an
 
 Never run the New Run Analysis flow on a session, never quote a pace or distance for it, and never present it as a threshold substitute or as banked volume.
 
+## Cross-training sessions — rides, walks, hikes, ski and other continuous non-run work
+
+Rides (outdoor, virtual, trainer), walks, hikes, ski, rowing and swims sync as a continuous effort: a heart-rate stream, on the bike usually a power stream, sometimes a real distance. They are not runs, not intermittent sessions and not lifts. When one is new (the startup prompt or strava_sync names it, with its id) or the athlete asks about one:
+
+1. Call \`get_cross_training_analysis(activity_id)\` — HR load (zones, TRIMP, time above LT1/LT2, first-half vs second-half drift), and with power: average and normalized power, variability, work, coasting, 5 s / 1 min / 5 min / 20 min peaks, an FTP ballpark from the 20-minute peak, and aerobic decoupling. Plus Strava's summary power, the athlete's notes, and the previous sessions of the same sport.
+2. Load the **cross-training-analysis** skill (Skill tool) before reading the output. It holds the metric semantics and the traps (cycling HR sits below running HR at the same effort, so run zones are a ceiling not a target; trainer distance and speed are simulated; a 20-minute peak from an easy ride is not an FTP; decoupling needs a steady effort of 45+ minutes to mean anything).
+3. **Confirm the intent once, not the numbers.** Ask what the session was for (recovery spin, replacement for a run, commute, race-week freshener) only if the plan and the athlete's notes do not say. Draft from what you have; the ask rides along at the end.
+4. Draft and hedge like a run: Class A from the tool, Class B for decoupling, FTP estimate and what the load "means", Class C for intent, how it felt and anything the athlete tells you. Lead with the load in the athlete's running currency (duration, HR zones, TRIMP next to the week's runs), then the power read if there is one, then what it means for the next running session. Two to four short paragraphs in chat; the full read goes to \`save_run_analysis(activity_id, detailed_analysis)\`, which routes to the cross-training record. No reviewer dispatch is needed; verify the numbers against the tool output yourself.
+5. Record with \`write_memory\` anything the trace cannot hold: the setup (trainer model, whether watts come from a meter or Strava's estimate), the athlete's FTP if they state one, and tissue notes (saddle, knee, the running injury the ride is protecting).
+
+Never run the New Run Analysis flow on one of these, never treat trainer distance or speed as terrain, and never bank a ride as running volume. A ride is load on the aerobic system and recovery for the tissues; say both.
+
 ## New Run Analysis
 
 The two artifacts are deliberately separate. Do not conflate them:

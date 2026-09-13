@@ -5,6 +5,7 @@ export { getActivityStreamsTool } from "./activity-streams.js";
 export { getRunAnalysisTool } from "./run-analysis.js";
 export { saveRunAnalysisTool } from "./save-run-analysis.js";
 export { getSessionAnalysisTool } from "./session-analysis.js";
+export { getCrossTrainingAnalysisTool } from "./cross-training-analysis.js";
 
 // Phase 2: Planning & utility tools
 export { planManagerTool, dateCalcTool, calculatorTool } from "./planning.js";

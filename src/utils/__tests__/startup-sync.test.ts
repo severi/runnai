@@ -498,6 +498,7 @@ describe("hasActivitiesAwaitingAnalysis", () => {
     expect(hasActivitiesAwaitingAnalysis(sync({ newRunIds: [1] }))).toBe(true);
     expect(hasActivitiesAwaitingAnalysis(sync({ newHrSessionIds: [2] }))).toBe(true);
     expect(hasActivitiesAwaitingAnalysis(sync({ newStrengthSessionIds: [3] }))).toBe(true);
+    expect(hasActivitiesAwaitingAnalysis(sync({ newCrossTrainingIds: [4] }))).toBe(true);
   });
 });
 
@@ -513,5 +514,24 @@ describe("formatCompactStatus with strength sessions", () => {
       fitnessDrift: null,
     };
     expect(formatCompactStatus(ctx)).toContain("1 lift awaiting analysis");
+  });
+});
+
+describe("formatNewRunsPrompt with cross-training sessions", () => {
+  test("a ride with no runs routes to the cross-training flow", () => {
+    const ctx: StartupContext = {
+      sync: {
+        status: "new_activities",
+        message: '1 new activity synced (0 runs, 0km).',
+        newRunIds: [],
+        newCrossTrainingIds: [90000000003],
+      },
+      recentSummary: "", planExcerpt: null, raceCountdowns: [], weekCompliance: null, newRunPlanContext: [], fitnessDrift: null,
+    };
+    const prompt = formatNewRunsPrompt(ctx);
+    expect(prompt).toContain("90000000003");
+    expect(prompt).toContain("get_cross_training_analysis");
+    expect(prompt).toContain("cross-training-analysis");
+    expect(prompt).not.toContain("Runs to analyze");
   });
 });

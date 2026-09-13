@@ -132,7 +132,7 @@ Useful patterns:
 - Detect structured workouts: SELECT activity_id, COUNT(*) as laps, MIN(distance) as min_lap, MAX(distance) as max_lap FROM activity_laps GROUP BY activity_id HAVING max_lap/min_lap > 1.5
 
 Today: ${toDateString()}`,
-    tools: ["Read", "mcp__runnai__query_activities", "mcp__runnai__get_run_analysis", "mcp__runnai__get_session_analysis", "mcp__runnai__calculator", "mcp__runnai__get_weather"],
+    tools: ["Read", "mcp__runnai__query_activities", "mcp__runnai__get_run_analysis", "mcp__runnai__get_session_analysis", "mcp__runnai__get_cross_training_analysis", "mcp__runnai__calculator", "mcp__runnai__get_weather"],
     model: "opus",
   },
   "fitness-assessor": {
@@ -423,6 +423,7 @@ Today: ${toDateString()}`,
     tools: [
       "mcp__runnai__get_run_analysis",
       "mcp__runnai__get_session_analysis",
+      "mcp__runnai__get_cross_training_analysis",
       "mcp__runnai__query_activities",
       "mcp__runnai__get_training_zones",
       "mcp__runnai__read_memory",

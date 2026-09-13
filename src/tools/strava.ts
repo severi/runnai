@@ -39,6 +39,7 @@ import { loadHrZones, computeEasyPaceRef } from "../utils/hr-zones.js";
 import { classifyRun, detectHillProfile } from "../utils/run-classifier.js";
 import { generateTrainingPatterns } from "../utils/training-patterns.js";
 import { isHrSessionCandidate, ingestHrSession } from "../utils/hr-session.js";
+import { isCrossTrainingCandidate, ingestCrossTraining } from "../utils/cross-training.js";
 import { toDateString, toolResult, toolError, formatPace } from "../utils/format.js";
 import { STRAVA_ATTRIBUTION } from "../utils/athlete-notes.js";
 
@@ -135,24 +136,32 @@ export const stravaSyncTool = tool(
 
       // Non-run activities (lifts, basketball, rides, ...): the athlete's
       // description lives only on the detail endpoint, so every new one gets a
-      // detail call. Heart-rate-only sessions (basketball, tennis, ...) also
-      // get one stream call and the deterministic bout analysis, so the read is
-      // ready before the coach opens the session. Best-effort, same rate-limit
-      // handling as runs.
+      // detail call. Heart-rate-only sessions (basketball, tennis, ...) and
+      // continuous cross-training (rides, walks, ski, ...) also get one stream
+      // call and their deterministic analysis, so the read is ready before the
+      // coach opens the session. Lifts get no stream: HR does not reflect
+      // intensity there. Best-effort, same rate-limit handling as runs.
       const hrSessionsAnalyzed: StravaActivity[] = [];
+      const crossTrainingAnalyzed: StravaActivity[] = [];
       if (newNonRuns.length > 0) {
         const zones = await loadHrZones();
         for (const act of newNonRuns) {
           try {
             setActivityDescription(act.id, (await fetchActivityDetail(act.id)).description);
-            if (!isHrSessionCandidate(act)) {
+            const isHr = isHrSessionCandidate(act);
+            const isCross = !isHr && isCrossTrainingCandidate(act);
+            if (!isHr && !isCross) {
               await new Promise((resolve) => setTimeout(resolve, 50));
               continue;
             }
             const streams = await fetchActivityStream(act.id);
             if (!streams) continue;
             saveActivityStreams(act.id, streams);
-            if (ingestHrSession(act.id, zones, streams)) hrSessionsAnalyzed.push(act);
+            if (isHr) {
+              if (ingestHrSession(act.id, zones, streams)) hrSessionsAnalyzed.push(act);
+            } else if (ingestCrossTraining(act.id, zones, streams)) {
+              crossTrainingAnalyzed.push(act);
+            }
             await new Promise((resolve) => setTimeout(resolve, 50));
           } catch (error) {
             if (error instanceof Error && error.message === "RATE_LIMITED") break;
@@ -318,6 +327,9 @@ export const stravaSyncTool = tool(
       }
       if (hrSessionsAnalyzed.length > 0) {
         text += `\nHeart-rate session analysis ready for ${hrSessionsAnalyzed.map(a => `"${a.name}" (${a.sport_type}, id: ${a.id})`).join(", ")} — read with get_session_analysis.`;
+      }
+      if (crossTrainingAnalyzed.length > 0) {
+        text += `\nCross-training analysis ready for ${crossTrainingAnalyzed.map(a => `"${a.name}" (${a.sport_type}, id: ${a.id})`).join(", ")} — read with get_cross_training_analysis.`;
       }
       if (backfillCount > 0) {
         const remaining = getActivitiesWithoutDetail(1).length;

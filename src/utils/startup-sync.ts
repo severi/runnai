@@ -28,6 +28,7 @@ import { loadHrZones, computeEasyPaceRef } from "./hr-zones.js";
 import { classifyRun, detectHillProfile } from "./run-classifier.js";
 import { generateTrainingPatterns } from "./training-patterns.js";
 import { isHrSessionCandidate, isStrengthSession, ingestHrSession } from "./hr-session.js";
+import { isCrossTrainingCandidate, ingestCrossTraining } from "./cross-training.js";
 import { toDateString, formatPace, weekdayFromDateKey } from "./format.js";
 import { extractPlanWeeks, findCurrentWeekNumber, parsePlan } from "./plan-parser.js";
 import { findActivePlan, getWeeklyPlanCompliance } from "./plan-compliance.js";
@@ -43,6 +44,8 @@ export interface StartupContext {
     newHrSessionIds?: number[];
     /** Strength sessions (WeightTraining, Crossfit, untagged Workout) for the strength-session flow. */
     newStrengthSessionIds?: number[];
+    /** Continuous cross-training (rides, walks, ski, ...) with analysis ready. */
+    newCrossTrainingIds?: number[];
     needsAuth?: boolean;
   };
   recentSummary: string;
@@ -224,6 +227,7 @@ export async function startupSync(): Promise<StartupContext> {
         // also get a stream call and the bout analysis. Mirrors strava_sync.
         const newNonRuns = newActivities.filter(a => !newRuns.includes(a));
         const hrSessionsAnalyzed: typeof newActivities = [];
+        const crossTrainingAnalyzed: typeof newActivities = [];
         const newStrengthSessions = newNonRuns.filter(isStrengthSession);
         if (newNonRuns.length > 0) {
           try {
@@ -231,14 +235,20 @@ export async function startupSync(): Promise<StartupContext> {
             for (const act of newNonRuns) {
               try {
                 setActivityDescription(act.id, (await fetchActivityDetail(act.id)).description);
-                if (!isHrSessionCandidate(act)) {
+                const isHr = isHrSessionCandidate(act);
+                const isCross = !isHr && isCrossTrainingCandidate(act);
+                if (!isHr && !isCross) {
                   await new Promise(r => setTimeout(r, 50));
                   continue;
                 }
                 const streams = await fetchActivityStream(act.id);
                 if (!streams) continue;
                 saveActivityStreams(act.id, streams);
-                if (ingestHrSession(act.id, zones, streams)) hrSessionsAnalyzed.push(act);
+                if (isHr) {
+                  if (ingestHrSession(act.id, zones, streams)) hrSessionsAnalyzed.push(act);
+                } else if (ingestCrossTraining(act.id, zones, streams)) {
+                  crossTrainingAnalyzed.push(act);
+                }
                 await new Promise(r => setTimeout(r, 50));
               } catch (e) {
                 if (e instanceof Error && e.message === "RATE_LIMITED") break;
@@ -331,6 +341,17 @@ export async function startupSync(): Promise<StartupContext> {
           }
         }
 
+        if (crossTrainingAnalyzed.length > 0) {
+          msg += "\n\nNew cross-training sessions (analysis ready via get_cross_training_analysis):";
+          for (const act of crossTrainingAnalyzed) {
+            const date = toDateString(new Date(act.start_date_local));
+            const mins = Math.round(act.elapsed_time / 60);
+            const km = act.distance > 0 ? `, ${Math.round(act.distance / 100) / 10}km` : "";
+            const watts = act.average_watts != null ? `, ${Math.round(act.average_watts)}W avg` : "";
+            msg += `\n- ${date}: "${act.name}" (${act.sport_type}${act.trainer ? ", trainer" : ""}, id: ${act.id}) — ${mins}min${km}${watts}, avg HR ${act.average_heartrate ?? "?"}, max ${act.max_heartrate ?? "?"}`;
+          }
+        }
+
         if (newStrengthSessions.length > 0) {
           msg += "\n\nNew strength sessions:";
           for (const act of newStrengthSessions) {
@@ -351,6 +372,7 @@ export async function startupSync(): Promise<StartupContext> {
           newRunIds: newRuns.map(r => r.id),
           newHrSessionIds: hrSessionsAnalyzed.map(a => a.id),
           newStrengthSessionIds: newStrengthSessions.map(a => a.id),
+          newCrossTrainingIds: crossTrainingAnalyzed.map(a => a.id),
         };
       }
     }
@@ -519,7 +541,8 @@ export function formatStartupGreeting(ctx: StartupContext): string {
 export function hasActivitiesAwaitingAnalysis(sync: StartupContext["sync"]): boolean {
   return sync.newRunIds.length > 0
     || (sync.newHrSessionIds?.length ?? 0) > 0
-    || (sync.newStrengthSessionIds?.length ?? 0) > 0;
+    || (sync.newStrengthSessionIds?.length ?? 0) > 0
+    || (sync.newCrossTrainingIds?.length ?? 0) > 0;
 }
 
 export function formatCompactStatus(ctx: StartupContext, today: Date = new Date()): string {
@@ -538,6 +561,8 @@ export function formatCompactStatus(ctx: StartupContext, today: Date = new Date(
     if (h > 0) parts.push(`${h} session${h === 1 ? "" : "s"}`);
     const l = ctx.sync.newStrengthSessionIds?.length ?? 0;
     if (l > 0) parts.push(`${l} lift${l === 1 ? "" : "s"}`);
+    const c = ctx.sync.newCrossTrainingIds?.length ?? 0;
+    if (c > 0) parts.push(`${c} cross-training session${c === 1 ? "" : "s"}`);
     sections.push(`✓ Synced · ${parts.join(" and ")} awaiting analysis`);
   } else {
     sections.push("✓ Synced · no new activities");
@@ -656,6 +681,11 @@ ${ctx.sync.message}`
     : `New activity to analyze.
 
 ${ctx.sync.message}`;
+
+  const crossIds = ctx.sync.newCrossTrainingIds ?? [];
+  if (crossIds.length > 0) {
+    prompt += `\n\n**Cross-training session${crossIds.length === 1 ? "" : "s"} to analyze (id${crossIds.length === 1 ? "" : "s"}: ${crossIds.join(", ")})** — a ride, walk, ski or other continuous non-run effort. Follow the "Cross-training sessions" section in your instructions: call get_cross_training_analysis for each id, load the **cross-training-analysis** skill (Skill tool) before reading the output, and save the read with save_run_analysis(detailed_analysis). Do not run the New Run Analysis flow or the heart-rate session flow on these.`;
+  }
 
   const strengthIds = ctx.sync.newStrengthSessionIds ?? [];
   if (strengthIds.length > 0) {

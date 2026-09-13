@@ -229,6 +229,20 @@ function runMigrations(db: Database): void {
     );
   `);
 
+  // Continuous cross-training (rides, walks, ski, ...): sport + JSON result +
+  // the coach's read, which survives recomputes.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_cross_training_analysis (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      sport_type TEXT NOT NULL,
+      result TEXT NOT NULL,
+      analysis_version INTEGER NOT NULL,
+      computed_at TEXT NOT NULL,
+      detailed_analysis TEXT,
+      analysis_generated_at TEXT
+    );
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_stream_analysis (
       activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
