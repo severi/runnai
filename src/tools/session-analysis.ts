@@ -4,7 +4,7 @@ import { fetchActivityStream } from "../strava/client.js";
 import { getDb, getActivityStreams, saveActivityStreams } from "../utils/activities-db.js";
 import { loadHrZones } from "../utils/hr-zones.js";
 import { HR_SESSION_ANALYSIS_VERSION } from "../utils/hr-session-analysis.js";
-import { ingestHrSession, getHrSessionAnalysis, getRecentHrSessions, INTERMITTENT_SPORTS } from "../utils/hr-session.js";
+import { ingestHrSession, getHrSessionAnalysis, getRecentHrSessions, INTERMITTENT_SPORTS, isRide } from "../utils/hr-session.js";
 import { toolResult, toolError } from "../utils/format.js";
 import { athleteNotesFromDescription } from "../utils/athlete-notes.js";
 
@@ -36,6 +36,9 @@ export const getSessionAnalysisTool = tool(
       if (!activity) return toolResult(`No activity ${activity_id} in the database. Run strava_sync first.`, true);
       if (activity.type === "Run" || activity.sport_type === "Run") {
         return toolResult(`Activity ${activity_id} is a run. Use get_run_analysis for runs; this tool is for heart-rate-only sessions.`, true);
+      }
+      if (isRide(activity)) {
+        return toolResult(`Activity ${activity_id} is a ${activity.sport_type}. Rides are continuous efforts, so the bout model would mislead, and there is no ride analysis layer yet: read the summary row (duration, HR, power if present) with query_activities instead.`, true);
       }
       if (activity.type === "WeightTraining") {
         return toolResult(`Activity ${activity_id} is a strength session. Lifting HR reflects rest density, not intensity, so bout analysis would mislead. Use the strength-fit-import skill instead.`, true);

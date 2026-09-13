@@ -21,6 +21,11 @@ export const INTERMITTENT_SPORTS = new Set([
   "Workout",
 ]);
 
+/** Outdoor, virtual, e-bike and gravel rides: continuous efforts with distance and often power. */
+export function isRide(a: { type: string; sport_type: string }): boolean {
+  return a.type === "Ride" || /Ride$/.test(a.sport_type) || a.sport_type === "Velomobile" || a.sport_type === "Handcycle";
+}
+
 export function isHrSessionCandidate(a: { type: string; sport_type: string; average_heartrate?: number | null }): boolean {
   if (!a.average_heartrate) return false;
   if (a.type === "Run" || a.sport_type === "Run") return false;

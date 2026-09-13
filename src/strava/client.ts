@@ -134,7 +134,7 @@ export async function fetchActivityStream(activityId: number): Promise<ActivityS
   const accessToken = await getAccessToken();
 
   const response = await fetch(
-    `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=time,distance,heartrate,altitude,grade_smooth,cadence&key_by_type=true`,
+    `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=time,distance,heartrate,altitude,grade_smooth,cadence,watts&key_by_type=true`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
@@ -162,6 +162,7 @@ export async function fetchActivityStream(activityId: number): Promise<ActivityS
     altitude: data.altitude?.data,
     grade_smooth: data.grade_smooth?.data,
     cadence: data.cadence?.data,
+    watts: data.watts?.data,
   };
 }
 

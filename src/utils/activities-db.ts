@@ -129,6 +129,12 @@ function runMigrations(db: Database): void {
   addColumn("activities", "run_type_detail", "TEXT");
   addColumn("activities", "streams_fetched", "INTEGER DEFAULT 0");
   addColumn("activities", "gear_id", "TEXT");
+  // Ride power from Strava's summary list (2026-09-13).
+  addColumn("activities", "average_watts", "REAL");
+  addColumn("activities", "weighted_average_watts", "REAL");
+  addColumn("activities", "max_watts", "REAL");
+  addColumn("activities", "kilojoules", "REAL");
+  addColumn("activities", "device_watts", "INTEGER");
 
   // Index references the migrated `detail_fetched` column, so it must come AFTER addColumn.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);`);
@@ -182,6 +188,7 @@ function runMigrations(db: Database): void {
       altitude_data TEXT,
       grade_smooth_data TEXT,
       cadence_data TEXT,
+      watts_data TEXT,
       fetched_at TEXT
     );
   `;
@@ -195,6 +202,7 @@ function runMigrations(db: Database): void {
     db.exec(streamsCreateSql);
     db.exec(`
       INSERT INTO activity_streams
+        (activity_id, time_data, distance_data, heartrate_data, altitude_data, grade_smooth_data, cadence_data, fetched_at)
         SELECT activity_id, time_data, distance_data, heartrate_data, altitude_data, grade_smooth_data, cadence_data, fetched_at
         FROM activity_streams_legacy
     `);
@@ -202,6 +210,8 @@ function runMigrations(db: Database): void {
     db.exec("COMMIT");
     db.exec("PRAGMA foreign_keys = ON");
   }
+  // Watts stream added for rides (2026-09-13); legacy tables predate it.
+  addColumn("activity_streams", "watts_data", "TEXT");
 
   // Heart-rate-only sessions (court and racket sports, team games). The run
   // pipeline needs distance; these never have it. One JSON blob per activity
@@ -317,7 +327,8 @@ export function upsertActivities(activities: StravaActivity[]): void {
       distance, moving_time, elapsed_time, total_elevation_gain,
       average_speed, max_speed, average_heartrate, max_heartrate, suffer_score,
       average_cadence, workout_type, description, trainer,
-      start_latitude, start_longitude, gear_id
+      start_latitude, start_longitude, gear_id,
+      average_watts, weighted_average_watts, max_watts, kilojoules, device_watts
     ) VALUES (
       $id, $name, $type, $sport_type, $start_date, $start_date_local,
       $distance, $moving_time, $elapsed_time, $total_elevation_gain,
@@ -325,7 +336,8 @@ export function upsertActivities(activities: StravaActivity[]): void {
       $average_cadence, $workout_type,
       COALESCE($description, (SELECT description FROM activities WHERE id = $id)),
       $trainer,
-      $start_latitude, $start_longitude, $gear_id
+      $start_latitude, $start_longitude, $gear_id,
+      $average_watts, $weighted_average_watts, $max_watts, $kilojoules, $device_watts
     )
   `);
   // `description` is coalesced because the summary list never carries it: an
@@ -357,6 +369,11 @@ export function upsertActivities(activities: StravaActivity[]): void {
         $start_latitude: activity.start_latlng?.[0] ?? null,
         $start_longitude: activity.start_latlng?.[1] ?? null,
         $gear_id: activity.gear_id ?? null,
+        $average_watts: activity.average_watts ?? null,
+        $weighted_average_watts: activity.weighted_average_watts ?? null,
+        $max_watts: activity.max_watts ?? null,
+        $kilojoules: activity.kilojoules ?? null,
+        $device_watts: activity.device_watts == null ? null : (activity.device_watts ? 1 : 0),
       });
     }
   });
@@ -746,10 +763,10 @@ export function saveActivityStreams(activityId: number, streams: ActivityStream)
   db.prepare(`
     INSERT OR REPLACE INTO activity_streams (
       activity_id, time_data, distance_data, heartrate_data,
-      altitude_data, grade_smooth_data, cadence_data, fetched_at
+      altitude_data, grade_smooth_data, cadence_data, watts_data, fetched_at
     ) VALUES (
       $activity_id, $time_data, $distance_data, $heartrate_data,
-      $altitude_data, $grade_smooth_data, $cadence_data, $fetched_at
+      $altitude_data, $grade_smooth_data, $cadence_data, $watts_data, $fetched_at
     )
   `).run({
     $activity_id: activityId,
@@ -759,6 +776,7 @@ export function saveActivityStreams(activityId: number, streams: ActivityStream)
     $altitude_data: streams.altitude ? JSON.stringify(streams.altitude) : null,
     $grade_smooth_data: streams.grade_smooth ? JSON.stringify(streams.grade_smooth) : null,
     $cadence_data: streams.cadence ? JSON.stringify(streams.cadence) : null,
+    $watts_data: streams.watts ? JSON.stringify(streams.watts) : null,
     $fetched_at: new Date().toISOString(),
   });
   db.prepare("UPDATE activities SET streams_fetched = 1 WHERE id = ?").run(activityId);
@@ -776,6 +794,7 @@ export function getActivityStreams(activityId: number): ActivityStream | null {
     altitude: row.altitude_data ? JSON.parse(row.altitude_data) : undefined,
     grade_smooth: row.grade_smooth_data ? JSON.parse(row.grade_smooth_data) : undefined,
     cadence: row.cadence_data ? JSON.parse(row.cadence_data) : undefined,
+    watts: row.watts_data ? JSON.parse(row.watts_data) : undefined,
   };
 }
 

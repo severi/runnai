@@ -62,6 +62,13 @@ export interface StravaActivity {
   trainer?: boolean;
   start_latlng?: [number, number] | null;
   gear_id?: string | null;
+  /** Ride power from the summary list. Absent on activities without a meter or estimate. */
+  average_watts?: number;
+  weighted_average_watts?: number;
+  max_watts?: number;
+  kilojoules?: number;
+  /** True when watts came from a power meter rather than Strava's estimate. */
+  device_watts?: boolean;
 }
 
 export interface SyncResult {
@@ -128,6 +135,8 @@ export interface ActivityStream {
   altitude?: number[];
   grade_smooth?: number[];
   cadence?: number[];
+  /** Power in watts, present on rides recorded with a meter or a smart trainer. */
+  watts?: number[];
 }
 
 /**
@@ -146,6 +155,7 @@ export interface ActivityStreamRecord {
   altitude_data: string | null;
   grade_smooth_data: string | null;
   cadence_data: string | null;
+  watts_data: string | null;
   fetched_at: string;
 }
 

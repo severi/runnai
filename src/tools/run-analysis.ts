@@ -1,6 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { getDb, getStreamAnalysis, getActivityWeather } from "../utils/activities-db.js";
+import { isRide } from "../utils/hr-session.js";
 import {
   getActivityAnalysis,
   computeActivityAnalysis,
@@ -155,6 +156,11 @@ export const getRunAnalysisTool = tool(
   },
   async ({ activity_id }) => {
     try {
+      const kind = getDb().prepare("SELECT type, sport_type FROM activities WHERE id = ?")
+        .get(activity_id) as { type: string; sport_type: string } | undefined;
+      if (kind && isRide(kind)) {
+        return toolResult(`Activity ${activity_id} is a ${kind.sport_type}, not a run. The run pipeline would classify it by pace against easy-run references and produce a wrong read. There is no ride analysis layer yet: read the summary row (duration, HR, power if present) with query_activities instead.`, true);
+      }
       let record = getActivityAnalysis(activity_id);
       let sa: StreamAnalysisResult | null = getStreamAnalysis(activity_id);
 

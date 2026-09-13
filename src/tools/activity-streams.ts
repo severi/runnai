@@ -8,11 +8,11 @@ const ALL_KEYS = ["time", "distance", "heartrate", "altitude", "grade_smooth", "
 
 export const getActivityStreamsTool = tool(
   "get_activity_streams",
-  "Get per-second stream data (HR, altitude, grade, cadence) for a specific activity. Returns cached data if available, otherwise fetches from Strava and caches. Use this for sub-lap analysis: hill sessions (segment by altitude to separate climb vs descent HR), tempo runs (HR drift), intervals (recovery patterns), pacing on hilly courses.",
+  "Get per-second stream data (HR, altitude, grade, cadence, watts on rides with power) for a specific activity. Returns cached data if available, otherwise fetches from Strava and caches. Use this for sub-lap analysis: hill sessions (segment by altitude to separate climb vs descent HR), tempo runs (HR drift), intervals (recovery patterns), pacing on hilly courses.",
   {
     activity_id: z.number().describe("Strava activity ID"),
     keys: z
-      .array(z.enum(["time", "distance", "heartrate", "altitude", "grade_smooth", "cadence"]))
+      .array(z.enum(["time", "distance", "heartrate", "altitude", "grade_smooth", "cadence", "watts"]))
       .optional()
       .describe("Which streams to return. Default: all available. All streams are always cached regardless of this filter."),
   },
