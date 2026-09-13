@@ -97,4 +97,23 @@ describe("startupSync with a new strength session", () => {
     expect(ctx.sync.message).toContain("Lunch Ride");
     expect(ctx.sync.message).toContain("get_cross_training_analysis");
   });
+
+  test("an unsaved lift and ride from a prior session are re-surfaced when the sync is up to date", async () => {
+    // Nothing new on Strava, but two sessions from earlier this week have no saved read.
+    stubStrava("", []);
+    const db = getDb();
+    const recent = new Date(Date.now() - 2 * 86400000).toISOString().replace(/\.\d{3}Z$/, "Z");
+    db.prepare(`INSERT INTO activities (id, name, type, sport_type, start_date_local, distance, elapsed_time, moving_time, average_heartrate, max_heartrate, trainer)
+      VALUES (90000000021, 'Night Weight Training', 'WeightTraining', 'WeightTraining', ?, 0, 2844, 2844, 93, 140, 0)`).run(recent);
+    db.prepare(`INSERT INTO activities (id, name, type, sport_type, start_date_local, distance, elapsed_time, moving_time, average_heartrate, max_heartrate, trainer)
+      VALUES (90000000022, 'Lunch Ride', 'Ride', 'VirtualRide', ?, 0, 5400, 5400, 130, 160, 1)`).run(recent);
+
+    const ctx = await startupSync();
+
+    expect(ctx.sync.newStrengthSessionIds).toEqual([90000000021]);
+    expect(ctx.sync.newCrossTrainingIds).toEqual([90000000022]);
+    expect(ctx.sync.message).toContain("awaiting analysis from prior sessions");
+    expect(ctx.sync.message).toContain("Night Weight Training");
+    expect(ctx.sync.message).toContain("Lunch Ride");
+  });
 });

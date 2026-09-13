@@ -182,3 +182,18 @@ describe("save_run_analysis on a heart-rate-only session", () => {
     expect(result.content[0].text).toContain("strava");
   });
 });
+
+describe("save_run_analysis for strength sessions", () => {
+  test("creates the strength record on first save and refuses Strava fields", async () => {
+    const { getStrengthAnalysis } = await import("../../utils/strength-session.js");
+    getDb().prepare(`INSERT INTO activities (id, name, type, sport_type, start_date_local, trainer) VALUES (7, 'Night Weight Training', 'WeightTraining', 'WeightTraining', '2026-09-12T21:40:52Z', 0)`).run();
+
+    const refused = await call(saveRunAnalysisTool, { activity_id: 7, detailed_analysis: "x", strava_title: "y" });
+    expect(refused.isError).toBe(true);
+
+    const saved = await call(saveRunAnalysisTool, { activity_id: 7, detailed_analysis: "Squat 90 × 5/5/5, bench 72.5 × 5/5/5." });
+    expect(saved.isError).toBeUndefined();
+    expect(JSON.parse(saved.content[0].text).kind).toBe("strength");
+    expect(getStrengthAnalysis(7)?.detailed_analysis).toBe("Squat 90 × 5/5/5, bench 72.5 × 5/5/5.");
+  });
+});

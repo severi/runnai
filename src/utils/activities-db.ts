@@ -243,6 +243,16 @@ function runMigrations(db: Database): void {
     );
   `);
 
+  // Strength sessions: no deterministic analysis exists (Strava exposes no
+  // sets), only the coach's read, saved before the "paste the numbers" ask.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS activity_strength_analysis (
+      activity_id INTEGER PRIMARY KEY REFERENCES activities(id),
+      detailed_analysis TEXT,
+      analysis_generated_at TEXT
+    );
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_stream_analysis (
       activity_id INTEGER PRIMARY KEY REFERENCES activities(id),

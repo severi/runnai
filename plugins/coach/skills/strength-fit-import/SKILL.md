@@ -94,7 +94,7 @@ If the script fails on a file, fix the script — don't work around it in a scra
 
 ## After Importing
 
-Record what you learned with `write_memory` — exercises, working weights, rep ranges, and the date. Nothing else in the system persists set-level data yet, so without that write the next session starts blind again and progression questions stay unanswerable.
+Save the read first: `save_run_analysis(activity_id, detailed_analysis)` with the set table (exercise, sets × reps × weight, rests) and the per-lift reads, before you post the chat message. It routes to the strength record and survives the session ending on your follow-up question. Then, under the normal persistence rules, append the dated entry to `strength-training-log.md` with `write_memory` — that log is the progression record across sessions, the one place "how did squat move this month" can be answered from.
 
 ## What Is Not Built
 
