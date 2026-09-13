@@ -133,18 +133,22 @@ export const stravaSyncTool = tool(
         }
       }
 
-      // Heart-rate-only sessions (basketball, tennis, ...): one stream call each,
-      // then the deterministic bout analysis, so the read is ready before the
-      // coach opens the session. Best-effort, same rate-limit handling as runs.
-      const newHrSessions = newNonRuns.filter(isHrSessionCandidate);
+      // Non-run activities (lifts, basketball, rides, ...): the athlete's
+      // description lives only on the detail endpoint, so every new one gets a
+      // detail call. Heart-rate-only sessions (basketball, tennis, ...) also
+      // get one stream call and the deterministic bout analysis, so the read is
+      // ready before the coach opens the session. Best-effort, same rate-limit
+      // handling as runs.
       const hrSessionsAnalyzed: StravaActivity[] = [];
-      if (newHrSessions.length > 0) {
+      if (newNonRuns.length > 0) {
         const zones = await loadHrZones();
-        for (const act of newHrSessions) {
+        for (const act of newNonRuns) {
           try {
-            // Description lives only on the detail endpoint; runs get it via
-            // fetchAndStore*Detail, HR sessions need this explicit call.
             setActivityDescription(act.id, (await fetchActivityDetail(act.id)).description);
+            if (!isHrSessionCandidate(act)) {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              continue;
+            }
             const streams = await fetchActivityStream(act.id);
             if (!streams) continue;
             saveActivityStreams(act.id, streams);
@@ -449,7 +453,7 @@ export const queryActivitiesTool = tool(
   `Runs a SQL SELECT query against the activities database.
 
 SCHEMA:
-activities: id, name, type, sport_type, start_date, start_date_local, distance (meters), moving_time (seconds), elapsed_time, total_elevation_gain, average_speed (m/s), max_speed, average_heartrate, max_heartrate, suffer_score, average_cadence, workout_type, description, trainer, run_type, run_type_detail
+activities: id, name, type, sport_type, start_date, start_date_local, distance (meters), moving_time (seconds), elapsed_time, total_elevation_gain, average_speed (m/s), max_speed, average_heartrate, max_heartrate, suffer_score, average_cadence, workout_type, description, trainer, run_type, run_type_detail, average_watts, weighted_average_watts, max_watts, kilojoules, device_watts (1 = power meter, 0 = Strava estimate, NULL = no power; rides only)
 activity_laps: activity_id, lap_index, distance (m), elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate, elevation_gain, elevation_loss
 activity_analysis: activity_id, run_type, run_type_detail, hill_category, distance_m, moving_time_s, pace_sec_per_km, grade_adjusted_pace_sec_per_km, avg_heartrate, lap_summaries, prose_summary, detailed_analysis, strava_title, strava_description
 activity_stream_analysis: activity_id, hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases (JSON), intervals (JSON)
