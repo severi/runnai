@@ -27,7 +27,7 @@ import { fetchActivityWeather } from "./activity-weather.js";
 import { loadHrZones, computeEasyPaceRef } from "./hr-zones.js";
 import { classifyRun, detectHillProfile } from "./run-classifier.js";
 import { generateTrainingPatterns } from "./training-patterns.js";
-import { isHrSessionCandidate, ingestHrSession } from "./hr-session.js";
+import { isHrSessionCandidate, isStrengthSession, ingestHrSession } from "./hr-session.js";
 import { toDateString, formatPace, weekdayFromDateKey } from "./format.js";
 import { extractPlanWeeks, findCurrentWeekNumber, parsePlan } from "./plan-parser.js";
 import { findActivePlan, getWeeklyPlanCompliance } from "./plan-compliance.js";
@@ -41,6 +41,8 @@ export interface StartupContext {
     newRunIds: number[];
     /** Heart-rate-only sessions (basketball, tennis, ...) with analysis ready. */
     newHrSessionIds?: number[];
+    /** Strength sessions (WeightTraining, Crossfit, untagged Workout) for the strength-session flow. */
+    newStrengthSessionIds?: number[];
     needsAuth?: boolean;
   };
   recentSummary: string;
@@ -216,17 +218,23 @@ export async function startupSync(): Promise<StartupContext> {
           }
         }
 
-        // Heart-rate-only sessions (basketball, tennis, ...): stream + bout analysis
-        const newHrSessions = newActivities.filter(isHrSessionCandidate);
+        // Non-run activities (lifts, basketball, rides, ...): the athlete's
+        // description lives only on the detail endpoint, so every new one gets
+        // a detail call. Heart-rate-only sessions (basketball, tennis, ...)
+        // also get a stream call and the bout analysis. Mirrors strava_sync.
+        const newNonRuns = newActivities.filter(a => !newRuns.includes(a));
         const hrSessionsAnalyzed: typeof newActivities = [];
-        if (newHrSessions.length > 0) {
+        const newStrengthSessions = newNonRuns.filter(isStrengthSession);
+        if (newNonRuns.length > 0) {
           try {
             const zones = await loadHrZones();
-            for (const act of newHrSessions) {
+            for (const act of newNonRuns) {
               try {
-                // Description lives only on the detail endpoint; runs get it via
-                // fetchAndStore*Detail, HR sessions need this explicit call.
                 setActivityDescription(act.id, (await fetchActivityDetail(act.id)).description);
+                if (!isHrSessionCandidate(act)) {
+                  await new Promise(r => setTimeout(r, 50));
+                  continue;
+                }
                 const streams = await fetchActivityStream(act.id);
                 if (!streams) continue;
                 saveActivityStreams(act.id, streams);
@@ -323,6 +331,15 @@ export async function startupSync(): Promise<StartupContext> {
           }
         }
 
+        if (newStrengthSessions.length > 0) {
+          msg += "\n\nNew strength sessions:";
+          for (const act of newStrengthSessions) {
+            const date = toDateString(new Date(act.start_date_local));
+            const mins = Math.round(act.elapsed_time / 60);
+            msg += `\n- ${date}: "${act.name}" (${act.sport_type}, id: ${act.id}) — ${mins}min, avg HR ${act.average_heartrate ?? "?"}, max ${act.max_heartrate ?? "?"}`;
+          }
+        }
+
         newRunDates = newRuns.map(r => ({
           id: r.id,
           date: toDateString(new Date(r.start_date_local)),
@@ -333,6 +350,7 @@ export async function startupSync(): Promise<StartupContext> {
           message: msg,
           newRunIds: newRuns.map(r => r.id),
           newHrSessionIds: hrSessionsAnalyzed.map(a => a.id),
+          newStrengthSessionIds: newStrengthSessions.map(a => a.id),
         };
       }
     }
@@ -497,6 +515,13 @@ export function formatStartupGreeting(ctx: StartupContext): string {
   return parts.join("\n");
 }
 
+/** True when the startup sync left anything for the coach to open the session with. */
+export function hasActivitiesAwaitingAnalysis(sync: StartupContext["sync"]): boolean {
+  return sync.newRunIds.length > 0
+    || (sync.newHrSessionIds?.length ?? 0) > 0
+    || (sync.newStrengthSessionIds?.length ?? 0) > 0;
+}
+
 export function formatCompactStatus(ctx: StartupContext, today: Date = new Date()): string {
   const sections: string[] = [];
 
@@ -505,12 +530,14 @@ export function formatCompactStatus(ctx: StartupContext, today: Date = new Date(
     sections.push(`✗ ${ctx.sync.message}${ctx.sync.needsAuth ? " — run /strava-auth" : ""}`);
   } else if (ctx.sync.status === "new_activities") {
     sections.push(`↓ ${ctx.sync.message.split("\n")[0]}`);
-  } else if (ctx.sync.newRunIds.length > 0 || (ctx.sync.newHrSessionIds?.length ?? 0) > 0) {
+  } else if (hasActivitiesAwaitingAnalysis(ctx.sync)) {
     const parts: string[] = [];
     const n = ctx.sync.newRunIds.length;
     if (n > 0) parts.push(`${n} run${n === 1 ? "" : "s"}`);
     const h = ctx.sync.newHrSessionIds?.length ?? 0;
     if (h > 0) parts.push(`${h} session${h === 1 ? "" : "s"}`);
+    const l = ctx.sync.newStrengthSessionIds?.length ?? 0;
+    if (l > 0) parts.push(`${l} lift${l === 1 ? "" : "s"}`);
     sections.push(`✓ Synced · ${parts.join(" and ")} awaiting analysis`);
   } else {
     sections.push("✓ Synced · no new activities");
@@ -629,6 +656,11 @@ ${ctx.sync.message}`
     : `New activity to analyze.
 
 ${ctx.sync.message}`;
+
+  const strengthIds = ctx.sync.newStrengthSessionIds ?? [];
+  if (strengthIds.length > 0) {
+    prompt += `\n\n**Strength session${strengthIds.length === 1 ? "" : "s"} to analyze (id${strengthIds.length === 1 ? "" : "s"}: ${strengthIds.join(", ")})** — not a run and not a heart-rate session. Follow the "Strength Sessions — what you can and cannot see" section in your instructions: give the read from what Strava exposes (duration, HR, the athlete's description) and from the plan, load the **strength-fit-import** skill (Skill tool) if set-level detail would change the read, and close by asking for the data Strava withheld, offering both routes. Do not run the New Run Analysis flow or the heart-rate session flow on these.`;
+  }
 
   if (hrSessionIds.length > 0) {
     prompt += `\n\n**Heart-rate session${hrSessionIds.length === 1 ? "" : "s"} to analyze (id${hrSessionIds.length === 1 ? "" : "s"}: ${hrSessionIds.join(", ")})** — this is not a run. Follow the "Heart-rate-only sessions" section in your instructions: call get_session_analysis for each id, load the **intermittent-sport-analysis** skill (Skill tool) before reading the output, and save the read with save_run_analysis(detailed_analysis). Do not run the New Run Analysis flow on these.`;

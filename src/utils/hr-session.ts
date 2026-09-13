@@ -26,6 +26,18 @@ export function isRide(a: { type: string; sport_type: string }): boolean {
   return a.type === "Ride" || /Ride$/.test(a.sport_type) || a.sport_type === "Velomobile" || a.sport_type === "Handcycle";
 }
 
+/**
+ * Gym work: WeightTraining and Crossfit always, and a generic Workout only when
+ * it is not an intermittent HR session (no heart-rate data to bout-analyse).
+ * Lifting HR reflects rest density, not intensity, so these never enter the
+ * bout model; the coach reads them via the strength-session rules instead.
+ */
+export function isStrengthSession(a: { type: string; sport_type: string; average_heartrate?: number | null }): boolean {
+  const t = a.sport_type || a.type;
+  if (t === "WeightTraining" || t === "Crossfit") return true;
+  return t === "Workout" && !isHrSessionCandidate(a);
+}
+
 export function isHrSessionCandidate(a: { type: string; sport_type: string; average_heartrate?: number | null }): boolean {
   if (!a.average_heartrate) return false;
   if (a.type === "Run" || a.sport_type === "Run") return false;

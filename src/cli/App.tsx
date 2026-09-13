@@ -8,7 +8,7 @@ import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
 import { getCurrentSessionId, setSessionId, loadPersistedSessionId } from "../utils/session.js";
 import { appendChatMessage, loadChatHistory, resetChatHistory } from "../utils/chat-history.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
-import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGreeting } from "../utils/startup-sync.js";
+import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGreeting, hasActivitiesAwaitingAnalysis } from "../utils/startup-sync.js";
 import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
 import { MessageLog, type MessageItem } from "./components/MessageLog.js";
@@ -272,7 +272,7 @@ export default function App({ resume = false }: { resume?: boolean }) {
         firstPrompt = protocol
           ? `[Onboarding] Follow this protocol exactly:\n\n${protocol}`
           : "[Session start]";
-      } else if (ctx!.sync.newRunIds.length > 0 || (ctx!.sync.newHrSessionIds?.length ?? 0) > 0) {
+      } else if (hasActivitiesAwaitingAnalysis(ctx!.sync)) {
         firstPrompt = formatNewRunsPrompt(ctx!);
       } else if (ctx!.fitnessDrift?.should_prompt) {
         // No new runs but fitness drift detected — coach must surface it proactively

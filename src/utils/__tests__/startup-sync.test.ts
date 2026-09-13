@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { formatNewRunsPrompt, formatCompactStatus, parseRaceCountdowns, type StartupContext } from "../startup-sync.js";
+import { formatNewRunsPrompt, formatCompactStatus, parseRaceCountdowns, hasActivitiesAwaitingAnalysis, type StartupContext } from "../startup-sync.js";
 import { findCurrentWeekNumber } from "../plan-parser.js";
 
 describe("parseRaceCountdowns", () => {
@@ -455,5 +455,63 @@ describe("formatCompactStatus with heart-rate sessions", () => {
       fitnessDrift: null,
     };
     expect(formatCompactStatus(ctx)).toContain("1 session awaiting analysis");
+  });
+});
+
+describe("formatNewRunsPrompt with strength sessions", () => {
+  const base = {
+    recentSummary: "",
+    planExcerpt: null,
+    raceCountdowns: [],
+    weekCompliance: null,
+    newRunPlanContext: [],
+    fitnessDrift: null,
+  };
+
+  test("a lift with no runs routes to the strength flow, not the run flow", () => {
+    const ctx: StartupContext = {
+      ...base,
+      sync: {
+        status: "new_activities",
+        message: '1 new activity synced (0 runs, 0km).\n\nNew strength sessions:\n- 2026-09-12: "Night Weight Training" (WeightTraining, id: 90000000001) — 47min, avg HR 93, max 140',
+        newRunIds: [],
+        newStrengthSessionIds: [90000000001],
+      },
+    };
+    const prompt = formatNewRunsPrompt(ctx);
+    expect(prompt).toContain("90000000001");
+    expect(prompt).toContain("Strength Sessions");
+    expect(prompt).toContain("strength-fit-import");
+    expect(prompt).not.toContain("Runs to analyze");
+    expect(prompt).not.toContain("get_session_analysis");
+  });
+});
+
+describe("hasActivitiesAwaitingAnalysis", () => {
+  const sync = (extra: Partial<StartupContext["sync"]>): StartupContext["sync"] =>
+    ({ status: "new_activities", message: "", newRunIds: [], ...extra });
+
+  test("is false when nothing new arrived", () => {
+    expect(hasActivitiesAwaitingAnalysis(sync({}))).toBe(false);
+  });
+  test("is true for runs, heart-rate sessions and strength sessions alike", () => {
+    expect(hasActivitiesAwaitingAnalysis(sync({ newRunIds: [1] }))).toBe(true);
+    expect(hasActivitiesAwaitingAnalysis(sync({ newHrSessionIds: [2] }))).toBe(true);
+    expect(hasActivitiesAwaitingAnalysis(sync({ newStrengthSessionIds: [3] }))).toBe(true);
+  });
+});
+
+describe("formatCompactStatus with strength sessions", () => {
+  test("counts lifts awaiting analysis", () => {
+    const ctx: StartupContext = {
+      sync: { status: "up_to_date", message: "", newRunIds: [], newStrengthSessionIds: [5] },
+      recentSummary: "",
+      planExcerpt: null,
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    expect(formatCompactStatus(ctx)).toContain("1 lift awaiting analysis");
   });
 });
