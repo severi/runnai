@@ -80,7 +80,7 @@ Today: ${toDateString()}`,
       "mcp__runnai__delete_intervals_event",
       "mcp__runnai__reconcile_intervals_plan",
     ],
-    model: "opus",
+    model: "claude-opus-5-5",
   },
   "activity-analyzer": {
     description:
@@ -133,7 +133,7 @@ Useful patterns:
 
 Today: ${toDateString()}`,
     tools: ["Read", "mcp__runnai__query_activities", "mcp__runnai__get_run_analysis", "mcp__runnai__get_session_analysis", "mcp__runnai__get_cross_training_analysis", "mcp__runnai__calculator", "mcp__runnai__get_weather"],
-    model: "opus",
+    model: "claude-opus-5-5",
   },
   "fitness-assessor": {
     description:
@@ -203,7 +203,7 @@ Today: ${toDateString()}`,
       "mcp__runnai__save_race_prediction",
       "mcp__runnai__get_prediction_history",
     ],
-    model: "opus",
+    model: "claude-opus-5-5",
   },
   "progress-reviewer": {
     description:
@@ -228,7 +228,7 @@ Be constructive and specific. Use actual numbers.
 
 Today: ${toDateString()}`,
     tools: ["Read", "mcp__runnai__query_activities", "mcp__runnai__read_memory", "mcp__runnai__search_memory", "mcp__runnai__get_plan_compliance", "mcp__runnai__calculator"],
-    model: "opus",
+    model: "claude-opus-5-5",
   },
   researcher: {
     description:
@@ -250,7 +250,7 @@ Focus on:
 
 Today: ${toDateString()}`,
     tools: ["Read", "Write", "WebSearch", "WebFetch", "mcp__runnai__research", "mcp__runnai__save_research", "mcp__runnai__commit_data"],
-    model: "opus",
+    model: "claude-opus-5-5",
   },
   "analysis-reviewer": {
     description:
@@ -432,7 +432,7 @@ Today: ${toDateString()}`,
       "mcp__runnai__calculator",
       "mcp__runnai__date_calc",
     ],
-    model: "opus",
+    model: "claude-opus-5-5",
   },
 };
 
@@ -441,23 +441,22 @@ export async function createAgentOptions(canUseTool?: CanUseTool, replyLint?: Re
 
   return {
     cwd: PROJECT_ROOT,
-    model: "claude-fable-5-1",
-    // Pinned rather than an alias so a family bump is a deliberate edit. The
-    // subagents below stay on Opus 5 (model: "opus"): bounded, well-specified
-    // tasks where Fable's extra cost buys little.
-    // 1M context is native on Fable 5.1 (no context-1m beta header needed).
-    // Fable 5.1 runs safety classifiers; a benign coaching turn can trip one
+    model: "claude-opus-5-5",
+    // Pinned rather than an alias so a family bump is a deliberate edit.
+    // 1M context is native on Opus 5.5 (no context-1m beta header needed).
+    // Opus 5.5 runs safety classifiers; a benign coaching turn can trip one
     // (stop_reason "refusal"). With a fallback model the CLI retries the turn
     // there and emits model_refusal_fallback; without one the turn is dropped.
     fallbackModel: "claude-opus-5",
-    // Thinking is always on for Fable 5.1 — never set { type: "disabled" }, it
-    // is rejected outright. `display` must be set explicitly: the default is
+    // Thinking is always on for Opus 5.5 — never set { type: "disabled" }, it
+    // is rejected at every effort level. `display` must be set explicitly: the default is
     // "omitted", which streams thinking blocks whose text is an empty string.
     // Leaving it unset produced a live region that redrew every few seconds
     // with nothing new in it (14 empty blocks in one turn), reading as flicker.
     // "summarized" costs nothing extra — display controls visibility only;
     // thinking happens and is billed the same either way.
     thinking: { type: "adaptive", display: "summarized" },
+    // Explicit: Opus 5.5 defaults to "medium", one level below Opus 5/Fable.
     effort: "high",
     systemPrompt,
     permissionMode: "default",

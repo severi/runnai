@@ -92,7 +92,7 @@ export function handleSdkMessage(
         sys.subtype === "model_refusal_fallback" ||
         sys.subtype === "model_refusal_no_fallback"
       ) {
-        // A safety classifier declined the request. Fable 5.1 (and Opus 5)
+        // A safety classifier declined the request. Opus 5.5 (and Opus 5)
         // run these, and a benign coaching turn can trip one. With a fallback
         // model configured the CLI retries the turn there, so the athlete got an
         // answer and only needs a quiet note about who wrote it. Without one the
@@ -158,7 +158,7 @@ export function handleSdkMessage(
           state.currentResponse += block.text;
           setStreamingText(state.currentResponse);
         } else if (block.type === "thinking") {
-          // Fable 5.1 and Opus 5 think by default, so these arrive on most turns. With
+          // Opus 5.5 and Opus 5 think by default, so these arrive on most turns. With
           // display: "summarized" they carry a readable summary; commit it so
           // the redraw this message already triggers (via onUsage below) shows
           // actual progress instead of an empty repaint. Blocks still arrive
