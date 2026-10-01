@@ -137,6 +137,13 @@ export interface ActivityStream {
   cadence?: number[];
   /** Power in watts, present on rides recorded with a meter or a smart trainer. */
   watts?: number[];
+  /**
+   * GPS track as [lat, lng] pairs. Not persisted — only its first point is
+   * used, to backfill the activity's start coordinates when Strava's summary
+   * sent `start_latlng: []` for a run that has full GPS (seen on watch
+   * "Track Run" mode activities).
+   */
+  latlng?: [number, number][];
 }
 
 /**

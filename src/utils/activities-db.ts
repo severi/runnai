@@ -360,13 +360,17 @@ export function upsertActivities(activities: StravaActivity[]): void {
       $average_cadence, $workout_type,
       COALESCE($description, (SELECT description FROM activities WHERE id = $id)),
       $trainer,
-      $start_latitude, $start_longitude, $gear_id,
+      COALESCE($start_latitude, (SELECT start_latitude FROM activities WHERE id = $id)),
+      COALESCE($start_longitude, (SELECT start_longitude FROM activities WHERE id = $id)),
+      $gear_id,
       $average_watts, $weighted_average_watts, $max_watts, $kilojoules, $device_watts
     )
   `);
   // `description` is coalesced because the summary list never carries it: an
   // incremental sync re-upserts the latest activity and would otherwise wipe
   // the description the detail fetch stored (INSERT OR REPLACE rewrites the row).
+  // Start coordinates likewise: when the summary's start_latlng is empty, the
+  // latlng stream backfills them (saveActivityStreams) and a re-upsert must keep it.
 
   const insertMany = db.transaction((activities: StravaActivity[]) => {
     for (const activity of activities) {
@@ -804,6 +808,14 @@ export function saveActivityStreams(activityId: number, streams: ActivityStream)
     $fetched_at: new Date().toISOString(),
   });
   db.prepare("UPDATE activities SET streams_fetched = 1 WHERE id = ?").run(activityId);
+  // Strava sometimes sends `start_latlng: []` for a run with full GPS; the
+  // stream's first point fills the gap so weather and venue lookups still work.
+  const start = streams.latlng?.[0];
+  if (start) {
+    db.prepare(
+      "UPDATE activities SET start_latitude = ?, start_longitude = ? WHERE id = ? AND start_latitude IS NULL"
+    ).run(start[0], start[1], activityId);
+  }
 }
 
 export function getActivityStreams(activityId: number): ActivityStream | null {

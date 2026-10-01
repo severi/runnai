@@ -48,3 +48,12 @@ describe("fetchActivityStream", () => {
     expect(stream?.watts).toBeUndefined();
   });
 });
+
+describe("fetchActivityStream latlng", () => {
+  test("requests latlng and returns it, so a run Strava sent without start_latlng still has a start point", async () => {
+    const urls = stubStreams({ time: { data: [0, 1] }, latlng: { data: [[52.37, 4.9], [52.371, 4.901]] } });
+    const stream = await fetchActivityStream(90000000012);
+    expect(new URL(urls[0]).searchParams.get("keys")!.split(",")).toContain("latlng");
+    expect(stream?.latlng?.[0]).toEqual([52.37, 4.9]);
+  });
+});
