@@ -180,7 +180,7 @@ export const getRunAnalysisTool = tool(
         const easyPaceRef = computeEasyPaceRef();
         const result = computeActivityAnalysis(activity_id, hrZones, easyPaceRef);
         if (!result) {
-          return toolResult(`No data found for activity ${activity_id}. Run strava_sync first.`, true);
+          return toolResult(`No data found for activity ${activity_id}. Run sync_activities first.`, true);
         }
         saveActivityAnalysis(result.analysis);
         // Re-read rather than serving `result.analysis` directly: the computed

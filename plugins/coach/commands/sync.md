@@ -1,12 +1,12 @@
 ---
 name: sync
-description: Sync latest Strava activities and comment on new runs
+description: Sync latest activities (Strava or Garmin) and comment on new runs
 user-invocable: true
 ---
 
-# Strava Sync
+# Activity Sync
 
-1. Call `strava_sync` with NO arguments (uses incremental mode by default — do NOT pass incremental or days)
+1. Call `sync_activities` with NO arguments (uses incremental mode by default — do NOT pass incremental or days)
 2. Read the tool result carefully — it tells you exactly which activities are NEW since last sync, with their classification tags
 3. Read `data/strava/recent-summary.md` for updated context
 4. Present only the NEW information:
@@ -16,7 +16,7 @@ user-invocable: true
      - Compare to their training plan if one exists (check data/plans/)
      - Note anything interesting (PR pace, unusually long/short, new classification pattern)
    - If there are new cross-training sessions (rides, walks, ski — the tool says "Cross-training analysis ready"), read each with `get_cross_training_analysis` and the cross-training-analysis skill; for heart-rate sessions use `get_session_analysis`; for lifts follow the strength-session rules
-   - Ask: "Want me to update these on Strava with names and coaching notes? (all / pick specific ones / skip)"
+   - Strava installs only (skip on Garmin, where there is no write-back): ask "Want me to update these on Strava with names and coaching notes? (all / pick specific ones / skip)"
    - If yes, use the `strava-writeback` skill to handle the write-back
 5. Give a brief weekly summary:
    - Runs so far this week

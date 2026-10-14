@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
 import { toDateString } from "./format.js";
+import { getDataSource, isGarminMode } from "./data-source.js";
 import type { StravaActivity, StravaAthlete, GearWithUsage, BestEffortRecord, RacePrediction, StravaBestEffortRecord, ActivityLapRecord, RunType, ActivityStream, ActivityStreamRecord, StreamAnalysisResult, SplitType } from "../types/index.js";
 
 // --- Singleton connection ---
@@ -135,6 +136,9 @@ function runMigrations(db: Database): void {
   addColumn("activities", "max_watts", "REAL");
   addColumn("activities", "kilojoules", "REAL");
   addColumn("activities", "device_watts", "INTEGER");
+  // Which source produced the row (2026-10-13): Strava history stays 'strava';
+  // a Garmin-only install adds 'garmin' rows keyed by Garmin activity id.
+  addColumn("activities", "source", "TEXT NOT NULL DEFAULT 'strava'");
 
   // Index references the migrated `detail_fetched` column, so it must come AFTER addColumn.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);`);
@@ -352,7 +356,7 @@ export function upsertActivities(activities: StravaActivity[]): void {
       average_speed, max_speed, average_heartrate, max_heartrate, suffer_score,
       average_cadence, workout_type, description, trainer,
       start_latitude, start_longitude, gear_id,
-      average_watts, weighted_average_watts, max_watts, kilojoules, device_watts
+      average_watts, weighted_average_watts, max_watts, kilojoules, device_watts, source
     ) VALUES (
       $id, $name, $type, $sport_type, $start_date, $start_date_local,
       $distance, $moving_time, $elapsed_time, $total_elevation_gain,
@@ -363,7 +367,7 @@ export function upsertActivities(activities: StravaActivity[]): void {
       COALESCE($start_latitude, (SELECT start_latitude FROM activities WHERE id = $id)),
       COALESCE($start_longitude, (SELECT start_longitude FROM activities WHERE id = $id)),
       $gear_id,
-      $average_watts, $weighted_average_watts, $max_watts, $kilojoules, $device_watts
+      $average_watts, $weighted_average_watts, $max_watts, $kilojoules, $device_watts, $source
     )
   `);
   // `description` is coalesced because the summary list never carries it: an
@@ -402,6 +406,7 @@ export function upsertActivities(activities: StravaActivity[]): void {
         $max_watts: activity.max_watts ?? null,
         $kilojoules: activity.kilojoules ?? null,
         $device_watts: activity.device_watts == null ? null : (activity.device_watts ? 1 : 0),
+        $source: activity.source ?? "strava",
       });
     }
   });
@@ -454,9 +459,10 @@ export function getGearWithUsage(): GearWithUsage[] {
            MAX(a.start_date_local) AS last_used
     FROM gear g
     LEFT JOIN activities a ON a.gear_id = g.id AND a.type = 'Run'
+    WHERE (g.id LIKE 'garmin:%') = ?
     GROUP BY g.id
     ORDER BY g.is_primary DESC, g.distance DESC
-  `).all() as Array<{
+  `).all(isGarminMode() ? 1 : 0) as Array<{
     id: string; name: string; is_primary: number; distance: number; retired: number;
     synced_at: string; runs_in_db: number; meters_in_db: number; last_used: string | null;
   }>;
@@ -622,11 +628,36 @@ export function markActivityDetailFetched(activityId: number): void {
 }
 
 export function getActivitiesWithoutDetail(limit: number = 50): { id: number; name: string; distance: number }[] {
+  // Only rows the active source can fetch detail for: in Garmin mode a Strava-era
+  // run without detail can never get it, and retrying it every sync would cost a
+  // subprocess per row.
   return getDb().prepare(
     `SELECT id, name, distance FROM activities
-     WHERE type = 'Run' AND trainer = 0 AND detail_fetched = 0
+     WHERE type = 'Run' AND trainer = 0 AND detail_fetched = 0 AND source = ?
      ORDER BY start_date_local DESC LIMIT ?`
-  ).all(limit) as { id: number; name: string; distance: number }[];
+  ).all(getDataSource(), limit) as { id: number; name: string; distance: number }[];
+}
+
+export function getActivitySource(activityId: number): "strava" | "garmin" | null {
+  const row = getDb().prepare("SELECT source FROM activities WHERE id = ?").get(activityId) as { source: string } | null;
+  return row ? (row.source as "strava" | "garmin") : null;
+}
+
+/**
+ * Id of an activity (other than `excludeId`) starting within `windowSec` of
+ * `startDateUtc`. The same session reaches both Strava and Garmin with
+ * different ids but the same start instant, so this is how a Garmin sync
+ * recognises a session the Strava history already holds.
+ */
+export function findActivityNearStart(startDateUtc: string, windowSec: number, excludeId?: number): number | null {
+  const t = Date.parse(startDateUtc);
+  if (Number.isNaN(t)) return null;
+  const lo = new Date(t - windowSec * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const hi = new Date(t + windowSec * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const row = getDb().prepare(
+    `SELECT id FROM activities WHERE start_date BETWEEN ? AND ? AND id != ? LIMIT 1`
+  ).get(lo, hi, excludeId ?? -1) as { id: number } | null;
+  return row?.id ?? null;
 }
 
 type BestEffortRow = StravaBestEffortRecord & { activity_name: string; start_date_local: string; activity_distance: number; workout_type: number | null; run_type: string | null };

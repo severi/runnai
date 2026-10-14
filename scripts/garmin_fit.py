@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import sys
 import zipfile
@@ -54,7 +55,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Tokens live outside data/ deliberately: data/ is its own git repo with a
 # session-end auto-backup, so credentials placed there would be committed.
 TOKEN_DIR = PROJECT_ROOT / ".garmin-tokens"
-FIT_DIR = PROJECT_ROOT / "data" / "fit"
+# Honour RUNNAI_DATA_DIR like the app does, so a sync from the app lands FITs
+# next to the database it is filling.
+FIT_DIR = Path(os.getenv("RUNNAI_DATA_DIR") or PROJECT_ROOT / "data") / "fit"
 
 # Strava marks these types for gym work; the Garmin equivalents differ in
 # spelling, so match loosely when filtering `list` output.
@@ -218,16 +221,8 @@ def _resolve_by_time(api: Garmin, iso: str) -> dict:
     return matches[0]
 
 
-def cmd_fetch(args: argparse.Namespace) -> None:
-    api = connect()
-
-    if args.at:
-        activity = _resolve_by_time(api, args.at)
-        activity_id = activity["activityId"]
-        print(f"Resolved {args.at} -> {_fmt(activity)}")
-    else:
-        activity_id = args.activity_id
-
+def _download_fit(api: Garmin, activity_id: int | str) -> list[Path]:
+    """Download the original FIT for one activity into data/fit/."""
     blob = api.download_activity(
         str(activity_id), dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL
     )
@@ -247,11 +242,109 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         out = FIT_DIR / f"{activity_id}_ACTIVITY.fit"
         out.write_bytes(blob)
         written.append(out)
+    return written
 
+
+def cmd_fetch(args: argparse.Namespace) -> None:
+    api = connect()
+
+    if args.at:
+        activity = _resolve_by_time(api, args.at)
+        activity_id = activity["activityId"]
+        print(f"Resolved {args.at} -> {_fmt(activity)}")
+    else:
+        activity_id = args.activity_id
+
+    written = _download_fit(api, activity_id)
     if not written:
         sys.exit(f"Download for {activity_id} contained no .fit file.")
     for out in written:
         print(f"Wrote {out.relative_to(PROJECT_ROOT)} ({out.stat().st_size:,} bytes)")
+
+
+def fit_path(activity_id: int | str) -> Path:
+    return FIT_DIR / f"{activity_id}_ACTIVITY.fit"
+
+
+# Activity types that carry shoes worth attributing. One gear call per activity,
+# so it is spent only where the coach reads gear (shoe mileage on runs).
+GEAR_TYPE_HINTS = ("running", "walking", "hiking")
+
+
+def cmd_sync(args: argparse.Namespace) -> None:
+    """Emit activity summaries since a date as JSON on stdout, fetching FITs.
+
+    The app's Garmin data source runs this as a subprocess and does all mapping
+    in TypeScript — this stays a thin pass-through so the fragile part (auth)
+    is the only thing living in Python. Diagnostics go to stderr; stdout is
+    exactly one JSON document.
+    """
+    api = connect()
+    start = datetime.fromisoformat(args.since.replace("Z", "+00:00")).date()
+    end = datetime.now(timezone.utc).date() + timedelta(days=1)
+    activities = api.get_activities_by_date(start.isoformat(), end.isoformat())
+
+    out = []
+    for a in activities:
+        activity_id = a.get("activityId")
+        if activity_id is None:
+            continue
+        type_key = ((a.get("activityType") or {}).get("typeKey") or "").lower()
+        gear_uuid = None
+        if any(h in type_key for h in GEAR_TYPE_HINTS):
+            try:
+                gear = api.get_activity_gear(activity_id) or []
+                shoes = [g for g in gear if (g.get("gearTypeName") or "").lower() == "shoes"]
+                gear_uuid = (shoes or gear or [{}])[0].get("uuid")
+            except Exception as exc:  # noqa: BLE001 - gear is best-effort
+                print(f"gear lookup failed for {activity_id}: {exc}", file=sys.stderr)
+
+        fit_file = fit_path(activity_id)
+        fit_error = None
+        if not args.no_fit and not fit_file.exists():
+            try:
+                _download_fit(api, activity_id)
+            except Exception as exc:  # noqa: BLE001 - summary still syncs; FIT retried next run
+                fit_error = str(exc)
+                print(f"FIT download failed for {activity_id}: {exc}", file=sys.stderr)
+
+        out.append({
+            "summary": a,
+            "gear_uuid": gear_uuid,
+            "fit_path": str(fit_file) if fit_file.exists() else None,
+            "fit_error": fit_error,
+        })
+
+    json.dump({"activities": out}, sys.stdout, default=str)
+
+
+def cmd_fit(args: argparse.Namespace) -> None:
+    """Make sure one activity's FIT is on disk; print its path as JSON."""
+    fit_file = fit_path(args.activity_id)
+    if not fit_file.exists():
+        _download_fit(connect(), args.activity_id)
+    json.dump({"fit_path": str(fit_file) if fit_file.exists() else None}, sys.stdout)
+
+
+def cmd_gear(_args: argparse.Namespace) -> None:
+    """Emit shoes with Garmin's lifetime distance as JSON on stdout."""
+    api = connect()
+    profile_number = (api.get_user_profile() or {}).get("id")
+    if profile_number is None:
+        sys.exit("Could not resolve the Garmin user profile number for gear lookup.")
+    shoes = []
+    for g in api.get_gear(str(profile_number)) or []:
+        if (g.get("gearTypeName") or "").lower() != "shoes":
+            continue
+        stats = api.get_gear_stats(g["uuid"]) or {}
+        shoes.append({
+            "uuid": g["uuid"],
+            "name": g.get("displayName") or g.get("customMakeModel")
+            or f"{g.get('gearMakeName', '')} {g.get('gearModelName', '')}".strip(),
+            "distance_m": stats.get("totalDistance") or 0,
+            "retired": (g.get("gearStatusName") or "").lower() == "retired",
+        })
+    json.dump({"shoes": shoes}, sys.stdout)
 
 
 def main() -> None:
@@ -279,6 +372,19 @@ def main() -> None:
         "Use the Strava activity's start_date.",
     )
     p_fetch.set_defaults(func=cmd_fetch)
+
+    p_sync = sub.add_parser("sync", help="JSON summaries since a date, fetching missing FITs.")
+    p_sync.add_argument("--since", required=True, help="ISO date or datetime (UTC).")
+    p_sync.add_argument("--no-fit", action="store_true", help="Skip FIT downloads.")
+    p_sync.set_defaults(func=cmd_sync)
+
+    p_fit = sub.add_parser("fit", help="Ensure one activity's FIT is downloaded; JSON path.")
+    p_fit.add_argument("activity_id", help="Garmin activity id.")
+    p_fit.set_defaults(func=cmd_fit)
+
+    sub.add_parser("gear", help="JSON list of shoes with lifetime distance.").set_defaults(
+        func=cmd_gear
+    )
 
     args = parser.parse_args()
     if args.command == "fetch" and not args.activity_id and not args.at:

@@ -1,6 +1,7 @@
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import { isGarminMode } from "../utils/data-source.js";
 import {
-  stravaSyncTool,
+  syncActivitiesTool,
   stravaProfileTool,
   stravaAuthTool,
   queryActivitiesTool,
@@ -49,12 +50,12 @@ export const coachMcpServer = createSdkMcpServer({
   name: "runnai",
   version: "1.0.0",
   tools: [
-    // Strava
-    stravaSyncTool,
-    stravaProfileTool,
-    stravaAuthTool,
+    // Activity sync (Strava or Garmin, per install)
+    syncActivitiesTool,
     queryActivitiesTool,
-    stravaUpdateActivityTool,
+    // Strava-only: auth, profile and write-back have no Garmin counterpart, so a
+    // Garmin-only install does not register them at all.
+    ...(isGarminMode() ? [] : [stravaProfileTool, stravaAuthTool, stravaUpdateActivityTool]),
     bestEffortsTool,
     // Activity streams
     getActivityStreamsTool,

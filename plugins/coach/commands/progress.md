@@ -6,7 +6,7 @@ user-invocable: true
 
 # Progress Review
 
-1. Sync latest Strava data using `strava_sync`
+1. Sync latest activity data using `sync_activities`
 
 2. Delegate to progress-reviewer subagent:
    - Use `get_plan_compliance` (omit week_number for current week) for the structured planned-vs-actual comparison — each planned session joined to its matching activity by date with completion status

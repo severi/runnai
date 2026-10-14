@@ -356,9 +356,36 @@ describe("formatCompactStatus", () => {
       newRunPlanContext: [],
       fitnessDrift: null,
     };
-    const result = formatCompactStatus(ctx);
-    expect(result).toContain("Not authorized");
-    expect(result).toContain("strava-auth");
+    // Pin the source: the auth hint is Strava-only, and the real install's
+    // data/config.json may select Garmin.
+    process.env.RUNNAI_DATA_SOURCE = "strava";
+    try {
+      const result = formatCompactStatus(ctx);
+      expect(result).toContain("Not authorized");
+      expect(result).toContain("strava-auth");
+    } finally {
+      delete process.env.RUNNAI_DATA_SOURCE;
+    }
+  });
+
+  test("Garmin installs get no /strava-auth hint on an auth error", () => {
+    const ctx: StartupContext = {
+      sync: { status: "error", message: "Garmin sign-in required", newRunIds: [], needsAuth: true },
+      recentSummary: "",
+      planExcerpt: null,
+      raceCountdowns: [],
+      weekCompliance: null,
+      newRunPlanContext: [],
+      fitnessDrift: null,
+    };
+    process.env.RUNNAI_DATA_SOURCE = "garmin";
+    try {
+      const result = formatCompactStatus(ctx);
+      expect(result).toContain("Garmin sign-in required");
+      expect(result).not.toContain("strava-auth");
+    } finally {
+      delete process.env.RUNNAI_DATA_SOURCE;
+    }
   });
 });
 

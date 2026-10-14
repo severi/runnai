@@ -223,12 +223,12 @@ export const commands: Command[] = [
   },
   {
     name: "sync",
-    description: "Sync activities from Strava",
+    description: "Sync activities from Strava or Garmin",
     usage: "/sync [days] — e.g., /sync 14",
     handler: async (args, ctx) => {
       const days = args[0] || "30";
       await ctx.streamResponse(
-        `Sync my Strava activities from the last ${days} days using the strava_sync tool. Show me a summary of what was synced.`
+        `Sync my activities from the last ${days} days using the sync_activities tool. Show me a summary of what was synced.`
       );
     },
   },

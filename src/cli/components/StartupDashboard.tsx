@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { MarkdownText } from "./MarkdownText.js";
 import type { StartupContext } from "../../utils/startup-sync.js";
+import { dataSourceLabel, isGarminMode } from "../../utils/data-source.js";
 
 function getTimeGreeting(): string {
   const hour = new Date().getHours();
@@ -58,7 +59,7 @@ function Greeting({ text, loading }: { text: string | null; loading: boolean }) 
 function SyncStatus({ sync }: { sync: StartupContext["sync"] }) {
   if (sync.status === "error") {
     return (
-      <Text color="red">✗ {sync.message}{sync.needsAuth ? " — run /strava-auth" : ""}</Text>
+      <Text color="red">✗ {sync.message}{sync.needsAuth && !isGarminMode() ? " — run /strava-auth" : ""}</Text>
     );
   }
   if (sync.status === "new_activities") {
@@ -70,9 +71,9 @@ function SyncStatus({ sync }: { sync: StartupContext["sync"] }) {
     const parts: string[] = [];
     if (n > 0) parts.push(`${n} run${n === 1 ? "" : "s"}`);
     if (h > 0) parts.push(`${h} session${h === 1 ? "" : "s"}`);
-    return <Text color="yellow">{"⚠"} Strava synced — {parts.join(" and ")} awaiting analysis</Text>;
+    return <Text color="yellow">{"⚠"} {dataSourceLabel()} synced — {parts.join(" and ")} awaiting analysis</Text>;
   }
-  return <Text color="green" dimColor>{"✓"} Strava synced — up to date</Text>;
+  return <Text color="green" dimColor>{"✓"} {dataSourceLabel()} synced — up to date</Text>;
 }
 
 function RaceCountdowns({ races }: { races: StartupContext["raceCountdowns"] }) {

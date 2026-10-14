@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { stravaSyncTool } from "../strava.js";
+import { syncActivitiesTool } from "../strava.js";
 import { getDb, closeDb } from "../../utils/activities-db.js";
 import { getCrossTrainingAnalysis } from "../../utils/cross-training.js";
 
@@ -90,11 +90,11 @@ function stubStrava(activities: (typeof LIFT)[], detailDescription: string) {
   return { detailCalls, streamCalls };
 }
 
-describe("strava_sync descriptions", () => {
+describe("sync_activities descriptions", () => {
   test("stores the athlete's description for a new weight-training activity", async () => {
     const { detailCalls, streamCalls } = stubStrava([LIFT], "squat back at 90, ankle fine");
 
-    await call(stravaSyncTool, { incremental: false, days: 3 });
+    await call(syncActivitiesTool, { incremental: false, days: 3 });
 
     expect(detailCalls).toContain(LIFT.id);
     const row = getDb().prepare("SELECT description FROM activities WHERE id = ?").get(LIFT.id) as { description: string | null };
@@ -106,7 +106,7 @@ describe("strava_sync descriptions", () => {
   test("intermittent-sport sessions still get their description and stream fetch", async () => {
     const { detailCalls, streamCalls } = stubStrava([BASKETBALL], "pickup, four games");
 
-    await call(stravaSyncTool, { incremental: false, days: 3 });
+    await call(syncActivitiesTool, { incremental: false, days: 3 });
 
     expect(detailCalls).toContain(BASKETBALL.id);
     expect(streamCalls).toContain(BASKETBALL.id);
@@ -117,7 +117,7 @@ describe("strava_sync descriptions", () => {
   test("a new ride gets its stream and a cross-training analysis, and the result names it", async () => {
     const { detailCalls, streamCalls } = stubStrava([RIDE], "trainer hour");
 
-    const result = await call(stravaSyncTool, { incremental: false, days: 3 });
+    const result = await call(syncActivitiesTool, { incremental: false, days: 3 });
 
     expect(detailCalls).toContain(RIDE.id);
     expect(streamCalls).toContain(RIDE.id);

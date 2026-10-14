@@ -3,15 +3,17 @@ import { z } from "zod";
 import {
   startAutomaticAuth,
   hasClientCredentials,
-  getAuthUrl,
-  syncActivities,
   getAthleteProfile,
-  fetchActivityDetail,
-  fetchActivityStream,
-  convertStravaBestEfforts,
   updateActivity,
   loadTokens,
 } from "../strava/client.js";
+import {
+  syncActivities,
+  fetchActivityDetail,
+  fetchActivityStream,
+  convertStravaBestEfforts,
+} from "../utils/activity-source.js";
+import { dataSourceLabel } from "../utils/data-source.js";
 import type { StravaActivity, ActivityLapRecord, ActivityStream } from "../types/index.js";
 import {
   queryActivities,
@@ -44,7 +46,8 @@ import { toDateString, toolResult, toolError, formatPace } from "../utils/format
 import { STRAVA_ATTRIBUTION } from "../utils/athlete-notes.js";
 
 /**
- * Fetch and store activity detail (best efforts, streams, laps) from Strava.
+ * Fetch and store activity detail (best efforts, streams, laps) from the active
+ * data source (Strava's detail API, or the Garmin FIT).
  * Returns the fetched streams (if any) for downstream analysis.
  */
 async function fetchAndStoreActivityDetail(
@@ -93,9 +96,9 @@ async function fetchAndStoreActivityDetail(
   return streams;
 }
 
-export const stravaSyncTool = tool(
-  "strava_sync",
-  "Syncs activities from Strava to local SQLite database. Incremental by default: fetches only activities newer than the last known activity.",
+export const syncActivitiesTool = tool(
+  "sync_activities",
+  "Syncs activities from the athlete's data source (Strava or Garmin Connect, per install) to the local SQLite database. Incremental by default: fetches only activities newer than the last known activity.",
   {
     days: z.number().optional().describe("Number of days to fetch for full (non-incremental) sync. Default 30."),
     incremental: z.boolean().optional().describe("If true (default), only fetch activities since last sync."),
@@ -109,7 +112,7 @@ export const stravaSyncTool = tool(
       const syncResult = await syncActivities(days, undefined, incremental);
       if (!syncResult.success) {
         if (syncResult.needsAuth) {
-          return toolError(syncResult.error || "Strava not authorized");
+          return toolError(syncResult.error || `${dataSourceLabel()} not authorized`);
         }
         return toolError(syncResult.error || "Sync failed");
       }
@@ -120,7 +123,7 @@ export const stravaSyncTool = tool(
       const newNonRuns = newActivities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));
       const allRuns = activities.filter((a) => a.type === "Run" || a.sport_type === "Run");
 
-      // Fetch best efforts + laps + streams from Strava detail API for new runs
+      // Fetch best efforts + laps + streams (Strava detail API / Garmin FIT) for new runs
       let detailFetched = 0;
       const cachedStreams = new Map<number, ActivityStream>();
       for (const run of newRuns) {
@@ -346,7 +349,7 @@ export const stravaSyncTool = tool(
         text += `\n\n⚠️ HR ZONES NOT CONFIRMED — run classification deferred.`;
         text += `\nLaps stored but runs not classified yet.`;
         if (estimatedZones) {
-          text += `\n\nEstimated from Strava data: LT1 ~${estimatedZones.lt1} bpm, LT2 ~${estimatedZones.lt2} bpm, Max HR ~${estimatedZones.max_hr} bpm.`;
+          text += `\n\nEstimated from ${dataSourceLabel()} data: LT1 ~${estimatedZones.lt1} bpm, LT2 ~${estimatedZones.lt2} bpm, Max HR ~${estimatedZones.max_hr} bpm.`;
         }
         text += `\n\nAsk the athlete to confirm HR zones before classifying. Key questions:`;
         text += `\n1. Have you done a lactate test or threshold test? If so, what were the results?`;

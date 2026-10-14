@@ -50,14 +50,27 @@ cp .env.example .env
 # Add your ANTHROPIC_API_KEY from console.anthropic.com
 ```
 
-### Strava
+### Data source: Strava or Garmin
 
-Add your Strava app credentials to `.env`:
+Each install syncs from one source. Strava is the default.
+
+**Strava.** Add your Strava app credentials to `.env`:
 
 ```
 STRAVA_CLIENT_ID=your_client_id
 STRAVA_CLIENT_SECRET=your_client_secret
 ```
+
+**Garmin only (no Strava).** Activities sync straight from Garmin Connect via each activity's original FIT file. Streams, laps and best efforts are computed locally, and shoe mileage comes from Garmin's gear. Strava-only features (description write-back, `strava_auth`, `strava_profile`) are switched off. Set it up like this:
+
+```bash
+python3 -m venv .venv-garmin
+.venv-garmin/bin/pip install -r scripts/requirements-garmin.txt
+.venv-garmin/bin/python scripts/garmin_fit.py login   # once: password + MFA, tokens cached
+echo '{ "dataSource": "garmin" }' > data/config.json   # or RUNNAI_DATA_SOURCE=garmin
+```
+
+Switching an existing Strava install to Garmin keeps the Strava history. New Garmin activities that start within 60 s of an existing activity are treated as the same session and skipped, so the overlap never double-counts.
 
 ### Run
 
@@ -121,6 +134,7 @@ src/
   cli/           React/Ink terminal UI
   tools/         MCP tools (Strava, memory, analysis, planning, weather, intervals.icu)
   strava/        Strava API client + OAuth
+  garmin/        Garmin Connect source: bridge to garmin_fit.py, FIT → streams/laps/best efforts
   utils/         Stream analysis, run classification, context builder, sessions
   mcp/           MCP server setup
   agent.ts       Agent config, subagents, system prompt
@@ -131,7 +145,7 @@ plugins/coach/
   commands/      Slash command definitions
 
 scripts/
-  garmin_fit.py  Fetch original FIT files from Garmin (strength set data)
+  garmin_fit.py  Garmin Connect bridge: sync summaries + FIT files, gear, strength FIT fetch
   parse-fit.ts   Parse a strength FIT into sets, reps, load and rest
 
 data/            (its own git repo -- snapshotted by commit_data)
@@ -139,6 +153,7 @@ data/            (its own git repo -- snapshotted by commit_data)
   memory/        Deep memory (observations, session summaries, strength log)
   strava/        SQLite database + OAuth tokens
   plans/         Training plans (plan.md, CHANGELOG.md, versions/, references/)
+  config.json    Optional: { "dataSource": "garmin" } for a Garmin-only install
   fit/           Downloaded Garmin FIT files
   research/      Cached running science lookups
 
@@ -149,7 +164,7 @@ logs/            One JSONL file per session
 
 | Category | Tools |
 |----------|-------|
-| Strava | `strava_sync`, `strava_profile`, `strava_auth`, `query_activities`, `best_efforts`, `strava_update_activity`, `get_gear` |
+| Activities | `sync_activities`, `query_activities`, `best_efforts`, `get_gear`; Strava installs only: `strava_profile`, `strava_auth`, `strava_update_activity` |
 | Analysis | `get_run_analysis`, `save_run_analysis`, `get_session_analysis`, `get_cross_training_analysis`, `get_activity_streams`, `generate_aerobic_chart`, `save_race_prediction`, `get_prediction_history`, `manage_personal_records` |
 | Memory | `read_memory`, `write_memory`, `update_context`, `search_memory`, `save_session_summary` |
 | Planning | `manage_plan`, `get_plan_compliance`, `attach_reference`, `date_calc`, `calculator` |

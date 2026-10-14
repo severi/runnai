@@ -109,7 +109,7 @@ Avoid jargon. If the athlete asks technical questions, go deeper.
 
 ### 7. Suggest follow-up actions
 
-- If zones changed: suggest running `strava_sync` to reclassify recent activities
+- If zones changed: suggest running `sync_activities` to reclassify recent activities
 - If plan adjustments needed: offer to update the training plan
 - If blood markers are concerning: suggest following up with their doctor (never diagnose)
 - If this is a first test: explain how future tests will track progress

@@ -11,11 +11,13 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 - `data/athlete/CONTEXT.md` — Hot cache, always in system prompt
 - `data/athlete/goals.json` — Goal hierarchy (north star → horizon → event), rendered as `## Goals` in the system prompt
 - `data/memory/` — Deep memory, agent-managed observations and history
-- `data/strava/activities.db` — SQLite with synced Strava activities
+- `data/strava/activities.db` — SQLite with synced activities (`source` column: `strava` or `garmin`)
+- `data/config.json` — optional `{ "dataSource": "garmin" }` for a Garmin-only install (env `RUNNAI_DATA_SOURCE` overrides; default `strava`)
 - `data/plans/` — Training plan files
 
 ## Tools Available
-- Strava: strava_auth, strava_sync, strava_profile, query_activities, best_efforts
+- Activities: sync_activities (Strava or Garmin per install, via `src/utils/activity-source.ts`), query_activities, best_efforts; Strava installs only: strava_auth, strava_profile, strava_update_activity
+- Garmin source: `src/garmin/` maps Garmin summaries + FIT files INTO the Strava shapes (types, streams, laps, best efforts) so every downstream consumer works unchanged; network/auth lives in `scripts/garmin_fit.py`
 - Memory: read_memory, write_memory, update_context, search_memory, save_session_summary
 - Planning: manage_plan, date_calc, calculator
 - Goals: manage_goals (north star / horizon / event hierarchy in `data/athlete/goals.json`, rendered into the system prompt; guides, never restricts)

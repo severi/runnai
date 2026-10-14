@@ -69,6 +69,8 @@ export interface StravaActivity {
   kilojoules?: number;
   /** True when watts came from a power meter rather than Strava's estimate. */
   device_watts?: boolean;
+  /** Which data source produced the row. Absent means Strava (the original source). */
+  source?: "strava" | "garmin";
 }
 
 export interface SyncResult {

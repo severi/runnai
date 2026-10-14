@@ -20,6 +20,10 @@ Load it when set-level detail would change your read, and you don't already have
 
 **Do not** load it just because a lift exists in the plan or in compliance output. If the athlete already told you the numbers this turn, or you only need the fact that a session happened, you don't need the file.
 
+## Garmin-only installs — the file is already here
+
+When the system prompt has a "Data Source — Garmin Connect" section, activity ids ARE Garmin ids and every sync has already downloaded the FIT to `data/fit/<activity_id>_ACTIVITY.fit`. Skip the routes and the fetch steps below: go straight to parsing that file (`bun scripts/parse-fit.ts data/fit/<activity_id>_ACTIVITY.fit`). If the file is somehow missing, `.venv-garmin/bin/python scripts/garmin_fit.py fit <activity_id>` downloads it. The routes below apply to Strava installs.
+
 ## The Two Routes — offer both, do not silently pick one
 
 Fetching requires the athlete's Garmin credentials, so it is **not** something you can do unprompted on first use. Always give them the choice:

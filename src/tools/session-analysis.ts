@@ -1,6 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { fetchActivityStream } from "../strava/client.js";
+import { fetchActivityStream } from "../utils/activity-source.js";
 import { getDb, getActivityStreams, saveActivityStreams } from "../utils/activities-db.js";
 import { loadHrZones } from "../utils/hr-zones.js";
 import { HR_SESSION_ANALYSIS_VERSION } from "../utils/hr-session-analysis.js";
@@ -33,7 +33,7 @@ export const getSessionAnalysisTool = tool(
         elapsed_time: number | null; average_heartrate: number | null; max_heartrate: number | null;
         description: string | null;
       } | undefined;
-      if (!activity) return toolResult(`No activity ${activity_id} in the database. Run strava_sync first.`, true);
+      if (!activity) return toolResult(`No activity ${activity_id} in the database. Run sync_activities first.`, true);
       if (activity.type === "Run" || activity.sport_type === "Run") {
         return toolResult(`Activity ${activity_id} is a run. Use get_run_analysis for runs; this tool is for heart-rate-only sessions.`, true);
       }

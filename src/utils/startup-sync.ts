@@ -1,7 +1,8 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getDataDir } from "./paths.js";
-import { syncActivities, fetchActivityDetail, fetchActivityStream, convertStravaBestEfforts } from "../strava/client.js";
+import { isGarminMode } from "./data-source.js";
+import { syncActivities, fetchActivityDetail, fetchActivityStream, convertStravaBestEfforts } from "./activity-source.js";
 import {
   getExistingActivityIds,
   getActivitiesWithoutDetail,
@@ -184,7 +185,7 @@ export async function startupSync(): Promise<StartupContext> {
   const dataDir = getDataDir();
   const today = new Date();
 
-  // 1. Run incremental Strava sync
+  // 1. Run incremental sync from the active data source
   let syncStatus: StartupContext["sync"];
   let newRunDates: Array<{ id: number; date: string }> = [];
   try {
@@ -225,7 +226,7 @@ export async function startupSync(): Promise<StartupContext> {
         // Non-run activities (lifts, basketball, rides, ...): the athlete's
         // description lives only on the detail endpoint, so every new one gets
         // a detail call. Heart-rate-only sessions (basketball, tennis, ...)
-        // also get a stream call and the bout analysis. Mirrors strava_sync.
+        // also get a stream call and the bout analysis. Mirrors sync_activities.
         const newNonRuns = newActivities.filter(a => !newRuns.includes(a));
         const hrSessionsAnalyzed: typeof newActivities = [];
         const crossTrainingAnalyzed: typeof newActivities = [];
@@ -591,7 +592,7 @@ export function formatCompactStatus(ctx: StartupContext, today: Date = new Date(
 
   // Sync status
   if (ctx.sync.status === "error") {
-    sections.push(`✗ ${ctx.sync.message}${ctx.sync.needsAuth ? " — run /strava-auth" : ""}`);
+    sections.push(`✗ ${ctx.sync.message}${ctx.sync.needsAuth && !isGarminMode() ? " — run /strava-auth" : ""}`);
   } else if (ctx.sync.status === "new_activities") {
     sections.push(`↓ ${ctx.sync.message.split("\n")[0]}`);
   } else if (hasActivitiesAwaitingAnalysis(ctx.sync)) {
@@ -731,6 +732,9 @@ ${ctx.sync.message}`;
   const strengthIds = ctx.sync.newStrengthSessionIds ?? [];
   if (strengthIds.length > 0) {
     prompt += `\n\n**Strength session${strengthIds.length === 1 ? "" : "s"} to analyze (id${strengthIds.length === 1 ? "" : "s"}: ${strengthIds.join(", ")})** — not a run and not a heart-rate session. Follow the "Strength Sessions — what you can and cannot see" section in your instructions: give the read from what Strava exposes (duration, HR, the athlete's description) and from the plan, load the **strength-fit-import** skill (Skill tool) if set-level detail would change the read, and close by asking for the data Strava withheld, offering both routes. Do not run the New Run Analysis flow or the heart-rate session flow on these.`;
+    if (isGarminMode()) {
+      prompt += ` This install syncs from Garmin, so each session's FIT is already at \`data/fit/<id>_ACTIVITY.fit\`. Parse it per the strength-fit-import skill and read the actual sets. Ask the athlete only for what the file lacks.`;
+    }
   }
 
   if (hrSessionIds.length > 0) {

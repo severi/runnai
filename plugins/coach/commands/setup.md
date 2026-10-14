@@ -1,6 +1,6 @@
 ---
 name: setup
-description: First-time onboarding - connect Strava, sync data, build athlete profile
+description: First-time onboarding - connect Strava or Garmin, sync data, build athlete profile
 user-invocable: true
 ---
 
@@ -9,8 +9,9 @@ user-invocable: true
 You are running the first-time setup for a new athlete. Complete ALL phases before finishing.
 
 ## Phase 1: Connect & Analyze
-1. Connect Strava using `strava_auth` (skips automatically if already connected)
-2. Fetch profile and sync using `strava_profile` with days=180 (skips sync if data is already up to date)
+1. Connect and sync. Which route depends on the install's data source:
+   - **Strava** (the `strava_auth` tool is available): connect with `strava_auth` (skips automatically if already connected), then fetch profile and sync with `strava_profile` days=180 (skips sync if data is already up to date).
+   - **Garmin** (no `strava_auth` tool; the system prompt has a "Data Source — Garmin Connect" section): call `sync_activities` with incremental=false, days=180. If it reports that Garmin sign-in is needed, relay the exact command for the athlete to run once in their terminal, then sync again.
 3. Call `best_efforts` (distance="all") for key performances. This is your ONLY source for performance data — do NOT derive best times from SQL queries. The tool returns lap data for each effort. Analyze the lap patterns to assess each effort:
    - **Warmup → even splits at high HR → cooldown** = dedicated time trial or race. High confidence this represents true capability.
    - **Fast segment embedded in a much longer run** (e.g., HM split from 31km run) = training effort. The athlete could likely run faster in a dedicated race.

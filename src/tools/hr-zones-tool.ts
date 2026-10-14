@@ -18,7 +18,7 @@ export const setHrZonesTool = tool(
     try {
       const zones: HrZones = { source, lt1, lt2, max_hr, confirmed: true };
       await saveHrZones(zones, { approvedBy: "athlete", notes });
-      return toolResult(`HR zones saved and confirmed:\n- LT1 (aerobic): ${lt1} bpm\n- LT2 (anaerobic): ${lt2} bpm\n- Max HR: ${max_hr} bpm\n- Source: ${source}\n\nRun strava_sync to classify activities with these zones.`);
+      return toolResult(`HR zones saved and confirmed:\n- LT1 (aerobic): ${lt1} bpm\n- LT2 (anaerobic): ${lt2} bpm\n- Max HR: ${max_hr} bpm\n- Source: ${source}\n\nRun sync_activities to classify activities with these zones.`);
     } catch (error) {
       return toolError(error);
     }

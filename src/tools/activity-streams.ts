@@ -1,6 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { fetchActivityStream } from "../strava/client.js";
+import { fetchActivityStream } from "../utils/activity-source.js";
 import { getActivityStreams, saveActivityStreams } from "../utils/activities-db.js";
 import { toolResult, toolError } from "../utils/format.js";
 
