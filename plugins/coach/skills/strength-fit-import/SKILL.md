@@ -84,6 +84,8 @@ bun scripts/parse-fit.ts data/fit/23840025442_ACTIVITY.fit --json   # structured
 
 It prints session totals (reps, tonnage, active vs rest time, HR) and a per-set table with exercise names, reps, weight, per-set HR, and flags for warm-ups and watch-timed rests. `--json` gives the same as a `StrengthSession` object.
 
+**Garmin Connect edits are applied automatically.** The FIT is the watch's original recording, and Garmin never rewrites it. When the athlete corrects a set in Garmin Connect afterwards (front squat logged as back squat, a wrong weight or rep count), the change exists only in Connect. The script fetches Connect's set list (`garmin_fit.py sets <id>`) and lays it over the FIT. Exercise, reps and weight come from Connect. Timing, rests, HR and warm-ups come from the FIT. Edited sets carry an `edited in Connect (watch: …)` note (`watchLogged` in `--json`), and the header says `Garmin Connect edits applied`. If the fetch fails (not signed in, offline), a warning says the edits were **not** applied. Then trust the athlete over the file and say the read is the watch's raw log. A Garmin watch can't change the exercise of a structured-workout step mid-session, so correcting it in Connect afterwards is the normal workflow and not an exception.
+
 The script already handles every trap below; they are recorded so nobody "simplifies" them away:
 
 - **`set.duration` is not time-under-tension.** It is the lap-button interval and includes setup, plate changes and forgetting to press the button — one real set reads 8:10 for 6 reps. The script reports it as duration; never present it as work time.

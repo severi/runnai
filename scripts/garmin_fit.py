@@ -326,6 +326,16 @@ def cmd_fit(args: argparse.Namespace) -> None:
     json.dump({"fit_path": str(fit_file) if fit_file.exists() else None}, sys.stdout)
 
 
+def cmd_sets(args: argparse.Namespace) -> None:
+    """Emit Garmin Connect's set list for one activity as JSON on stdout.
+
+    The FIT is the watch's original recording and Garmin never rewrites it, so
+    any set the athlete corrects in Connect afterwards (exercise, reps, weight)
+    exists only here. Always fetched live: edits can land long after the sync.
+    """
+    json.dump(connect().get_activity_exercise_sets(args.activity_id) or {}, sys.stdout)
+
+
 def cmd_gear(_args: argparse.Namespace) -> None:
     """Emit shoes with Garmin's lifetime distance as JSON on stdout."""
     api = connect()
@@ -381,6 +391,10 @@ def main() -> None:
     p_fit = sub.add_parser("fit", help="Ensure one activity's FIT is downloaded; JSON path.")
     p_fit.add_argument("activity_id", help="Garmin activity id.")
     p_fit.set_defaults(func=cmd_fit)
+
+    p_sets = sub.add_parser("sets", help="JSON strength sets as edited in Garmin Connect.")
+    p_sets.add_argument("activity_id", help="Garmin activity id.")
+    p_sets.set_defaults(func=cmd_sets)
 
     sub.add_parser("gear", help="JSON list of shoes with lifetime distance.").set_defaults(
         func=cmd_gear
