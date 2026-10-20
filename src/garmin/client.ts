@@ -45,8 +45,8 @@ function pythonBin(): string {
   return process.env.GARMIN_PYTHON || path.join(PROJECT_ROOT, ".venv-garmin/bin/python");
 }
 
-function scriptPath(): string {
-  return path.join(PROJECT_ROOT, "scripts/garmin_fit.py");
+function scriptPath(script = "garmin_fit.py"): string {
+  return path.join(PROJECT_ROOT, "scripts", script);
 }
 
 export function getFitPath(activityId: number): string {
@@ -59,8 +59,8 @@ export class GarminBridgeError extends Error {
   }
 }
 
-/** Run one garmin_fit.py command and parse its stdout JSON. */
-export function runBridge<T>(args: string[], timeoutMs = 300_000): Promise<T> {
+/** Run one garmin_fit.py (or sibling script) command and parse its stdout JSON. */
+export function runBridge<T>(args: string[], timeoutMs = 300_000, script = "garmin_fit.py"): Promise<T> {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(pythonBin())) {
       reject(new GarminBridgeError(
@@ -72,7 +72,7 @@ export function runBridge<T>(args: string[], timeoutMs = 300_000): Promise<T> {
     }
     execFile(
       pythonBin(),
-      [scriptPath(), ...args],
+      [scriptPath(script), ...args],
       {
         cwd: PROJECT_ROOT,
         timeout: timeoutMs,
@@ -187,9 +187,36 @@ export function dropCrossSourceDuplicates(activities: StravaActivity[]): StravaA
   return activities.filter(a => findActivityNearStart(a.start_date, DEDUPE_WINDOW_SEC, a.id) === null);
 }
 
+/**
+ * Sessions recorded on a Polar device (basketball) reach the coach by being
+ * uploaded to Garmin Connect first — scripts/polar_sync.py does that, and the
+ * Garmin sync right after picks them up like any other activity. Opt-in:
+ * nothing happens without POLAR_CLIENT_ID. Never fails the Garmin sync.
+ */
+async function pushPolarSessions(): Promise<string | null> {
+  if (!process.env.POLAR_CLIENT_ID) return null;
+  try {
+    const r = await runBridge<{ pushed: Array<{ sport?: string }>; errors: unknown[] }>(
+      ["push"], 300_000, "polar_sync.py",
+    );
+    const parts: string[] = [];
+    if (r.pushed.length) parts.push(`Polar: ${r.pushed.length} session(s) pushed to Garmin.`);
+    if (r.errors.length) parts.push(`Polar: ${r.errors.length} session(s) failed to push.`);
+    // Garmin processes uploads asynchronously; give it a moment before listing.
+    if (r.pushed.length) await new Promise(res => setTimeout(res, 5_000));
+    return parts.join(" ") || null;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return /Polar sign-in (missing|expired)/.test(msg)
+      ? "Polar sign-in needed: run .venv-garmin/bin/python scripts/polar_sync.py login"
+      : `Polar push skipped: ${msg}`;
+  }
+}
+
 export async function syncActivities(days: number = 30, afterDate?: string, incremental?: boolean): Promise<SyncResult> {
   try {
     const since = resolveSince(days, afterDate, incremental, getLatestActivityDate());
+    const polarNote = await pushPolarSessions();
     const result = await runBridge<{ activities: GarminSyncItem[] }>(["sync", "--since", since]);
 
     const mapped = result.activities
@@ -221,7 +248,8 @@ export async function syncActivities(days: number = 30, afterDate?: string, incr
       success: true,
       activities: runs,
       allActivities: activities,
-      summary: `${activities.length} activities from Garmin Connect since ${since} (${runs.length} runs).`,
+      summary: `${activities.length} activities from Garmin Connect since ${since} (${runs.length} runs).` +
+        (polarNote ? ` ${polarNote}` : ""),
     };
   } catch (error) {
     if (error instanceof GarminBridgeError) {

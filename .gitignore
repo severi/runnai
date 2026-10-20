@@ -39,3 +39,6 @@ logs/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Polar AccessLink token (credentials — never commit)
+.polar-tokens/
