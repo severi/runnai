@@ -103,8 +103,11 @@ export function parseRaceCountdowns(
     const name = boldMatch[1].split(/\s*—\s*/)[0].trim();
     if (!name) continue;
 
+    // Multi-day events are written as a range ("Sat–Sun Feb 27–28, 2027");
+    // the optional `–28` counts down to the first day. Without it the race
+    // silently vanished from the startup countdown.
     const dateMatch = line.match(
-      /(?:\b(?:mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)[a-z]*\.?\s+)?\b([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})/i,
+      /(?:\b(?:mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)[a-z]*\.?\s+)?\b([A-Za-z]{3,9})\s+(\d{1,2})(?:\s*[–-]\s*\d{1,2})?,\s*(\d{4})/i,
     );
     if (!dateMatch) continue;
 

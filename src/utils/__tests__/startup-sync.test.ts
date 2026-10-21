@@ -420,6 +420,18 @@ describe("parseRaceCountdowns — bold-wrapped date + weekday prefix", () => {
     expect(rotterdam!.daysAway).toBe(18);
   });
 
+  test("a multi-day race with a day range counts down to its first day", () => {
+    const ctx = `## Target Races
+- **Lakeside 24h — Sat–Sun Feb 27–28, 2027 — ✅ ENTERED.** Indoor track.
+- **Ridge Relay — Jun 5-6, 2027 — entered**
+`;
+    const out = parseRaceCountdowns(ctx, new Date(2026, 9, 21));
+    expect(out.map(r => [r.name, r.date])).toEqual([
+      ["Lakeside 24h", "2027-02-27"],
+      ["Ridge Relay", "2027-06-05"],
+    ]);
+  });
+
   test("past races are still excluded, and the section boundary still holds", () => {
     const out = parseRaceCountdowns(CTX, new Date(2026, 7, 3));
     expect(out.some(r => r.name === "Rotterdam Marathon")).toBe(false);
