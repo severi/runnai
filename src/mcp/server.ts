@@ -25,6 +25,7 @@ import {
   saveRacePredictionTool,
   getPredictionHistoryTool,
   generateAerobicChartTool,
+  tagActivityTool,
   managePersonalRecordsTool,
   setHrZonesTool,
   getHrZonesTool,
@@ -82,6 +83,7 @@ export const coachMcpServer = createSdkMcpServer({
     saveRacePredictionTool,
     getPredictionHistoryTool,
     generateAerobicChartTool,
+  tagActivityTool,
     managePersonalRecordsTool,
     // HR zones
     setHrZonesTool,

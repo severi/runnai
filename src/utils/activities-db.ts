@@ -139,6 +139,11 @@ function runMigrations(db: Database): void {
   // Which source produced the row (2026-10-13): Strava history stays 'strava';
   // a Garmin-only install adds 'garmin' rows keyed by Garmin activity id.
   addColumn("activities", "source", "TEXT NOT NULL DEFAULT 'strava'");
+  // Free-form condition tags as a JSON array (2026-10-25): "stroller",
+  // "weighted-vest", "sled", "sick", "trail-race" ... Anything that makes a run
+  // non-comparable to the athlete's normal easy running. The aerobic-trend
+  // cohort excludes LOAD_TAGS; the coach sets them via tag_activity.
+  addColumn("activities", "tags", "TEXT");
 
   // Index references the migrated `detail_fetched` column, so it must come AFTER addColumn.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_run_sync ON activities(type, trainer, detail_fetched, start_date_local);`);
@@ -753,6 +758,62 @@ export function getActivityLapsBatch(activityIds: number[]): Map<number, Activit
     laps.push(row);
   }
   return map;
+}
+
+// --- Activity tags ---
+
+/** Tags that mean "pushed or carried load": the run is not comparable to normal easy running. */
+export const LOAD_TAGS = ["stroller", "weighted-vest", "sled", "pack"] as const;
+
+export function normalizeTag(tag: string): string {
+  return tag.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+export function getActivityTags(activityId: number): string[] {
+  const row = getDb().prepare("SELECT tags FROM activities WHERE id = ?").get(activityId) as { tags: string | null } | undefined;
+  return parseTags(row?.tags);
+}
+
+export function parseTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Replace the tag set. Empty array clears the column. */
+export function setActivityTags(activityId: number, tags: string[]): string[] {
+  const clean = Array.from(new Set(tags.map(normalizeTag).filter(Boolean))).sort();
+  getDb().prepare("UPDATE activities SET tags = ? WHERE id = ?")
+    .run(clean.length ? JSON.stringify(clean) : null, activityId);
+  return clean;
+}
+
+/** Add/remove tags without touching the rest. Returns the resulting set. */
+export function updateActivityTags(activityId: number, add: string[] = [], remove: string[] = []): string[] {
+  const removeSet = new Set(remove.map(normalizeTag));
+  const next = getActivityTags(activityId).concat(add.map(normalizeTag)).filter(t => !removeSet.has(t));
+  return setActivityTags(activityId, next);
+}
+
+/**
+ * Infer tags from the activity's own title/description. Only adds, never
+ * removes, so a coach-set tag survives a re-sync. Returns the tags added.
+ */
+export function autoTagActivity(activityId: number, name: string | null | undefined, description: string | null | undefined): string[] {
+  const text = `${name ?? ""} ${description ?? ""}`.toLowerCase();
+  const inferred: string[] = [];
+  // The athlete titles stroller runs with 🛒 ("Easy Run 🛒👧"); the words cover everyone else.
+  if (/🛒|stroller|rattaat|rattailla|rattaiden|rattais|pram|buggy|chariot/.test(text)) inferred.push("stroller");
+  if (/weighted vest|weight vest|painoliivi/.test(text)) inferred.push("weighted-vest");
+  if (inferred.length === 0) return [];
+  const before = new Set(getActivityTags(activityId));
+  const added = inferred.filter(t => !before.has(t));
+  if (added.length) updateActivityTags(activityId, added);
+  return added;
 }
 
 // --- Run classification ---

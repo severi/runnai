@@ -1,6 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { getDb, getStreamAnalysis, getActivityWeather } from "../utils/activities-db.js";
+import { getDb, getStreamAnalysis, getActivityWeather, getActivityTags } from "../utils/activities-db.js";
 import { isRide } from "../utils/hr-session.js";
 import {
   getActivityAnalysis,
@@ -328,6 +328,10 @@ export const getRunAnalysisTool = tool(
         // treat it as a claim to verify. Null when they wrote nothing, or when
         // the live description is the coach's own earlier push.
         athlete_notes: athleteNotes,
+        // Condition tags ("stroller", "weighted-vest", ...). Set via tag_activity
+        // when the athlete says the run was pushed/carried load; the aerobic
+        // trend cohort excludes them. Empty = none recorded.
+        tags: getActivityTags(activity_id),
         detailed_analysis: record.detailed_analysis,
         strava_title: record.strava_title,
         strava_description: record.strava_description,

@@ -22,6 +22,9 @@ AI running coach with progressive learning. Uses a 3-tier memory system (hot cac
 - Planning: manage_plan, date_calc, calculator
 - Goals: manage_goals (north star / horizon / event hierarchy in `data/athlete/goals.json`, rendered into the system prompt; guides, never restricts)
 - Analysis: save_race_prediction, get_prediction_history
+- Trend: generate_aerobic_chart (long-horizon "have I progressed" read — one cohort, one metric (NGP-based efficiency factor), trailing 90-day medians, temperature-coloured 3-panel chart, opt-in `heat_adjusted` literature prior above 10°C, nothing for cold; `fitness-trend` skill); get_fitness_drift is the 60-day zone check only
+- Tags: tag_activity (condition tags on `activities.tags`, JSON array; load tags `stroller`/`weighted-vest`/`sled`/`pack` are excluded from the trend cohort; auto-tagged from title/description at sync)
+- Stream analysis backfill: `bun scripts/backfill-stream-analysis.ts` computes `activity_stream_analysis` for every run with streams (startup does 40 per launch); without it, older runs have no efficiency factor
 - Sessions: get_session_analysis (heart-rate-only sessions — basketball, tennis, padel; bouts, floors, drift, same-sport history; `save_run_analysis` routes `detailed_analysis` to the session record)
 - Strength: no analysis tool (Strava exposes no sets); `save_run_analysis(detailed_analysis)` routes to `activity_strength_analysis` so the read survives the mandatory follow-up question; startup re-surfaces any non-run session from the last 7 days without a saved read
 - Cross-training: get_cross_training_analysis (rides with or without power, walks, hikes, ski, swims; HR load, normalized power, peaks, FTP ballpark, decoupling, same-sport history; `save_run_analysis` routes `detailed_analysis` to the cross-training record)

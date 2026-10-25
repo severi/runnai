@@ -17,6 +17,7 @@ export { manageGoalsTool } from "./goals.js";
 export { researchTool, saveResearchTool } from "./research.js";
 export { saveRacePredictionTool, getPredictionHistoryTool } from "./analysis.js";
 export { generateAerobicChartTool } from "./aerobic-chart.js";
+export { tagActivityTool } from "./tag-activity.js";
 export { managePersonalRecordsTool } from "./personal-records.js";
 
 // HR zones

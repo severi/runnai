@@ -12,7 +12,7 @@ Training plans go stale because pace zones reflect a snapshot in time (a lab tes
 Load this skill when:
 - The startup context reports `fitness drift detected (high confidence)` — you MUST address it
 - The athlete pushes back on a prescribed pace ("that feels too slow", "feels easy at faster")
-- The athlete asks "is my fitness improving?" or "are my zones still right?"
+- The athlete asks "are my zones still right?" or "is my fitness improving?" over the last couple of months. For anything longer — "have I progressed this year", "trend over 1.5 years", "vs the lab test in January" — use the **fitness-trend** skill and `generate_aerobic_chart`; the drift signal only looks back 60 days.
 - A new lactate test is shared (use test-report-analysis skill primarily, then this for the persistence step)
 - You catch yourself flagging an "easy run too fast" that had stable Z2 HR — the zones are likely stale
 
