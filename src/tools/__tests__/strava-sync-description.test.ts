@@ -124,4 +124,22 @@ describe("sync_activities descriptions", () => {
     expect(getCrossTrainingAnalysis(RIDE.id)?.result.power?.normalized_watts).toBe(200);
     expect(result.content[0].text).toContain("get_cross_training_analysis");
   });
+
+  test("a new treadmill run is reported as a run, not under other activities", async () => {
+    const TREADMILL = {
+      ...LIFT, id: 90000000004, name: "Treadmill Running", type: "Run", sport_type: "Run",
+      start_date: "2026-09-14T17:00:00Z", start_date_local: "2026-09-14T20:00:00Z",
+      distance: 10000, moving_time: 3300, elapsed_time: 3300, average_heartrate: 139, max_heartrate: 150, trainer: true,
+    };
+    stubStrava([LIFT], "");
+    await call(syncActivitiesTool, { incremental: false, days: 3 });
+    stubStrava([TREADMILL, LIFT], "");
+
+    const text: string = (await call(syncActivitiesTool, {})).content[0].text;
+
+    expect(text).toContain("(1 run, 10km)");
+    expect(text).toContain("New runs since last sync:");
+    expect(text).toContain("[treadmill: trainer=1]");
+    expect(text).not.toContain("Other new activities");
+  });
 });

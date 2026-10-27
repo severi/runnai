@@ -122,6 +122,10 @@ export const syncActivitiesTool = tool(
       const newRuns = newActivities.filter((a) => (a.type === "Run" || a.sport_type === "Run") && !a.trainer);
       const newNonRuns = newActivities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));
       const allRuns = activities.filter((a) => a.type === "Run" || a.sport_type === "Run");
+      // Treadmill runs ride the non-run detail path (no streams or best efforts:
+      // belt pace is not comparable), but the report still counts them as runs.
+      const newTreadmillRuns = newNonRuns.filter((a) => a.type === "Run" || a.sport_type === "Run");
+      const newOther = newNonRuns.filter((a) => !newTreadmillRuns.includes(a));
 
       // Fetch best efforts + laps + streams (Strava detail API / Garmin FIT) for new runs
       let detailFetched = 0;
@@ -286,9 +290,10 @@ export const syncActivitiesTool = tool(
         if (newActivities.length === 0) {
           text = `INCREMENTAL SYNC — Already up to date. No new activities since last sync.`;
         } else {
-          const newRunDistance = Math.round(newRuns.reduce((sum, r) => sum + r.distance, 0) / 100) / 10;
-          text = `INCREMENTAL SYNC — ${newActivities.length} new activit${newActivities.length === 1 ? "y" : "ies"} found (${newRuns.length} run${newRuns.length !== 1 ? "s" : ""}, ${newRunDistance}km${newNonRuns.length > 0 ? `, ${newNonRuns.length} other` : ""}).`;
-          if (newRuns.length > 0) {
+          const runCount = newRuns.length + newTreadmillRuns.length;
+          const newRunDistance = Math.round([...newRuns, ...newTreadmillRuns].reduce((sum, r) => sum + r.distance, 0) / 100) / 10;
+          text = `INCREMENTAL SYNC — ${newActivities.length} new activit${newActivities.length === 1 ? "y" : "ies"} found (${runCount} run${runCount !== 1 ? "s" : ""}, ${newRunDistance}km${newOther.length > 0 ? `, ${newOther.length} other` : ""}).`;
+          if (runCount > 0) {
             text += `\n\nNew runs since last sync:`;
             for (const run of newRuns) {
               const date = toDateString(new Date(run.start_date_local));
@@ -298,10 +303,16 @@ export const syncActivitiesTool = tool(
               const tag = cls ? (cls.run_type_detail ? ` [${cls.run_type}: ${cls.run_type_detail}]` : ` [${cls.run_type}]`) : "";
               text += `\n- ${date}: "${run.name}" (id: ${run.id}) — ${distKm}km @ ${formatPace(paceSecPerKm)}${tag}`;
             }
+            for (const run of newTreadmillRuns) {
+              const date = toDateString(new Date(run.start_date_local));
+              const distKm = Math.round(run.distance / 100) / 10;
+              const paceSecPerKm = run.distance > 0 ? (run.moving_time / run.distance) * 1000 : 0;
+              text += `\n- ${date}: "${run.name}" (id: ${run.id}) — ${distKm}km @ ${formatPace(paceSecPerKm)} [treadmill: trainer=1]`;
+            }
           }
-          if (newNonRuns.length > 0) {
+          if (newOther.length > 0) {
             text += `\n\nOther new activities:`;
-            for (const act of newNonRuns) {
+            for (const act of newOther) {
               const date = toDateString(new Date(act.start_date_local));
               const distKm = act.distance > 0 ? `${Math.round(act.distance / 100) / 10}km` : "";
               const durationMin = Math.round(act.moving_time / 60);
@@ -311,8 +322,7 @@ export const syncActivitiesTool = tool(
           }
         }
       } else {
-        const nonRuns = activities.filter((a) => !((a.type === "Run" || a.sport_type === "Run") && !a.trainer));
-        text = `FULL SYNC — ${activities.length} activities (${allRuns.length} runs, ${nonRuns.length} other) from the last ${days} days.`;
+        text = `FULL SYNC — ${activities.length} activities (${allRuns.length} runs, ${activities.length - allRuns.length} other) from the last ${days} days.`;
       }
 
       const mostRecentRun = allRuns.sort(
@@ -468,7 +478,7 @@ export const queryActivitiesTool = tool(
   `Runs a SQL SELECT query against the activities database.
 
 SCHEMA:
-activities: id, name, type, sport_type, start_date, start_date_local, distance (meters), moving_time (seconds), elapsed_time, total_elevation_gain, average_speed (m/s), max_speed, average_heartrate, max_heartrate, suffer_score, average_cadence, workout_type, description, trainer, run_type, run_type_detail, average_watts, weighted_average_watts, max_watts, kilojoules, device_watts (1 = power meter, 0 = Strava estimate, NULL = no power; rides only)
+activities: id, name, type, sport_type, start_date, start_date_local, distance (meters), moving_time (seconds), elapsed_time, total_elevation_gain, average_speed (m/s), max_speed, average_heartrate, max_heartrate, suffer_score, average_cadence, workout_type, description, trainer (1 = treadmill/indoor; find treadmill runs with type='Run' AND trainer=1, not by name or tags; most analyses filter trainer=0), run_type, run_type_detail, average_watts, weighted_average_watts, max_watts, kilojoules, device_watts (1 = power meter, 0 = Strava estimate, NULL = no power; rides only)
 activity_laps: activity_id, lap_index, distance (m), elapsed_time, moving_time, average_speed, max_speed, average_heartrate, max_heartrate, elevation_gain, elevation_loss
 activity_analysis: activity_id, run_type, run_type_detail, hill_category, distance_m, moving_time_s, pace_sec_per_km, grade_adjusted_pace_sec_per_km, avg_heartrate, lap_summaries, prose_summary, detailed_analysis, strava_title, strava_description
 activity_stream_analysis: activity_id, hr_zone1_s..hr_zone5_s, cardiac_drift_pct, pace_variability_cv, split_type, trimp, ngp_sec_per_km, fatigue_index_pct, cadence_drift_spm, efficiency_factor, phases (JSON), intervals (JSON)
