@@ -8,6 +8,7 @@ import { getDataDir, PROJECT_ROOT } from "../utils/paths.js";
 import { getCurrentSessionId, setSessionId, loadPersistedSessionId } from "../utils/session.js";
 import { appendChatMessage, loadChatHistory, resetChatHistory } from "../utils/chat-history.js";
 import { detectAndReadFiles, buildContentBlocks, type FileAttachment } from "../utils/file-attachments.js";
+import { archiveDocument } from "../utils/document-archive.js";
 import { startupSync, formatNewRunsPrompt, formatCompactStatus, formatStartupGreeting, hasActivitiesAwaitingAnalysis } from "../utils/startup-sync.js";
 import { logEvent } from "../utils/logger.js";
 import { commands, getCommandByName, type CommandContext, type Message } from "./commands.js";
@@ -576,11 +577,25 @@ export default function App({ resume = false }: { resume?: boolean }) {
       const { cleanText, attachments } = await detectAndReadFiles(value);
 
       addMessage("user", value);
+      let prompt = cleanText;
       if (attachments.length > 0) {
-        addMessage("status", `Attached ${attachments.length} file(s)`);
+        // Keep the primary source in data/ so it survives Downloads cleanup;
+        // tell the agent where it lives so memory notes can cite it.
+        const archived: string[] = [];
+        for (const a of attachments) {
+          try {
+            archived.push(`data/${await archiveDocument(a.path)} (from ${a.path})`);
+          } catch {
+            // Archiving is best-effort — the attachment still reaches the model
+          }
+        }
+        addMessage("status", `Attached ${attachments.length} file(s)${archived.length ? ` · archived to data/documents/` : ""}`);
+        if (archived.length) {
+          prompt += `\n\n[Attached files archived at: ${archived.join("; ")} — cite this path as the source in any memory you write from them.]`;
+        }
       }
 
-      await streamResponse(cleanText, attachments.length > 0 ? attachments : undefined);
+      await streamResponse(prompt, attachments.length > 0 ? attachments : undefined);
     }
   }, [
     isProcessing,

@@ -82,6 +82,7 @@ Use `write_memory` to save detailed results to `test-results.md`. Structure as:
 ```
 ## [Test Type] — [Date]
 Facility: [if known]
+Source: data/documents/[file] (original: [path the athlete gave])
 
 ### Results
 [All extracted values in a readable table or list]
@@ -119,4 +120,5 @@ Avoid jargon. If the athlete asks technical questions, go deeper.
 - **Never diagnose medical conditions.** Flag concerning values and recommend professional follow-up.
 - **Check memory first.** Look for previous test results to provide trend analysis.
 - **Date everything.** Tests are only meaningful with temporal context.
+- **Keep the original file.** Files the athlete attaches by path are copied automatically to `data/documents/` (listed in `data/documents/INDEX.md`), and the turn says where. Put that path on the `Source:` line. If they describe a report without attaching it, ask for its path so it gets archived. Don't rely on Downloads still having it later.
 - **Preserve raw data.** Write the full extraction to memory even if only some values are immediately useful — future sessions may need the details.
