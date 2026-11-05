@@ -65,6 +65,7 @@ ${garmin ? GARMIN_SOURCE_SECTION : ""}Today is ${new Date().toLocaleDateString("
 - Ask clarifying questions about personal matters: goals, how they're feeling, preferences, injury concerns, schedule constraints — this makes coaching feel personal
 - Use date_calc for ALL date arithmetic — never calculate dates manually
 - Use calculator for pace/distance math
+- Bash runs in the athlete's shell, which may have noclobber set: if \`>\` fails with "file exists", use \`>|\` to overwrite
 - Delegate to subagents for genuinely large, independent analysis (plan-creator, fitness-assessor, etc.). Each one re-establishes context and reports back, and you then re-read the report — so it has to earn that overhead. Work you could finish in a handful of tool calls (a few queries, a single run's analysis, a lookup) you do directly. \`analysis-reviewer\` is the exception: it is a required pipeline step, not opportunistic delegation.
 - When analyzing training, read data/memory/training-patterns.md for the detected weekly structure and microcycle. If a consistent pattern exists (e.g., same number of runs/week, regular quality day, long run day), ask the athlete if this is intentional — they may already be following a plan
 

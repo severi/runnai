@@ -486,11 +486,14 @@ best_efforts: activity_id, name, distance, elapsed_time, moving_time, start_date
 
 SEARCH TIPS: To find specific workouts, search MULTIPLE text fields — activity names are often generic (e.g. "Lunch Run"), so also search activity_analysis.strava_title (AI-generated descriptive name) and activity_analysis.detailed_analysis (full prose). Example: WHERE a.name LIKE '%tempo%' OR aa.strava_title LIKE '%tempo%' OR aa.detailed_analysis LIKE '%tempo%'. run_type values: easy, tempo, threshold, interval, long_run, race, recovery, fartlek, hill_repeat. Note: long runs with workout segments (e.g. MP pace blocks) are classified as long_run — search detailed_analysis for specifics.`,
   {
-    query: z.string().describe("SQL SELECT query against the schema above"),
+    query: z.string().optional().describe("SQL SELECT query against the schema above"),
+    sql: z.string().optional().describe("Alias for query"),
   },
-  async ({ query }) => {
+  async ({ query, sql }) => {
     try {
-      const results = queryActivities(query);
+      const q = query ?? sql;
+      if (!q) return toolResult("Error: pass the SQL in `query`.", true);
+      const results = queryActivities(q);
       return toolResult(JSON.stringify(results, null, 2));
     } catch (error) {
       return toolError(error);

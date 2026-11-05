@@ -20,13 +20,66 @@ function isPathSafe(filePath: string): boolean {
   return resolved.startsWith(getMemoryDir());
 }
 
+/**
+ * Largest read_memory result returned whole. The CLI caps MCP tool results
+ * (MAX_MCP_OUTPUT_TOKENS); past the cap the result is spilled to a file and
+ * the agent has to grep it back in. Long dated logs (strength, injuries)
+ * blow through that, so above this budget the tool returns the TAIL of the
+ * file plus a heading index, which is what a log read nearly always wants.
+ */
+export const READ_MEMORY_CHAR_BUDGET = 40_000;
+
+/** Line numbers (1-based) of every `## ` / `### ` heading, for jumping with offset. */
+export function headingIndex(lines: string[]): string {
+  const out: string[] = [];
+  lines.forEach((line, i) => {
+    if (/^#{1,3} /.test(line)) out.push(`${i + 1}: ${line.trim()}`);
+  });
+  return out.join("\n");
+}
+
+export function sliceMemory(
+  content: string,
+  file: string,
+  opts: { offset?: number; limit?: number },
+): string {
+  const lines = content.split("\n");
+  const total = lines.length;
+
+  if (opts.offset !== undefined || opts.limit !== undefined) {
+    const start = Math.max(1, opts.offset ?? 1);
+    const end = opts.limit !== undefined ? Math.min(total, start + opts.limit - 1) : total;
+    const slice = lines.slice(start - 1, end).join("\n");
+    return `[${file}: lines ${start}-${end} of ${total}]\n${slice}`;
+  }
+
+  if (content.length <= READ_MEMORY_CHAR_BUDGET) return content;
+
+  // Whole-line tail that fits the budget.
+  let chars = 0;
+  let start = total;
+  while (start > 1 && chars + lines[start - 2].length + 1 <= READ_MEMORY_CHAR_BUDGET) {
+    start -= 1;
+    chars += lines[start - 1].length + 1;
+  }
+  const tail = lines.slice(start - 1).join("\n");
+  const index = headingIndex(lines.slice(0, start - 1));
+  return [
+    `[${file} is ${total} lines / ${content.length} chars — too large to return whole. Showing lines ${start}-${total} (the most recent part). Use offset/limit to read earlier sections.]`,
+    index ? `\nEarlier headings (line: heading):\n${index}\n` : "",
+    tail,
+  ].join("\n");
+}
+
 export const readMemoryTool = tool(
   "read_memory",
-  "Read a file from the deep memory directory (data/memory/). Use this to recall observations, training history, injury logs, or session summaries.",
+  "Read a file from the deep memory directory (data/memory/). Use this to recall observations, training history, injury logs, or session summaries. Large files (long dated logs) return the most recent part plus a heading index; pass offset/limit to read a specific range.",
   {
     file: z.string().describe("File path relative to data/memory/ (e.g., 'observations.md', 'race-predictions/marathon.md')"),
+    offset: z.number().int().positive().optional().describe("1-based line to start from (use with the heading index a large read returns)"),
+    limit: z.number().int().positive().optional().describe("Max lines to return from offset"),
   },
-  async ({ file }) => {
+  async ({ file, offset, limit }) => {
     try {
       if (!isPathSafe(file)) {
         return toolResult("Error: Path traversal not allowed.", true);
@@ -34,43 +87,66 @@ export const readMemoryTool = tool(
 
       const filePath = path.join(getMemoryDir(), file);
       const content = await fs.readFile(filePath, "utf-8");
-      return toolResult(content);
+      return toolResult(sliceMemory(content, file, { offset, limit }));
     } catch {
       return toolResult(`Memory file '${file}' not found or empty.`);
     }
   }
 );
 
+/**
+ * Refuse a non-append write that would throw away most of an existing file.
+ * Nov 2026: a call sent `mode: "append"` (not in the schema) was stripped by
+ * zod, ran as a full overwrite, reported success, and cut the strength log
+ * from 993 lines to 13. Returns the error text, or null when the write is fine.
+ */
+export const SHRINK_GUARD_MIN_LINES = 20;
+export function shrinkGuardError(existing: string, content: string, file: string): string | null {
+  const before = existing.split("\n").length;
+  const after = content.split("\n").length;
+  if (before < SHRINK_GUARD_MIN_LINES || after * 2 >= before) return null;
+  return `Error: refusing to overwrite ${file} — it has ${before} lines and the new content has ${after}, so this would erase most of the file. Pass append: true to add to the end, or overwrite: true if you really mean to replace the whole file.`;
+}
+
 export const writeMemoryTool = tool(
   "write_memory",
-  "Write or append to a memory file in data/memory/. Use this to record observations, update training history, or log injuries.",
+  "Write or append to a memory file in data/memory/. Use this to record observations, update training history, or log injuries. Dated logs: ALWAYS pass append: true — without it the file is REPLACED. A replace that would shrink an existing file by more than half is refused unless overwrite: true.",
   {
     file: z.string().describe("File path relative to data/memory/"),
     content: z.string().describe("Content to write"),
-    append: z.boolean().optional().describe("If true, append to existing file. Default: false (overwrite)"),
+    append: z.boolean().optional().describe("true = append to the existing file (what dated logs want). Default: false (replace the whole file)"),
+    mode: z.enum(["append", "overwrite"]).optional().describe("Alias for append: 'append' is append: true, 'overwrite' is append: false"),
+    overwrite: z.boolean().optional().describe("Confirm a full replace that shrinks an existing file by more than half"),
   },
-  async ({ file, content, append = false }) => {
+  async ({ file, content, append, mode, overwrite = false }) => {
     try {
       if (!isPathSafe(file)) {
         return toolResult("Error: Path traversal not allowed.", true);
       }
+      const doAppend = append ?? (mode === "append");
 
       const filePath = path.join(getMemoryDir(), file);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
 
-      if (append) {
-        let existing = "";
-        try {
-          existing = await fs.readFile(filePath, "utf-8");
-        } catch {
-          // File doesn't exist yet
-        }
-        await fs.writeFile(filePath, existing + "\n" + content);
-      } else {
-        await fs.writeFile(filePath, content);
+      let existing: string | null = null;
+      try {
+        existing = await fs.readFile(filePath, "utf-8");
+      } catch {
+        // File doesn't exist yet
       }
 
-      return toolResult(await withDiffNote(`Updated memory file: ${file}`));
+      if (doAppend) {
+        await fs.writeFile(filePath, (existing ?? "") + "\n" + content);
+        return toolResult(await withDiffNote(`Appended to memory file: ${file}`));
+      }
+
+      if (existing !== null && !overwrite) {
+        const err = shrinkGuardError(existing, content, file);
+        if (err) return toolResult(err, true);
+      }
+      await fs.writeFile(filePath, content);
+      const what = existing === null ? "Created" : "Replaced";
+      return toolResult(await withDiffNote(`${what} memory file: ${file}`));
     } catch (error) {
       return toolError(error);
     }

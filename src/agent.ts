@@ -464,6 +464,13 @@ export async function createAgentOptions(canUseTool?: CanUseTool, replyLint?: Re
     plugins: [{ type: "local", path: path.join(PROJECT_ROOT, "plugins/coach") }],
     agents,
     maxTurns: 50,
+    // The CLI spills any MCP tool result over MAX_MCP_OUTPUT_TOKENS (default
+    // 25k) to a file the agent then has to grep back in. Long memory logs,
+    // run analyses, streams and plans hit that regularly; lift the cap.
+    env: {
+      ...process.env,
+      MAX_MCP_OUTPUT_TOKENS: process.env.MAX_MCP_OUTPUT_TOKENS ?? "60000",
+    },
     includePartialMessages: true,
     agentProgressSummaries: true,
     mcpServers: {
